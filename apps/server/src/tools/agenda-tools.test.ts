@@ -156,3 +156,58 @@ describe("calendar", () => {
     expect(db.prepare("SELECT count(*) AS n FROM calendar_events").get()).toEqual({ n: 0 });
   });
 });
+
+describe("agreements", () => {
+  function withPeople() {
+    const env = setup();
+    const contacts = new ContactStore(env.db);
+    return { ...env, nico: contacts.create({ displayName: "Nicolás Ruiz" }), sofi: contacts.create({ displayName: "Sofía Paz" }) };
+  }
+
+  it("never confirms a proposal implicitly and audits every transition", async () => {
+    const { run, nico, db } = withPeople();
+    const [proposal] = items(
+      await run("agreements_propose", {
+        title: "Jugar al pádel",
+        when: "2026-10-30T20:00:00-03:00",
+        counterpartContactIds: [nico.id],
+        sourceType: "whatsapp",
+        sourceRef: "chat-fixture-1",
+      }),
+    );
+    expect(proposal).toMatchObject({ status: "proposed", when: "2026-10-30T20:00:00-03:00", parties: [{ contactId: nico.id, displayName: "Nicolás Ruiz" }] });
+    expect(items(await run("agreements_list", { status: "confirmed" }))).toEqual([]);
+
+    const [confirmed] = items(await run("agreements_confirm", { agreementId: proposal?.id, when: "2026-10-30T21:00:00-03:00" }));
+    expect(confirmed).toMatchObject({ status: "confirmed", when: "2026-10-30T21:00:00-03:00" });
+    expect(await run("agreements_confirm", { agreementId: proposal?.id }, "turn-2")).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+
+    expect(items(await run("agreements_cancel", { agreementId: proposal?.id, reason: "llueve" }))[0]).toMatchObject({ status: "cancelled" });
+    expect(await run("agreements_confirm", { agreementId: proposal?.id }, "turn-3")).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    const actions = db.prepare("SELECT action FROM agreement_events WHERE agreement_id = ? ORDER BY at, rowid").all(proposal?.id);
+    expect(actions).toEqual([{ action: "proposed" }, { action: "confirmed" }, { action: "cancelled" }]);
+  });
+
+  it("requires owner confirmation to confirm after reading untrusted content", async () => {
+    const { run, ctx } = withPeople();
+    const [proposal] = items(await run("agreements_propose", { title: "Cena", sourceType: "conversation" }));
+    ctx.security.tainted = true;
+    expect(await run("agreements_confirm", { agreementId: proposal?.id }, "turn-2")).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
+    ctx.security.tainted = false;
+    expect(items(await run("agreements_list", {}))[0]).toMatchObject({ status: "proposed" });
+  });
+
+  it("rejects unknown parties and filters by contact and date", async () => {
+    const { run, nico, sofi } = withPeople();
+    expect(await run("agreements_propose", { title: "x", counterpartContactIds: ["ghost"], sourceType: "conversation" })).toMatchObject({
+      ok: false,
+      error: { code: "not_found" },
+    });
+    await run("agreements_propose", { title: "Asado", when: "2026-11-07T13:00:00-03:00", counterpartContactIds: [nico.id], sourceType: "conversation" });
+    await run("agreements_propose", { title: "Cine", when: "2026-11-20T21:00:00-03:00", counterpartContactIds: [sofi.id], sourceType: "gmail" });
+    expect(items(await run("agreements_list", { contactId: sofi.id })).map((a) => a.title)).toEqual(["Cine"]);
+    expect(
+      items(await run("agreements_list", { from: "2026-11-01T00:00:00-03:00", to: "2026-11-10T00:00:00-03:00" })).map((a) => a.title),
+    ).toEqual(["Asado"]);
+  });
+});
