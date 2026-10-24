@@ -1,7 +1,7 @@
-import { readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { build } from "esbuild";
 
-const entryPoints = ["src/main.ts", ...readdirSync("src").filter((f) => f === "worker.ts").map((f) => `src/${f}`)];
+const entryPoints = ["src/main.ts", "src/worker.ts", "src/whatsapp-bridge.ts"].filter((entry) => existsSync(entry));
 
 const externalizeDependencies = {
   name: "externalize-dependencies",
