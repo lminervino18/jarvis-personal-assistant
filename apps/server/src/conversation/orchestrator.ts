@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode } from "@jarvis/contracts";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
 import { decidePendingAction } from "../tools/runner.js";
@@ -56,7 +57,10 @@ interface TurnOutcome {
   firstTextAt?: number;
 }
 
-const FAREWELL = /\b(gracias,?\s+jarvis|terminamos|eso es todo|nada m[aá]s,?\s+gracias)\b/i;
+const SUMMARY_PROMPT =
+  "Resumí esta conversación para continuarla en una sesión nueva: temas, decisiones, acuerdos (indicando si están propuestos o confirmados), pendientes y lo que el dueño pidió recordar. Indicá de dónde salió cada dato (dicho por el dueño, correo, WhatsApp, web). Máximo 12 líneas, sin agregar nada que no esté en la conversación.";
+
+const FAREWELL =/\b(gracias,?\s+jarvis|terminamos|eso es todo|nada m[aá]s,?\s+gracias)\b/i;
 
 const runtimeErrorToProtocol: Record<RuntimeErrorCode, ErrorCode> = {
   cancelled: "internal",
@@ -162,14 +166,58 @@ export class ConversationOrchestrator {
     return this.deps.now?.() ?? new Date();
   }
 
+  /**
+   * Before rotating a long session, asks Claude for a sourced summary of it so the next
+   * session keeps decisions and pending items. Failure only means a thinner seed.
+   */
+  private async summarizeSession(conversationId: string, sessionId: string, signal: AbortSignal): Promise<void> {
+    const turnId = randomUUID();
+    const security: TurnSecurityState = { tainted: false, taintSources: new Set() };
+    this.deps.toolRegistry.register(turnId, { server: createTurnToolServer(this.noToolContext(conversationId, turnId, security), []), allowedTools: [], security });
+    let summary = "";
+    try {
+      for await (const event of this.deps.runtime.runTurn({
+        conversationId,
+        turnId,
+        text: SUMMARY_PROMPT,
+        replyMode: "text",
+        resumeSessionId: sessionId,
+        signal,
+      })) {
+        if (event.type === "text_delta") summary += event.text;
+        if (event.type === "error") summary = "";
+      }
+    } finally {
+      this.deps.toolRegistry.release(turnId);
+    }
+    if (summary.trim()) this.deps.store.setSummary(conversationId, summary.trim().slice(0, 4000));
+    this.deps.store.setSession(conversationId, null, 0);
+  }
+
+  private noToolContext(conversationId: string, turnId: string, security: TurnSecurityState): ToolContext {
+    return {
+      services: this.deps.services,
+      conversationId,
+      turnId,
+      now: () => this.now(),
+      security,
+      emitCard: () => {},
+      emitPlayerCommand: () => {},
+    };
+  }
+
   private async executeTurn(input: StartTurnInput, active: ActiveTurn): Promise<void> {
     const { store, hub, sessionMaxTurns, ownerName } = this.deps;
     const { conversationId, turnId } = input;
     const emit = (message: OutgoingServerMessage) => hub.emit(conversationId, message);
     const signal = active.controller.signal;
 
-    const conversation = store.get(conversationId);
+    let conversation = store.get(conversationId);
     if (!conversation) throw new Error("conversation not found");
+    if (conversation.claude_session_id && conversation.session_turns >= sessionMaxTurns && !signal.aborted) {
+      await this.summarizeSession(conversationId, conversation.claude_session_id, signal);
+      conversation = store.get(conversationId) ?? conversation;
+    }
     const canResume = conversation.claude_session_id !== null && conversation.session_turns < sessionMaxTurns;
     let resumeSessionId = canResume ? (conversation.claude_session_id as string) : undefined;
     let seedContext = resumeSessionId ? undefined : store.seedContext(conversationId, ownerName);

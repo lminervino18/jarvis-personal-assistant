@@ -71,6 +71,10 @@ export class ConversationStore {
       .run(sessionId, sessionTurns, new Date().toISOString(), conversationId);
   }
 
+  setSummary(conversationId: string, summary: string): void {
+    this.db.prepare("UPDATE conversations SET summary = ? WHERE id = ?").run(summary, conversationId);
+  }
+
   setTitleIfEmpty(conversationId: string, title: string): void {
     this.db.prepare("UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL").run(title.slice(0, 80), conversationId);
   }
