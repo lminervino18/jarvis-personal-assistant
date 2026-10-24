@@ -39,3 +39,15 @@ Command: `pnpm --filter @jarvis/server probe:claude <report.json>` with the owne
 | Invalid session id | mapped to `resume_failed` in 0.34 s |
 
 Latency observed (effort `low`, Opus 5.5, local machine, Buenos Aires): first text 1.5–1.9 s for new sessions, about 3.4 s on resume. Each turn spawns a Claude Code process; keeping a streaming-input process per conversation is a planned optimization.
+
+## Latency bench
+
+Command: `pnpm --filter @jarvis/server exec tsx scripts/claude-latency.ts 5 low` (real service, owner login, `replyMode: voice`). Measured 2026-10-24 on the development machine while six other build agents were running on it, so the p95 values include local CPU contention and are pessimistic.
+
+| Case (n = 5) | First text p50 | First text p95 | Total p50 | Total p95 |
+| - | - | - | - | - |
+| New session, simple | 1.93 s | 9.29 s | 2.69 s | 16.27 s |
+| Resumed, simple | 1.98 s | 5.21 s | 3.07 s | 5.40 s |
+| Resumed, one tool call | 4.31 s | 4.65 s | 4.33 s | 4.70 s |
+
+These are Claude-only numbers. End-to-end voice latency adds STT before and TTS after, and is measured per turn in the `turns` table. Tool turns are slower because the model answers after the tool round trip; a short spoken acknowledgement is not emitted on purpose (provisional text is not read aloud).
