@@ -140,6 +140,16 @@ export function normalizeRule(text: string, timezone: string): string {
   return formatRule(parseRule(text, timezone));
 }
 
+/** Canonical form of a rule, or the reason it is not supported. */
+export function checkRule(text: string, timezone: string): { rule: string } | { error: string } {
+  try {
+    return { rule: normalizeRule(text, timezone) };
+  } catch (error) {
+    if (error instanceof RecurrenceError) return { error: `Repetición no soportada: ${error.message}` };
+    throw error;
+  }
+}
+
 /**
  * Canonical rule whose meaning does not depend on the series start: COUNT becomes the
  * UNTIL of its last occurrence, so the start can advance as occurrences fire.

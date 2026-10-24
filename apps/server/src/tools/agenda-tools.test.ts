@@ -73,3 +73,86 @@ describe("contacts_resolve", () => {
     expect(result.ok && result.note).toMatch(/No inventes/);
   });
 });
+
+describe("calendar", () => {
+  const BA = "America/Argentina/Buenos_Aires";
+
+  it("creates an event in the owner's zone and emits an event card", async () => {
+    const { run, cards } = setup();
+    const [event] = items(
+      await run("calendar_create", {
+        title: "Dentista",
+        start: "2026-10-27T13:00:00Z",
+        end: "2026-10-27T11:00:00-03:00",
+        location: "Consultorio",
+      }),
+    );
+    expect(event).toMatchObject({ title: "Dentista", start: "2026-10-27T10:00:00-03:00", end: "2026-10-27T11:00:00-03:00", timezone: BA });
+    expect(cards).toEqual([
+      {
+        kind: "event",
+        eventId: event?.eventId,
+        title: "Dentista",
+        start: "2026-10-27T10:00:00-03:00",
+        end: "2026-10-27T11:00:00-03:00",
+        timezone: BA,
+        location: "Consultorio",
+      },
+    ]);
+  });
+
+  it("expands recurring events inside the requested range and skips cancelled ones", async () => {
+    const { run } = setup();
+    await run("calendar_create", {
+      title: "Partido",
+      start: "2026-10-27T20:00:00-03:00",
+      end: "2026-10-27T22:00:00-03:00",
+      recurrence: "FREQ=WEEKLY;BYDAY=TU,TH",
+    });
+    await run("calendar_create", { title: "Cumpleaños", start: "2026-11-04T00:00:00-03:00", allDay: true });
+    const [cancelled] = items(await run("calendar_create", { title: "Reunión", start: "2026-11-04T09:00:00-03:00" }));
+    await run("calendar_update", { eventId: cancelled?.eventId, status: "cancelled" });
+
+    const listed = await run("calendar_list", { from: "2026-11-02T00:00:00-03:00", to: "2026-11-08T23:59:59-03:00" });
+    expect(items(listed).map((e) => [e.title, e.start, e.end])).toEqual([
+      ["Partido", "2026-11-03T20:00:00-03:00", "2026-11-03T22:00:00-03:00"],
+      ["Cumpleaños", "2026-11-04T00:00:00-03:00", "2026-11-05T00:00:00-03:00"],
+      ["Partido", "2026-11-05T20:00:00-03:00", "2026-11-05T22:00:00-03:00"],
+    ]);
+    expect(listed.ok && listed.coverage?.note).toMatch(/Agenda interna/);
+  });
+
+  it("keeps the duration when only the start moves", async () => {
+    const { run, cards } = setup();
+    const [event] = items(await run("calendar_create", { title: "Médico", start: "2026-10-28T15:00:00-03:00", end: "2026-10-28T15:30:00-03:00" }));
+    const [moved] = items(await run("calendar_update", { eventId: event?.eventId, start: "2026-10-29T17:00:00-03:00" }));
+    expect(moved).toMatchObject({ start: "2026-10-29T17:00:00-03:00", end: "2026-10-29T17:30:00-03:00" });
+    expect(cards.at(-1)).toMatchObject({ kind: "event", start: "2026-10-29T17:00:00-03:00" });
+    expect(await run("calendar_update", { eventId: "missing", title: "x" })).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("rejects unsupported recurrences and inverted ranges", async () => {
+    const { run } = setup();
+    expect(await run("calendar_create", { title: "x", start: "2026-10-28T15:00:00-03:00", recurrence: "FREQ=MINUTELY" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+    expect(await run("calendar_create", { title: "x", start: "2026-10-28T15:00:00-03:00", end: "2026-10-28T14:00:00-03:00" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+    expect(await run("calendar_list", { from: "2026-10-29T00:00:00-03:00", to: "2026-10-28T00:00:00-03:00" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+  });
+
+  it("holds creation for confirmation with a readable summary after untrusted content", async () => {
+    const { run, ctx, cards, db } = setup();
+    ctx.security.tainted = true;
+    const result = await run("calendar_create", { title: "Pagar deuda", start: "2026-10-27T10:00:00-03:00" });
+    expect(result).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
+    expect(cards[0]).toMatchObject({ kind: "confirm", title: "Crear evento", details: [{ label: "Cuándo", value: "martes 27 de octubre de 2026, 10:00" }] });
+    expect(db.prepare("SELECT count(*) AS n FROM calendar_events").get()).toEqual({ n: 0 });
+  });
+});
