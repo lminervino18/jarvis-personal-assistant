@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="J.A.R.V.IS">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#EAFDFF"/>
+      <stop offset="0.28" stop-color="#8FEFFF"/>
+      <stop offset="0.62" stop-color="#22B4FF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#0A3A8F" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#46E3FF"/>
+      <stop offset="1" stop-color="#2B5CFF"/>
+    </linearGradient>
+  </defs>
+  <g fill="none">
+    <circle cx="256" cy="256" r="236" stroke="#2C6BFF" stroke-opacity="0.7" stroke-width="8" stroke-dasharray="14 16.88"/>
+    <circle cx="256" cy="256" r="204" stroke="url(#sweep)" stroke-width="20" stroke-dasharray="292 135.26" transform="rotate(-78 256 256)"/>
+    <circle cx="256" cy="256" r="170" stroke="#46E3FF" stroke-opacity="0.85" stroke-width="3"/>
+    <circle cx="256" cy="256" r="148" stroke="#8FEFFF" stroke-width="10" stroke-dasharray="58 19.49" transform="rotate(9 256 256)"/>
+  </g>
+  <circle cx="256" cy="256" r="124" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="58" fill="none" stroke="#EAFDFF" stroke-opacity="0.9" stroke-width="6"/>
+  <circle cx="256" cy="256" r="26" fill="#F4FEFF"/>
+</svg>
