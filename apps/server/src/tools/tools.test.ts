@@ -76,8 +76,8 @@ describe("memory forget", () => {
   it("removes the memory and scrubs its text from the audit trail", async () => {
     const { ctx, db } = setup();
     const store = new MemoryStore(db);
-    const memory = store.create({ content: "Su clave del wifi es 1234", category: "other", sourceType: "owner_statement" });
-    store.update(memory.id, "Su clave del wifi es 5678");
+    const memory = store.create({ content: "Su clave del wifi es 1234", category: "other", sourceType: "owner_statement" }, new Date("2026-10-24T14:00:00Z"));
+    store.update(memory.id, "Su clave del wifi es 5678", undefined, new Date("2026-10-24T14:30:00Z"));
 
     const result = await runTool(ctx, tool("memory_forget"), { memoryId: memory.id, reason: "pedido del dueño" });
     expect(result.ok).toBe(true);
