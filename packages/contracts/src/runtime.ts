@@ -25,7 +25,7 @@ export type RuntimeErrorCode =
   | "internal";
 
 export type RuntimeEvent =
-  | { type: "session"; sessionId: string; model: string; tools: string[] }
+  | { type: "session"; sessionId: string; model: string; tools: string[]; mcpServers: string[]; authSource: string }
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; toolUseId: string; name: string }
   | { type: "tool_end"; toolUseId: string; name: string; isError: boolean }
