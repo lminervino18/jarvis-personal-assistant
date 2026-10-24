@@ -44,7 +44,7 @@ export const ConfirmCard = z.object({
   summary: z.string(),
   details: z.array(z.object({ label: z.string(), value: z.string() })),
   expiresAt: IsoDateTime,
-  status: z.enum(["pending", "confirmed", "rejected", "expired"]),
+  status: z.enum(["pending", "confirmed", "rejected", "expired", "failed"]),
 });
 
 export const IntegrationProvider = z.enum(["claude", "gmail", "whatsapp", "calendar", "youtube", "push", "voice"]);
