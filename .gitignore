@@ -1,0 +1,101 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+**/vapid*.json
+
+# Private runtime data (never commit)
+data/
+private/
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.bak
+
+# Personal memory (only the example is public)
+loren.md
+!loren.example.md
+
+# Claude and WhatsApp sessions
+.claude/settings.local.json
+.claude/projects/
+.claude/sessions/
+.credentials.json
+claude-config/
+auth_info*/
+baileys_auth*/
+wa-session*/
+
+# Voice: recordings, datasets, weights, manifests, evaluation samples
+voice/private/
+voice/datasets/
+voice/recordings/
+voice/models/
+voice/eval-samples/
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.opus
+*.m4a
+*.onnx
+*.onnx.json
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+voice-manifest*.json
+consent*/
+authorization*/
+
+# Allow committed test fixtures that are synthetic
+!**/fixtures/synthetic/**
+
+# Logs and captures
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+screenshots-private/
+
+# Firmware build output
+firmware/**/.pio/
+firmware/**/build/
+firmware/**/sdkconfig.old
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Git worktrees used during development
+.worktrees/
