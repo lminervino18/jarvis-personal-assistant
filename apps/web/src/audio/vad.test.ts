@@ -80,10 +80,10 @@ describe("EnergyVad", () => {
     expect(vad.noiseFloorDbfs).toBeLessThan(afterNoise);
   });
 
-  it("ignores moderate echo with the barge-in settings but still catches loud speech", () => {
-    const echo = run(new EnergyVad(bargeInVadOptions), frames(-45, 1000));
-    expect(echo).not.toContain("start");
-    const voice = run(new EnergyVad(bargeInVadOptions), frames(-20, 600));
-    expect(voice).toContain("start");
+  it("learns the echo level with the barge-in settings and only reacts to speech well above it", () => {
+    const vad = new EnergyVad(bargeInVadOptions);
+    expect(run(vad, frames(-35, 1500))).not.toContain("start");
+    expect(vad.noiseFloorDbfs).toBeCloseTo(-35, 0);
+    expect(run(vad, frames(-5, 600))).toContain("start");
   });
 });

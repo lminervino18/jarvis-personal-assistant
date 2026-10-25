@@ -37,7 +37,7 @@ export const bargeInVadOptions: VadOptions = {
   startMarginDb: 24,
   minStartDbfs: -40,
   minSpeechMs: 300,
-  warmupMs: 0,
+  warmupMs: 400,
 };
 
 /**
