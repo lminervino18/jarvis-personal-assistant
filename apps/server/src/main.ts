@@ -9,6 +9,8 @@ import { ConversationOrchestrator } from "./conversation/orchestrator.js";
 import { TurnToolRegistry } from "./conversation/turn-tool-registry.js";
 import { openMigratedDatabase } from "./db/database.js";
 import { createGmailIntegration } from "./integrations/gmail/setup.js";
+import { PairingStore } from "./integrations/whatsapp/pairing-store.js";
+import { WhatsAppStatusSource } from "./integrations/whatsapp/status.js";
 import { YoutubeService } from "./integrations/youtube/youtube-service.js";
 import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
@@ -36,21 +38,23 @@ const assistantContext = () =>
     timezone: config.timezone,
   });
 
+const tokenCipher = TokenCipher.fromEnv(process.env);
 const gmail = createGmailIntegration({
   db,
   env: process.env,
-  cipher: TokenCipher.fromEnv(process.env),
+  cipher: tokenCipher,
   publicOrigin: config.publicOrigin,
   timezone: config.timezone,
 });
 
+const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new PairingStore(db, tokenCipher) : undefined);
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 
 const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
-  statusSources: [gmail.statusSource, youtube],
+  statusSources: [gmail.statusSource, whatsapp, youtube],
   gmail: gmail.service,
   youtube,
 };
