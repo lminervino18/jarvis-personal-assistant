@@ -47,7 +47,7 @@ export const ConfirmCard = z.object({
   status: z.enum(["pending", "confirmed", "rejected", "expired", "failed"]),
 });
 
-export const IntegrationProvider = z.enum(["claude", "gmail", "whatsapp", "calendar", "youtube", "push", "voice"]);
+export const IntegrationProvider = z.enum(["claude", "gmail", "whatsapp", "calendar", "reminders", "youtube", "push", "voice"]);
 export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
 
 export const IntegrationCard = z.object({

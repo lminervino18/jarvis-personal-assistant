@@ -32,7 +32,7 @@ describe("status sources", () => {
   it("reports the agenda as healthy until reminders or deliveries stall", async () => {
     const db = openMigratedDatabase(":memory:");
     const source = new AgendaStatusSource(db, "America/Argentina/Buenos_Aires", () => NOW);
-    expect(await source.status()).toEqual([{ provider: "calendar", account: "Agenda interna", status: "connected", detail: "0 recordatorios programados." }]);
+    expect(await source.status()).toEqual([{ provider: "reminders", account: "Agenda interna", status: "connected", detail: "0 recordatorios programados." }]);
 
     const insert = db.prepare(
       "INSERT INTO reminders (id, text, due_utc, timezone, status, created_at, updated_at) VALUES (?, 'x', ?, 'America/Argentina/Buenos_Aires', 'scheduled', ?, ?)",
@@ -43,7 +43,7 @@ describe("status sources", () => {
     ]);
 
     insert.run("r2", "2026-10-24T14:50:00.000Z", NOW.toISOString(), NOW.toISOString());
-    expect(await source.status()).toMatchObject([{ provider: "calendar", status: "error" }]);
+    expect(await source.status()).toMatchObject([{ provider: "reminders", status: "error" }]);
 
     db.prepare("DELETE FROM reminders WHERE id = 'r2'").run();
     new Outbox(db).enqueue({ kind: "push", dedupeKey: "stuck", payload: {} }, new Date("2026-10-24T14:00:00.000Z"));

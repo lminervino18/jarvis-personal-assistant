@@ -52,10 +52,10 @@ export class AgendaStatusSource implements IntegrationStatusSource {
     );
     const account = "Agenda interna";
     if (overdue + stuck > 0) {
-      return [{ provider: "calendar", account, status: "error", detail: "El proceso de recordatorios no está disparando avisos a tiempo; revisá que el worker esté corriendo." }];
+      return [{ provider: "reminders", account, status: "error", detail: "El proceso de recordatorios no está disparando avisos a tiempo; revisá que el worker esté corriendo." }];
     }
     const upcoming = this.db.prepare("SELECT count(*) AS n, min(due_utc) AS next FROM reminders WHERE status = 'scheduled'").get() as { n: number; next: string | null };
     const next = upcoming.next ? ` El próximo es el ${formatLocal(upcoming.next, this.timezone)}.` : "";
-    return [{ provider: "calendar", account, status: "connected", detail: `${upcoming.n} ${upcoming.n === 1 ? "recordatorio programado" : "recordatorios programados"}.${next}` }];
+    return [{ provider: "reminders", account, status: "connected", detail: `${upcoming.n} ${upcoming.n === 1 ? "recordatorio programado" : "recordatorios programados"}.${next}` }];
   }
 }
