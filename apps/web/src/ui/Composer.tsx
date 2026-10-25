@@ -39,7 +39,7 @@ export function Composer({ online, micOpen, busy, onSend, onMicrophone, onStop }
         ref={field}
         rows={1}
         value={text}
-        placeholder="Escribile a J.A.R.V.I.S."
+        placeholder="Escribile a J.A.R.V.IS"
         enterKeyHint="send"
         autoComplete="off"
         onChange={(event) => setText(event.target.value)}

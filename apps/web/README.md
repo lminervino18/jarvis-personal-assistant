@@ -1,6 +1,6 @@
 # @jarvis/web
 
-Conversational PWA for J.A.R.V.I.S.: React 19 + Vite. The interface is only the conversation (text and voice), an animated core and small cards inside the thread.
+Conversational PWA for J.A.R.V.IS: React 19 + Vite. The interface is only the conversation (text and voice), an animated core and small cards inside the thread.
 
 ## Development
 

@@ -20,7 +20,7 @@ export function Login({ onAuthenticated }: { onAuthenticated(): void }) {
   return (
     <main className="login">
       <img className="login-mark" src="/icon-192.png" alt="" width={96} height={96} />
-      <h1 className="wordmark">J.A.R.V.I.S.</h1>
+      <h1 className="wordmark">J.A.R.V.IS</h1>
       <form className="login-form" onSubmit={(event) => void submit(event)}>
         <label htmlFor="password">Contraseña</label>
         <input

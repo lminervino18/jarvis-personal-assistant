@@ -37,7 +37,7 @@ export function App({ session }: { session: Session }) {
   if (phase === "unreachable") {
     return (
       <main className="login">
-        <h1 className="wordmark">J.A.R.V.I.S.</h1>
+        <h1 className="wordmark">J.A.R.V.IS</h1>
         <p role="alert">No hay conexión con el servidor.</p>
         <button type="button" className="button primary" onClick={check}>
           Reintentar

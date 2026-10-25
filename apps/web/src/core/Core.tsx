@@ -21,7 +21,7 @@ export function Core({ state, label, getLevels }: Props) {
   }, [getLevels]);
 
   return (
-    <div className="core" data-state={state} role="img" aria-label={`J.A.R.V.I.S.: ${label}`}>
+    <div className="core" data-state={state} role="img" aria-label={`J.A.R.V.IS: ${label}`}>
       <canvas ref={canvasRef} className="core-canvas" />
     </div>
   );

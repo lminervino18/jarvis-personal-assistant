@@ -12,7 +12,7 @@ export function urlBase64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-const INSTALL_FIRST = "En iPhone, primero agregá J.A.R.V.I.S. a la pantalla de inicio: Compartir → Agregar a inicio.";
+const INSTALL_FIRST = "En iPhone, primero agregá J.A.R.V.IS a la pantalla de inicio: Compartir → Agregar a inicio.";
 
 /** Must be called from a tap: the permission prompt needs a user gesture. */
 export async function subscribeToPush(publicKey: string): Promise<PushResult & { subscription?: Subscription }> {

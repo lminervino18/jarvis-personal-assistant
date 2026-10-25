@@ -31,7 +31,7 @@ function InstallHint() {
     <li className="message message-system">
       <section className="card" aria-label="Instalar en el iPhone">
         <p className="card-kicker">Instalar</p>
-        <p>Para usar J.A.R.V.I.S. como app y recibir avisos: tocá Compartir y elegí Agregar a inicio.</p>
+        <p>Para usar J.A.R.V.IS como app y recibir avisos: tocá Compartir y elegí Agregar a inicio.</p>
         <div className="card-actions">
           <button type="button" className="button" onClick={dismiss}>
             Entendido

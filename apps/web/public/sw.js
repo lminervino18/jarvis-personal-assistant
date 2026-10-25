@@ -1,7 +1,7 @@
 const SHELL_CACHE = "jarvis-shell-v2";
 const ASSET_CACHE = "jarvis-assets-v2";
 const SHELL_URLS = ["/", "/manifest.webmanifest", "/favicon.svg", "/icon-192.png"];
-const DEFAULT_TITLE = "J.A.R.V.I.S.";
+const DEFAULT_TITLE = "J.A.R.V.IS";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)).then(() => self.skipWaiting()));

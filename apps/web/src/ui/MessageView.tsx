@@ -3,7 +3,7 @@ import { CardView } from "../cards/Cards.js";
 import type { ThreadMessage } from "../conversation/thread.js";
 import { formatTime } from "../format.js";
 
-const speakers = { user: "Vos", assistant: "J.A.R.V.I.S.", system: "Aviso" } as const;
+const speakers = { user: "Vos", assistant: "J.A.R.V.IS", system: "Aviso" } as const;
 
 export function MessageView({ message, actions }: { message: ThreadMessage; actions: CardActions }) {
   const speaker = speakers[message.role];

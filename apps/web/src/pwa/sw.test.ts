@@ -40,9 +40,9 @@ const pushEvent = (payload: unknown) => ({ data: { json: () => payload } });
 describe("service worker", () => {
   it("shows the discreet notification the server sends and replaces by tag", async () => {
     const sw = loadServiceWorker();
-    await sw.dispatch("push", pushEvent({ title: "J.A.R.V.I.S.", body: "Llamar al médico", tag: "reminder:1", url: "/" }));
+    await sw.dispatch("push", pushEvent({ title: "J.A.R.V.IS", body: "Llamar al médico", tag: "reminder:1", url: "/" }));
     expect(sw.shown).toHaveLength(1);
-    expect(sw.shown[0]?.title).toBe("J.A.R.V.I.S.");
+    expect(sw.shown[0]?.title).toBe("J.A.R.V.IS");
     expect(sw.shown[0]?.options).toMatchObject({ body: "Llamar al médico", tag: "reminder:1", renotify: true, data: { url: "/" } });
   });
 
@@ -50,7 +50,7 @@ describe("service worker", () => {
     const sw = loadServiceWorker();
     await sw.dispatch("push", { data: { json: () => { throw new Error("bad"); } } });
     await sw.dispatch("push", pushEvent({ body: "x", url: "https://evil.example" }));
-    expect(sw.shown[0]).toMatchObject({ title: "J.A.R.V.I.S.", options: { body: "" } });
+    expect(sw.shown[0]).toMatchObject({ title: "J.A.R.V.IS", options: { body: "" } });
     expect(sw.shown[1]?.options).toMatchObject({ data: { url: "/" } });
     expect(sw.shown[1]?.options).not.toHaveProperty("tag");
   });

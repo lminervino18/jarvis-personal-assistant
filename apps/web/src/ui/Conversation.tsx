@@ -39,7 +39,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
   return (
     <div className="app" style={viewportHeight ? { height: viewportHeight } : undefined}>
       <header className="topbar">
-        <h1 className="wordmark">J.A.R.V.I.S.</h1>
+        <h1 className="wordmark">J.A.R.V.IS</h1>
         <p className="state-pill" data-state={snapshot.state} role="status">
           {label}
         </p>
