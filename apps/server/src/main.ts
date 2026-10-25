@@ -8,6 +8,8 @@ import { ConversationHub } from "./conversation/hub.js";
 import { ConversationOrchestrator } from "./conversation/orchestrator.js";
 import { TurnToolRegistry } from "./conversation/turn-tool-registry.js";
 import { openMigratedDatabase } from "./db/database.js";
+import { registerDeviceRoutes } from "./devices/device-gateway.js";
+import { DeviceStore } from "./devices/device-store.js";
 import { createGmailIntegration } from "./integrations/gmail/setup.js";
 import { PairingStore } from "./integrations/whatsapp/pairing-store.js";
 import { WhatsAppStatusSource } from "./integrations/whatsapp/status.js";
@@ -94,6 +96,21 @@ const store = new ConversationStore(db);
 const hub = new ConversationHub();
 const systemMessageFeed = new SystemMessageFeed(db, hub, logger);
 
+const orchestrator = new ConversationOrchestrator({
+  store,
+  hub,
+  runtime,
+  toolRegistry,
+  services,
+  tools: allTools,
+  builtinTools,
+  ownerName: config.ownerDisplayName,
+  sessionMaxTurns: config.claude.sessionMaxTurns,
+  textOnlySources,
+  log: logger,
+});
+const devices = new DeviceStore(db);
+
 const app = await buildApp({
   config,
   logger,
@@ -101,25 +118,29 @@ const app = await buildApp({
   store,
   hub,
   assistantContext,
-  registerRoutes: gmail.registerRoutes,
+  registerRoutes: async (instance, helpers) => {
+    await gmail.registerRoutes(instance, helpers);
+    registerDeviceRoutes(instance, helpers, {
+      devices,
+      connection: {
+        store,
+        hub,
+        orchestrator,
+        stt: voice.stt,
+        tts: voice.tts,
+        ownerName: config.ownerDisplayName,
+        followUpWindowMs: config.followUpWindowMs,
+        pushPublicKey: null,
+        log: logger,
+      },
+    });
+  },
   onPlayerState: youtube.onPlayerState,
   stt: voice.stt,
   tts: voice.tts,
   pushPublicKey: vapid?.publicKey ?? null,
   onPushSubscribe: async (subscription, userAgent) => pushSubscriptions.save(subscription, userAgent),
-  orchestrator: new ConversationOrchestrator({
-    store,
-    hub,
-    runtime,
-    toolRegistry,
-    services,
-    tools: allTools,
-    builtinTools,
-    ownerName: config.ownerDisplayName,
-    sessionMaxTurns: config.claude.sessionMaxTurns,
-    textOnlySources,
-    log: logger,
-  }),
+  orchestrator,
 });
 
 const context = assistantContext();
