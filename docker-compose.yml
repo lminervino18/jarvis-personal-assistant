@@ -1,0 +1,159 @@
+name: jarvis
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+x-app: &app
+  <<: *hardening
+  image: jarvis:${JARVIS_TAG:-local}
+  pull_policy: never
+  env_file:
+    - path: ${JARVIS_ENV_FILE:-/etc/jarvis/jarvis.env}
+  volumes:
+    - jarvis-data:/data
+  tmpfs:
+    - /tmp:size=256m,mode=1777
+    - /home/jarvis:size=64m,uid=10001,gid=10001,mode=0700
+
+services:
+  server:
+    <<: *app
+    build:
+      context: .
+    environment:
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    expose: ["8080"]
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 2g
+          pids: 512
+
+  worker:
+    <<: *app
+    command: ["node", "dist/worker.js"]
+    healthcheck:
+      disable: true
+    depends_on:
+      server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+          pids: 128
+
+  whatsapp-bridge:
+    <<: *app
+    profiles: [whatsapp]
+    command: ["node", "dist/whatsapp-bridge.js"]
+    healthcheck:
+      disable: true
+    depends_on:
+      server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+          pids: 128
+
+  caddy:
+    <<: *hardening
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    cap_add: [NET_BIND_SERVICE]
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      JARVIS_DOMAIN: ${JARVIS_DOMAIN:?set JARVIS_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs:
+      - /tmp:size=16m
+    depends_on:
+      server:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256m
+          pids: 128
+
+  backup:
+    <<: *hardening
+    image: jarvis-backup:${JARVIS_TAG:-local}
+    pull_policy: never
+    build:
+      context: infra/backup
+    env_file:
+      - path: ${JARVIS_BACKUP_ENV_FILE:-/etc/jarvis/backup.env}
+    environment:
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    volumes:
+      - jarvis-data:/data
+      - backup-cache:/cache
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512m
+          pids: 128
+
+  stt:
+    <<: *hardening
+    profiles: [voice]
+    image: jarvis-stt:${JARVIS_TAG:-local}
+    pull_policy: never
+    read_only: false
+    build:
+      context: infra/voice/faster-whisper
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2g
+
+  tts:
+    <<: *hardening
+    profiles: [voice]
+    image: jarvis-tts:${JARVIS_TAG:-local}
+    pull_policy: never
+    read_only: false
+    build:
+      context: infra/voice/piper
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 768m
+
+volumes:
+  jarvis-data:
+  caddy-data:
+  caddy-config:
+  backup-cache:
