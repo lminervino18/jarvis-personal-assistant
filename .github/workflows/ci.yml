@@ -49,7 +49,7 @@ jobs:
       - name: Check the bundled Claude binary starts
         run: docker run --rm jarvis:ci node scripts/verify-claude-sdk.mjs /app
       - name: Validate the compose file
-        run: docker compose config --quiet
+        run: docker compose --profile voice --profile whatsapp config --quiet
         env:
           JARVIS_DOMAIN: jarvis.example.invalid
           ACME_EMAIL: ci@example.invalid
