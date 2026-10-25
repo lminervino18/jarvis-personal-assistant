@@ -105,3 +105,9 @@ Thumbs.db
 *.webm
 *.mp4
 *.mkv
+
+# WhatsApp chat exports and stray session files
+_chat.txt
+WhatsApp Chat*
+Chat de WhatsApp*
+session*.json
