@@ -20,6 +20,14 @@ function inAt(now: Date, minutes: number): string {
   return new Date(now.getTime() + minutes * 60_000).toISOString();
 }
 
+const BUENOS_AIRES_OFFSET_HOURS = 3;
+
+function tomorrowAt(now: Date, hour: number, minute = 0): string {
+  const local = new Date(now.getTime() - BUENOS_AIRES_OFFSET_HOURS * 3_600_000);
+  const midnight = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + 1);
+  return new Date(midnight + (hour + BUENOS_AIRES_OFFSET_HOURS) * 3_600_000 + minute * 60_000).toISOString();
+}
+
 function demoHistory(now: Date): HistoryItem[] {
   const cards = (list: Card[]) => list;
   return [
@@ -32,8 +40,8 @@ function demoHistory(now: Date): HistoryItem[] {
       at: inAt(now, -42),
       interrupted: false,
       cards: cards([
-        { kind: "event", eventId: "e1", title: "Reunión con Ana (ficticia)", start: inAt(now, 60 * 24 + 600 - 180), end: inAt(now, 60 * 24 + 660 - 180), timezone: TIME_ZONE, location: "Oficina" },
-        { kind: "reminder", reminderId: "r1", text: "Llamar al dentista", dueAt: inAt(now, 60 * 24 + 900 - 180), timezone: TIME_ZONE, status: "scheduled" },
+        { kind: "event", eventId: "e1", title: "Reunión con Ana (ficticia)", start: tomorrowAt(now, 10), end: tomorrowAt(now, 11), timezone: TIME_ZONE, location: "Oficina" },
+        { kind: "reminder", reminderId: "r1", text: "Llamar al dentista", dueAt: tomorrowAt(now, 15, 30), timezone: TIME_ZONE, status: "scheduled" },
       ]),
     },
     { id: "demo-3", turnId: uuid(2), role: "user", text: "Buscame novedades sobre energía solar en Argentina", at: inAt(now, -30), interrupted: false, cards: [] },
@@ -145,7 +153,8 @@ export class DemoServer {
   }
 
   private emit(message: Out): void {
-    this.handlers.text(JSON.stringify({ ...message, seq: ++this.seq }));
+    const data = JSON.stringify({ ...message, seq: ++this.seq });
+    queueMicrotask(() => this.handlers.text(data));
   }
 
   private later(step: number, action: () => void): void {

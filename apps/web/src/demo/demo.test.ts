@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Session } from "../conversation/session.js";
+import { formatTime } from "../format.js";
 import { demoTransport } from "./demo-server.js";
 
 function demoSession() {
@@ -29,6 +30,8 @@ describe("demo mode", () => {
     expect(snapshot).toMatchObject({ state: "idle", ownerName: "Demo", connection: "ready" });
     expect(snapshot.thread.messages.length).toBeGreaterThanOrEqual(4);
     expect(snapshot.capabilities).toMatchObject({ stt: false, tts: false });
+    const event = snapshot.thread.messages.flatMap((m) => m.cards).find((card) => card.kind === "event");
+    expect(event?.kind === "event" && formatTime(event.start)).toBe("10:00");
     session.stop();
   });
 
