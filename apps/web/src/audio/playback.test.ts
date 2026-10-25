@@ -1,44 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { PcmPlayer, type PlaybackBuffer, type PlaybackContext, type PlaybackSource } from "./playback.js";
+import { PcmPlayer } from "./playback.js";
 import { pcm16ToBytes } from "./pcm.js";
-
-class FakeSource implements PlaybackSource {
-  buffer: PlaybackBuffer | null = null;
-  onended: ((event: Event) => void) | null = null;
-  startedAt: number | null = null;
-  stopped = false;
-  disconnected = false;
-  connect(): void {}
-  disconnect(): void {
-    this.disconnected = true;
-  }
-  start(when: number): void {
-    this.startedAt = when;
-  }
-  stop(): void {
-    this.stopped = true;
-  }
-  finish(): void {
-    this.onended?.(new Event("ended"));
-  }
-}
-
-class FakeContext implements PlaybackContext {
-  currentTime = 10;
-  sources: FakeSource[] = [];
-  buffers: { length: number; sampleRate: number }[] = [];
-
-  createBuffer(_channels: number, length: number, sampleRate: number): PlaybackBuffer {
-    this.buffers.push({ length, sampleRate });
-    return { duration: length / sampleRate, copyToChannel: () => {} };
-  }
-
-  createBufferSource(): PlaybackSource {
-    const source = new FakeSource();
-    this.sources.push(source);
-    return source;
-  }
-}
+import { FakePlaybackContext as FakeContext } from "./testing.js";
 
 const TURN = "11111111-1111-4111-8111-111111111111";
 const OTHER = "22222222-2222-4222-8222-222222222222";

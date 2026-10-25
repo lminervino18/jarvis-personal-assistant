@@ -35,6 +35,7 @@ export class VoiceLoop {
   private readonly preroll: Int16Array[] = [];
   private active = false;
   private playing = false;
+  private vadPlaying = false;
   private windowTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -66,11 +67,7 @@ export class VoiceLoop {
 
   /** While the assistant's speech plays, the echo-tolerant detector decides about barge-in. */
   setPlaying(playing: boolean): void {
-    if (playing === this.playing) return;
     this.playing = playing;
-    this.vad = playing ? new EnergyVad(this.options.bargeInVad) : this.normalVad;
-    this.vad.reset();
-    this.preroll.length = 0;
   }
 
   /** Drops the current utterance without reporting its end. */
@@ -86,6 +83,7 @@ export class VoiceLoop {
   }
 
   push(frame: Int16Array): void {
+    if (!this.active) this.selectVad();
     this.handlers.onLevel(levelFromDbfs(rmsDbfs(frame)));
     const decision = this.vad.push(rmsDbfs(frame));
     if (this.active) {
@@ -102,13 +100,20 @@ export class VoiceLoop {
 
   private begin(): void {
     this.clearWindow();
+    const buffered = this.preroll.splice(0);
     if (!this.handlers.onStart()) {
       this.vad.reset();
-      this.preroll.length = 0;
       return;
     }
     this.active = true;
-    for (const frame of this.preroll) this.handlers.onFrame(frame);
+    for (const frame of buffered) this.handlers.onFrame(frame);
+  }
+
+  private selectVad(): void {
+    if (this.playing === this.vadPlaying) return;
+    this.vadPlaying = this.playing;
+    this.vad = this.playing ? new EnergyVad(this.options.bargeInVad) : this.normalVad;
+    this.vad.reset();
     this.preroll.length = 0;
   }
 
