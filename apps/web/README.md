@@ -21,6 +21,8 @@ Open `http://localhost:5173/?demo` for demo mode: a scripted server with fictiti
 - `src/core`: the animated core (Canvas 2D).
 - `src/cards`, `src/ui`: cards, thread, composer, login.
 - `public/sw.js`: app shell cache and push handler. Push payload is `{ title, body, tag, url }`.
+- Gmail connection: the connector redirects back with `?integration=gmail&status=connected|error&label=...&reason=...`; `main.tsx` reads it, cleans the URL and the session shows an integration card once the conversation has loaded.
+- Pairing cards: a raw `qr` payload is encoded on the device with `qrcode-generator` (MIT, no dependencies) into an inline SVG; it is never sent anywhere. A `data:image/` QR is shown as is.
 
 ## Voice
 
