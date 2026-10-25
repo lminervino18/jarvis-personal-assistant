@@ -1,0 +1,88 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the application image
+        run: docker build --tag jarvis:ci .
+      - name: Build the backup image
+        run: docker build --tag jarvis-backup:ci infra/backup
+      - name: Check the bundled Claude binary starts
+        run: docker run --rm jarvis:ci node scripts/verify-claude-sdk.mjs /app
+      - name: Validate the compose file
+        run: docker compose config --quiet
+        env:
+          JARVIS_DOMAIN: jarvis.example.invalid
+          ACME_EMAIL: ci@example.invalid
+          JARVIS_ENV_FILE: .env.example
+          JARVIS_BACKUP_ENV_FILE: .env.example
+      - name: Lint shell scripts
+        run: shellcheck -e SC1091 infra/backup/backup.sh infra/backup/restore.sh infra/backup/schedule.sh infra/backup/table-counts.sh infra/backup/healthcheck.sh infra/scripts/*.sh
+      - name: Backup and restore round trip
+        run: infra/scripts/restore-test.sh
+        env:
+          JARVIS_IMAGE: jarvis:ci
+          BACKUP_IMAGE: jarvis-backup:ci
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan the history for secrets
+        run: >
+          docker run --rm --volume "$PWD:/repo"
+          --env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0=/repo
+          "$GITLEAKS_IMAGE" git --redact --no-banner --verbose /repo
+
+  workflows:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint workflows
+        run: docker run --rm --volume "$PWD:/repo" --workdir /repo "$ACTIONLINT_IMAGE" -color
