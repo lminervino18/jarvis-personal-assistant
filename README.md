@@ -21,12 +21,24 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | Memory with provenance, audit trail and forgetting | tested with fixtures |
 | Backend tool policy (allowlist, confirmations after untrusted content, idempotent writes) | tested with fixtures |
 | WebSocket protocol, owner login, origin checks | tested with fixtures |
-| Agenda, agreements, reminders worker, Web Push | in progress |
-| Gmail (personal and work), WhatsApp (read-only), YouTube | in progress |
-| Voice pipeline (STT, streaming TTS, interruption) | in progress |
-| Conversational PWA with animated core | in progress |
-| Docker, TLS, backups, CI, costs | in progress |
-| Device gateway, simulator and ATOM Echo firmware | planned, pending hardware |
+| Agenda, agreements, contacts, reminders worker with outbox | tested with fixtures; worker validated in Docker |
+| Web Push (VAPID, discreet notifications) | tested with fixtures; pending owner connection (keys and a device) |
+| Gmail read-only, personal and work accounts kept separate | tested with fixtures; pending owner connection |
+| WhatsApp: export import and experimental read-only Baileys bridge | tested with fixtures; pending owner pairing |
+| YouTube search and in-chat player | tested with fixtures; player validated in Chrome (demo mode) |
+| Voice: sentence-streamed TTS, STT, robotic effect, interruption | tested with fixtures; Piper and faster-whisper validated locally; Groq/ElevenLabs pending owner keys |
+| Conversational PWA with animated core | validated in Chrome against the local server; Safari/iPhone pending hardware |
+| Docker, Caddy TLS, encrypted backups with restore test, CI | tested locally and in CI; real VPS, domain and bucket pending owner |
+| Device gateway, simulator and ATOM Echo firmware | in progress, pending hardware |
+
+## Screenshots
+
+Demo mode with fictitious data (`?demo`).
+
+<p align="center">
+  <img src="assets/screenshots/conversation-desktop.png" alt="Conversation view on desktop with fictitious data" width="68%">
+  <img src="assets/screenshots/conversation-mobile.png" alt="Conversation view on a phone with fictitious data" width="24%">
+</p>
 
 ## Architecture
 
@@ -50,7 +62,7 @@ Details: [docs/architecture.md](docs/architecture.md).
 
 ## Setup
 
-A step-by-step installation guide in Spanish is in [docs/setup.es.md](docs/setup.es.md) (in progress). Development quick start:
+A step-by-step installation guide in Spanish is in [docs/setup.es.md](docs/setup.es.md); deployment details are in [docs/deploy.md](docs/deploy.md) and operations in [docs/runbook.md](docs/runbook.md). Development quick start:
 
 ```bash
 nvm use 24
@@ -61,6 +73,21 @@ pnpm check                                 # lint, typecheck, tests, build
 ```
 
 `RUNTIME=scripted` uses a deterministic fixture instead of Claude. With `RUNTIME=claude` (default) the server uses your local Claude Code login, or `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` on a server.
+
+## Costs and limitations
+
+Estimates from official price pages retrieved on 2026-10-24 ([docs/costs.md](docs/costs.md)); they are not quotes and exclude taxes.
+
+| Turns per day | Server (2 vCPU / 2 GB, São Paulo) | Voice (Groq STT + ElevenLabs Flash) | Backups + domain | Total |
+| - | - | - | - | - |
+| 10 | USD 12.00 | USD 2.19 | USD 0.93 | ~USD 15 / month |
+| 30 | USD 12.00 | USD 6.58 | USD 0.93 | ~USD 20 / month |
+| 60 | USD 12.00 | USD 13.16 | USD 0.94 | ~USD 26 / month |
+
+- Claude is the owner's existing subscription. Its limits are shared with the owner's own Claude usage and are not a guaranteed number of queries; when the quota runs out the assistant says so and reminders keep working. Paid overage is refused unless explicitly enabled.
+- A cheaper Hetzner server lowers the totals by about USD 4.5 at the cost of higher latency from Buenos Aires; local Piper + faster-whisper removes the voice line but needs a larger server.
+- Measured latency (Claude only, Sonnet 5.5): first text p50 ≈ 2.1 s for simple turns, ≈ 4.3 s with one tool call. End-to-end voice latency adds STT and TTS and is recorded per turn.
+- WhatsApp access is unofficial and may get the number restricted; history coverage is partial and always reported. Push delivery and background listening are not guaranteed on iPhone.
 
 ## Privacy
 
