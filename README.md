@@ -29,7 +29,10 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | Voice: sentence-streamed TTS, STT, robotic effect, interruption | tested with fixtures; Piper and faster-whisper validated locally; Groq/ElevenLabs pending owner keys |
 | Conversational PWA with animated core | validated in Chrome against the local server; Safari/iPhone pending hardware |
 | Docker, Caddy TLS, encrypted backups with restore test, CI | tested locally and in CI; real VPS, domain and bucket pending owner |
-| Device gateway, simulator and ATOM Echo firmware | in progress, pending hardware |
+| Device gateway with revocable tokens, simulator | tested with fixtures; simulator validated against the server |
+| ATOM Echo firmware (PlatformIO, push-to-talk) | compiles; pending hardware |
+| End-to-end voice turn with real Claude and local STT/TTS | validated with real service (first audio 4.7 s; see [docs/voice.md](docs/voice.md)) |
+| Acceptance tests (18) with evidence | see [docs/qa/acceptance.md](docs/qa/acceptance.md) |
 
 ## Screenshots
 
