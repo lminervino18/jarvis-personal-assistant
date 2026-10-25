@@ -211,3 +211,96 @@ describe("agreements", () => {
     ).toEqual(["Asado"]);
   });
 });
+
+describe("reminders", () => {
+  const BA = "America/Argentina/Buenos_Aires";
+
+  it("creates a reminder in the owner's zone and emits a reminder card", async () => {
+    const { run, cards } = setup();
+    const result = await run("reminders_create", { text: "Llamar al médico", dueAt: "2026-10-25T12:00:00Z" });
+    const [reminder] = items(result);
+    expect(reminder).toMatchObject({ text: "Llamar al médico", dueAt: "2026-10-25T09:00:00-03:00", timezone: BA, recurrence: null, sensitive: false, status: "scheduled" });
+    expect(cards).toEqual([
+      { kind: "reminder", reminderId: reminder?.id, text: "Llamar al médico", dueAt: "2026-10-25T09:00:00-03:00", timezone: BA, status: "scheduled" },
+    ]);
+  });
+
+  it("returns the existing reminder for the same text due within a minute and creates distinct ones otherwise", async () => {
+    const { run, db } = setup();
+    const [first] = items(await run("reminders_create", { text: "Tomar la pastilla", dueAt: "2026-10-25T09:00:00-03:00" }, "turn-1"));
+    const duplicate = await run("reminders_create", { text: "  tomar la PASTILLA! ", dueAt: "2026-10-25T09:00:40-03:00" }, "turn-2");
+    expect(items(duplicate)[0]?.id).toBe(first?.id);
+    expect(duplicate.ok && duplicate.note).toMatch(/no se duplicó/);
+    const later = await run("reminders_create", { text: "Tomar la pastilla", dueAt: "2026-10-25T09:02:00-03:00" }, "turn-3");
+    expect(items(later)[0]?.id).not.toBe(first?.id);
+    expect(db.prepare("SELECT count(*) AS n FROM reminders").get()).toEqual({ n: 2 });
+  });
+
+  it("rejects past dates and unsupported recurrences", async () => {
+    const { run } = setup();
+    expect(await run("reminders_create", { text: "Ayer", dueAt: "2026-10-23T09:00:00-03:00" })).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(await run("reminders_create", { text: "x", dueAt: "2026-10-25T09:00:00-03:00", recurrence: "FREQ=HOURLY" })).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input" },
+    });
+  });
+
+  it("anchors a recurring reminder on its first occurrence and moves a past start to the next one", async () => {
+    const { run } = setup();
+    const [daily] = items(await run("reminders_create", { text: "Diario", dueAt: "2026-10-26T09:00:00-03:00", recurrence: "FREQ=DAILY;COUNT=3" }));
+    expect(daily).toMatchObject({ dueAt: "2026-10-26T09:00:00-03:00", recurrence: "FREQ=DAILY;UNTIL=20261028T120000Z" });
+    const [weekly] = items(await run("reminders_create", { text: "Semanal", dueAt: "2026-10-19T09:00:00-03:00", recurrence: "FREQ=WEEKLY" }));
+    expect(weekly).toMatchObject({ dueAt: "2026-10-26T09:00:00-03:00" });
+  });
+
+  it("modifies text, date and recurrence, and reschedules a reminder that already fired", async () => {
+    const { run, db, cards } = setup();
+    const [created] = items(await run("reminders_create", { text: "Pagar la luz", dueAt: "2026-10-25T09:00:00-03:00" }));
+    const [renamed] = items(await run("reminders_update", { reminderId: created?.id, text: "Pagar luz y gas" }));
+    expect(renamed).toMatchObject({ text: "Pagar luz y gas", dueAt: "2026-10-25T09:00:00-03:00", status: "scheduled" });
+    db.prepare("UPDATE reminders SET status = 'fired' WHERE id = ?").run(created?.id);
+    const [moved] = items(await run("reminders_update", { reminderId: created?.id, dueAt: "2026-10-27T18:30:00-03:00", recurrence: "FREQ=MONTHLY" }));
+    expect(moved).toMatchObject({ dueAt: "2026-10-27T18:30:00-03:00", recurrence: "FREQ=MONTHLY", status: "scheduled" });
+    const [plain] = items(await run("reminders_update", { reminderId: created?.id, recurrence: null }));
+    expect(plain).toMatchObject({ recurrence: null, dueAt: "2026-10-27T18:30:00-03:00" });
+    expect(cards.at(-1)).toMatchObject({ kind: "reminder", reminderId: created?.id, status: "scheduled" });
+    expect(await run("reminders_update", { reminderId: "missing", text: "x" })).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("cancels a reminder once, keeps it out of the scheduled list and refuses to edit it", async () => {
+    const { run, cards } = setup();
+    const [created] = items(await run("reminders_create", { text: "Regar las plantas", dueAt: "2026-10-25T09:00:00-03:00" }));
+    const [cancelled] = items(await run("reminders_cancel", { reminderId: created?.id }));
+    expect(cancelled).toMatchObject({ status: "cancelled" });
+    expect(cards.at(-1)).toMatchObject({ kind: "reminder", status: "cancelled" });
+    expect(items(await run("reminders_list", {}))).toEqual([]);
+    expect(items(await run("reminders_list", { status: "cancelled" })).map((r) => r.id)).toEqual([created?.id]);
+    const again = await run("reminders_cancel", { reminderId: created?.id }, "turn-2");
+    expect(again.ok && again.note).toMatch(/Ya estaba cancelado/);
+    expect(await run("reminders_update", { reminderId: created?.id, text: "x" }, "turn-3")).toMatchObject({ ok: false, error: { code: "invalid_input" } });
+    expect(await run("reminders_cancel", { reminderId: "missing" })).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("lists scheduled reminders by date range with pagination", async () => {
+    const { run } = setup();
+    for (const day of [25, 26, 27]) await run("reminders_create", { text: `Día ${day}`, dueAt: `2026-10-${day}T09:00:00-03:00` });
+    const ranged = await run("reminders_list", { from: "2026-10-26T00:00:00-03:00", to: "2026-10-27T23:59:59-03:00" });
+    expect(items(ranged).map((r) => r.text)).toEqual(["Día 26", "Día 27"]);
+    const paged = await run("reminders_list", { limit: 2 });
+    expect(items(paged).map((r) => r.text)).toEqual(["Día 25", "Día 26"]);
+    expect(paged.ok && paged.page).toEqual({ hasMore: true });
+  });
+
+  it("holds creation for confirmation after untrusted content and hides nothing in the summary", async () => {
+    const { run, ctx, cards, db } = setup();
+    ctx.security.tainted = true;
+    const result = await run("reminders_create", { text: "Transferir plata", dueAt: "2026-10-25T09:00:00-03:00", sensitive: true });
+    expect(result).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
+    expect(cards[0]).toMatchObject({
+      kind: "confirm",
+      title: "Crear recordatorio",
+      details: [{ label: "Cuándo", value: "domingo 25 de octubre de 2026, 09:00" }, { label: "Privado", value: "Sí" }],
+    });
+    expect(db.prepare("SELECT count(*) AS n FROM reminders").get()).toEqual({ n: 0 });
+  });
+});
