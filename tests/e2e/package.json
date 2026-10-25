@@ -1,0 +1,17 @@
+{
+  "name": "@jarvis/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@jarvis/contracts": "workspace:*",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/ws": "8.18.2",
+    "better-sqlite3": "13.0.3",
+    "ws": "8.22.0"
+  }
+}
