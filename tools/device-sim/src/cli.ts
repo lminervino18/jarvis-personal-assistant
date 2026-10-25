@@ -45,7 +45,13 @@ const simulator = new DeviceSimulator({
 });
 
 const microphone = await loadMicrophone();
-await simulator.connect();
+try {
+  await simulator.connect();
+} catch (error) {
+  console.error(`[device-sim] could not connect: ${error instanceof Error ? error.message : "unknown error"}`);
+  simulator.close();
+  process.exit(1);
+}
 const turn = simulator.speak(microphone);
 if (values["cancel-after-ms"]) setTimeout(() => simulator.cancel(), Number(values["cancel-after-ms"]));
 const result = await turn.done;
