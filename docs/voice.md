@@ -171,3 +171,15 @@ TTS_PROVIDER=piper PIPER_URL=http://127.0.0.1:5000 PIPER_SAMPLE_RATE=22050 VOICE
 ```
 
 Licenses of the engine and the voice are recorded in `infra/voice/README.md`.
+
+## End-to-end voice turn with real services (2026-10-25)
+
+Run by the lead on the development machine: the device simulator streamed a Piper-synthesized question as 16 kHz PCM to `/ws/device`; the server used faster-whisper `small` (local sidecar, CPU), Claude Sonnet 5.5 through the owner's subscription, and Piper `es_MX-ald-medium` (local sidecar). Latencies are from the `turns` table, measured from the end of the user's audio.
+
+| Turn | Transcript | Reply (Claude) | STT | First text | First audio |
+| - | - | - | - | - | - |
+| "Jarvis, ¿qué día es hoy y qué hora es en Buenos Aires?" | "Carbis, que día es hoy? Que horas en Buenos Aires?" | Correct date and local time, spoken-style numbers, one dry remark | 1.85 s | 4.35 s | 4.73 s |
+| "¿Y mañana qué día es?" (same conversation) | "y mañana querías." | "Mañana es lunes veintiséis de octubre", checked agenda and reminders, stated what it covers | 1.48 s | 7.70 s | 7.80 s |
+
+Findings: both turns resumed the same Claude session; reply audio streamed with 0 dropped frames. CPU `small` transcription is the weakest link (wrong words, ~1.5–1.9 s); the 2–3 s first-audio target is not met with local STT. Next measurement: Groq `whisper-large-v3-turbo` once the owner provides a key.
+
