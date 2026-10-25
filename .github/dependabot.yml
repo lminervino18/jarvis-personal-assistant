@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: baileys
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -13,7 +15,7 @@ updates:
     schedule:
       interval: weekly
   - package-ecosystem: docker
-    directories: [/, /infra/backup]
+    directories: [/, /infra/backup, /infra/voice/piper, /infra/voice/faster-whisper]
     schedule:
       interval: weekly
   - package-ecosystem: docker-compose
