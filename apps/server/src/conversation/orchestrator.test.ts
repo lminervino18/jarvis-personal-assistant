@@ -19,9 +19,10 @@ function setup(
   const scripted = new ScriptedRuntime((input) => ({
     text: input.text.startsWith("Resumí") ? "Acordaron jugar el viernes (propuesto, dicho por el dueño)." : `ok: ${input.text}`,
   }));
+  const hub = new ConversationHub();
   const orchestrator = new ConversationOrchestrator({
     store,
-    hub: new ConversationHub(),
+    hub,
     runtime: overrides.runtime ?? scripted,
     toolRegistry: overrides.toolRegistry ?? new TurnToolRegistry(),
     textOnlySources: overrides.textOnlySources,
@@ -32,7 +33,7 @@ function setup(
     sessionMaxTurns,
     log: silent,
   });
-  return { store, runtime: scripted, orchestrator, conversationId: store.create().id };
+  return { store, hub, runtime: scripted, orchestrator, conversationId: store.create().id };
 }
 
 const turn = (conversationId: string, text: string) => ({
@@ -101,3 +102,44 @@ describe("sensitive content and voice", () => {
     expect(store.history(conversationId, 10).items.at(-1)?.text).toBe("Tu jefe te escribió sobre el contrato.");
   });
 });
+
+describe("turn retries and interrupted speech", () => {
+  it("replays a finished turn instead of running it twice", async () => {
+    const { hub, runtime, orchestrator, conversationId } = setup(40);
+    const first = turn(conversationId, "hola");
+    await orchestrator.startTurn(first);
+    const seen: string[] = [];
+    hub.subscribe(conversationId, { send: (message) => seen.push(message.type) });
+
+    await orchestrator.startTurn(first);
+
+    expect(runtime.calls).toHaveLength(1);
+    expect(seen).toEqual(["history", "turn.end"]);
+  });
+
+  it("marks a reply as interrupted when its speech is cut", async () => {
+    const { store, orchestrator, conversationId } = setup(40);
+    const input = turn(conversationId, "contame algo largo");
+    let release: () => void = () => {};
+    const speaker = {
+      firstAudioAt: undefined,
+      textDelta: () => {},
+      toolStarted: () => {},
+      finish: () => new Promise<void>((resolve) => (release = resolve)),
+      cancel: () => release(),
+    };
+    const createSpeaker = (signal: AbortSignal) => {
+      signal.addEventListener("abort", () => release());
+      return speaker;
+    };
+    const running = orchestrator.startTurn({ ...input, replyMode: "voice", createSpeaker });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    orchestrator.cancel(input.turnId, "user_stop");
+    await running;
+
+    const reply = store.turnMessages(input.turnId).find((item) => item.role === "assistant");
+    expect(reply?.interrupted).toBe(true);
+    expect(store.getTurn(input.turnId)?.status).toBe("cancelled");
+  });
+});
+

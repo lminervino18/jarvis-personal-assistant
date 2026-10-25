@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode } from "@jarvis/contracts";
+import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, TurnStatus } from "@jarvis/contracts";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
 import { decidePendingAction } from "../tools/runner.js";
 import type { AnyToolDefinition, ToolContext, ToolServices, TurnSecurityState } from "../tools/types.js";
@@ -105,6 +105,12 @@ export class ConversationOrchestrator {
 
   startTurn(input: StartTurnInput): Promise<void> {
     const conversationId = input.conversationId;
+    if (this.byTurn.has(input.turnId)) return Promise.resolve();
+    const finished = this.deps.store.getTurn(input.turnId);
+    if (finished) {
+      this.replayFinishedTurn(input.turnId, conversationId, finished);
+      return Promise.resolve();
+    }
     const previous = this.active.get(conversationId);
     if (previous) this.cancel(previous.turnId, "superseded");
 
@@ -162,6 +168,14 @@ export class ConversationOrchestrator {
             : `No se pudo completar: ${outcome.card.title}.`;
     const item = store.appendMessage({ conversationId, turnId: null, role: "system", content: text, cards: [outcome.card] });
     hub.emit(conversationId, { type: "history", conversationId, items: [item], hasMore: false });
+  }
+
+  /** A client retrying a turn id it already sent gets the stored outcome instead of a second run. */
+  private replayFinishedTurn(turnId: string, conversationId: string, turn: { conversationId: string; status: TurnStatus }): void {
+    const { hub, store } = this.deps;
+    if (turn.conversationId !== conversationId || turn.status === "running") return;
+    hub.emit(conversationId, { type: "history", conversationId, items: store.turnMessages(turnId), hasMore: false });
+    hub.emit(conversationId, { type: "turn.end", turnId, status: turn.status });
   }
 
   private now(): Date {
@@ -319,6 +333,8 @@ export class ConversationOrchestrator {
         }
         if (signal.aborted) {
           status = "cancelled";
+          store.markInterrupted(item.id);
+          emit({ type: "assistant.done", turnId, messageId: item.id, text: outcome.text, interrupted: true });
           emit({ type: "state", state: "interrupted", turnId });
         }
       }

@@ -112,6 +112,21 @@ export class ConversationStore {
       );
   }
 
+  getTurn(turnId: string): { conversationId: string; status: TurnStatus } | undefined {
+    const row = this.db.prepare("SELECT conversation_id, status FROM turns WHERE id = ?").get(turnId) as
+      | { conversation_id: string; status: TurnStatus }
+      | undefined;
+    return row ? { conversationId: row.conversation_id, status: row.status } : undefined;
+  }
+
+  turnMessages(turnId: string): HistoryItem[] {
+    return (this.db.prepare("SELECT * FROM messages WHERE turn_id = ? ORDER BY rid").all(turnId) as MessageRow[]).map(toHistoryItem);
+  }
+
+  markInterrupted(messageId: string): void {
+    this.db.prepare("UPDATE messages SET interrupted = 1 WHERE id = ?").run(messageId);
+  }
+
   recordClientMetrics(turnId: string, firstAudioMs?: number, firstTextMs?: number): void {
     this.db
       .prepare(
