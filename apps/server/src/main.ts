@@ -11,6 +11,10 @@ import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
 import { createLogger } from "./logger.js";
+import { SystemMessageFeed } from "./push/live-feed.js";
+import { AgendaStatusSource, PushStatusSource } from "./push/status.js";
+import { PushSubscriptionStore } from "./push/subscriptions.js";
+import { loadVapidConfig } from "./push/vapid.js";
 import { allTools } from "./tools/index.js";
 import type { ToolServices } from "./tools/types.js";
 import { unavailableStt, unavailableTts } from "./voice/types.js";
@@ -36,6 +40,10 @@ const services: ToolServices = {
   statusSources: [],
 };
 
+const vapid = loadVapidConfig();
+const pushSubscriptions = new PushSubscriptionStore(db);
+services.statusSources.push(new PushStatusSource(db, vapid), new AgendaStatusSource(db, config.timezone));
+
 const toolRegistry = new TurnToolRegistry();
 const runtime: ModelRuntime =
   config.runtime === "scripted"
@@ -55,6 +63,7 @@ const runtime: ModelRuntime =
 
 const store = new ConversationStore(db);
 const hub = new ConversationHub();
+const systemMessageFeed = new SystemMessageFeed(db, hub, logger);
 
 const app = await buildApp({
   config,
@@ -65,6 +74,8 @@ const app = await buildApp({
   assistantContext,
   stt: unavailableStt,
   tts: unavailableTts,
+  pushPublicKey: vapid?.publicKey ?? null,
+  onPushSubscribe: async (subscription, userAgent) => pushSubscriptions.save(subscription, userAgent),
   orchestrator: new ConversationOrchestrator({
     store,
     hub,
@@ -84,6 +95,7 @@ app.log.info({ runtime: runtime.name, profile: context.profileSource, fingerprin
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
+  systemMessageFeed.stop();
   await app.close();
   db.close();
   process.exit(0);
@@ -92,3 +104,4 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 await app.listen({ host: config.host, port: config.port });
+systemMessageFeed.start();
