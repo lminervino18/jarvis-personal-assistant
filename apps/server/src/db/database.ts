@@ -35,21 +35,21 @@ export function migrate(db: Db): number[] {
     name TEXT NOT NULL,
     applied_at TEXT NOT NULL
   )`);
-  const applied = new Set(
-    db.prepare("SELECT version FROM schema_migrations").all().map((row) => (row as { version: number }).version),
-  );
+  const isApplied = db.prepare("SELECT 1 FROM schema_migrations WHERE version = ?");
   const newlyApplied: number[] = [];
   for (const migration of migrations) {
-    if (applied.has(migration.version)) continue;
-    db.transaction(() => {
+    if (isApplied.get(migration.version)) continue;
+    const applied = db.transaction(() => {
+      if (isApplied.get(migration.version)) return false;
       db.exec(migration.sql);
       db.prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)").run(
         migration.version,
         migration.name,
         new Date().toISOString(),
       );
+      return true;
     }).immediate();
-    newlyApplied.push(migration.version);
+    if (applied) newlyApplied.push(migration.version);
   }
   return newlyApplied;
 }

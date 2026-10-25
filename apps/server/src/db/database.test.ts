@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrate, openMigratedDatabase } from "./database.js";
+import { migrate, openDatabase, openMigratedDatabase } from "./database.js";
 
 describe("database", () => {
   it("applies migrations once and keeps FTS in sync", () => {
@@ -30,5 +33,19 @@ describe("database", () => {
         )
         .run(now, now),
     ).toThrow();
+  });
+
+  it("lets the server and the worker migrate the same fresh file safely", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-db-"));
+    try {
+      const server = openDatabase(join(dir, "jarvis.db"));
+      const worker = openDatabase(join(dir, "jarvis.db"));
+      expect(migrate(server)).toEqual([1]);
+      expect(migrate(worker)).toEqual([]);
+      server.close();
+      worker.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
