@@ -25,7 +25,7 @@ switch_tag() {
 deploy() {
   local tag=$1
   if [ -n "$(read_var JARVIS_TAG)" ]; then docker compose run --rm backup backup.sh; fi
-  JARVIS_TAG=$tag docker compose build server backup
+  JARVIS_TAG=$tag docker compose build
   switch_tag "$tag"
 }
 
