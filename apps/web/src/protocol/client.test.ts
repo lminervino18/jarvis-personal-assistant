@@ -192,6 +192,22 @@ describe("ProtocolClient reconnection", () => {
     expect(h.sockets).toHaveLength(2);
   });
 
+  it("keeps the connection when the pong is answered before send returns", async () => {
+    const h = harness({ policy: { initialMs: 500, maxMs: 500, factor: 1, pingIntervalMs: 1000, pongTimeoutMs: 300 } });
+    connect(h);
+    let seq = 1;
+    const original = h.socket();
+    const push = original.sent.push.bind(original.sent);
+    original.sent.push = (...items) => {
+      const length = push(...items);
+      if (items.some((item) => typeof item === "string" && item.includes('"ping"'))) original.serverSends({ seq: ++seq, type: "pong", t: 1 });
+      return length;
+    };
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(h.client.connectionStatus).toBe("ready");
+    expect(h.sockets).toHaveLength(1);
+  });
+
   it("keeps the connection when pongs arrive", async () => {
     const h = harness({ policy: { initialMs: 500, maxMs: 500, factor: 1, pingIntervalMs: 1000, pongTimeoutMs: 300 } });
     connect(h);

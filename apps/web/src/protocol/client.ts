@@ -265,8 +265,8 @@ export class ProtocolClient {
     clearInterval(this.pingTimer);
     this.pingTimer = setInterval(() => {
       if (!this.transport) return;
-      this.transport.send(JSON.stringify({ type: "ping", t: Date.now() } satisfies ClientMessage));
       this.pongTimer ??= setTimeout(() => this.onPongTimeout(), this.policy.pongTimeoutMs);
+      this.transport.send(JSON.stringify({ type: "ping", t: Date.now() } satisfies ClientMessage));
     }, this.policy.pingIntervalMs);
   }
 
