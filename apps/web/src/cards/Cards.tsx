@@ -2,6 +2,7 @@ import type { Card } from "@jarvis/contracts";
 import { useState } from "react";
 import { formatDateTime, safeHref } from "../format.js";
 import type { CardActions } from "./actions.js";
+import { QrCode } from "./QrCode.js";
 import { YoutubeCard } from "./YoutubeCard.js";
 
 type Of<K extends Card["kind"]> = Extract<Card, { kind: K }>;
@@ -160,18 +161,23 @@ function IntegrationCard({ card }: { card: Of<"integration"> }) {
 }
 
 function PairingCard({ card }: { card: Of<"pairing"> }) {
+  const expired = Date.parse(card.expiresAt) <= Date.now();
   const image = card.qr?.startsWith("data:image/") ? card.qr : null;
+  const label = "Código QR para vincular WhatsApp";
   return (
     <section className="card" aria-label="Vincular WhatsApp">
       <p className="card-kicker">WhatsApp</p>
       <p>Vinculá tu cuenta desde WhatsApp, en Dispositivos vinculados.</p>
-      {image && <img className="card-qr" src={image} alt="Código QR para vincular WhatsApp" />}
-      {card.code && (
+      {!expired && image && <img className="card-qr" src={image} alt={label} />}
+      {!expired && !image && card.qr && <QrCode value={card.qr} label={label} />}
+      {!expired && card.code && (
         <p className="card-code" aria-label="Código de vinculación">
           {card.code}
         </p>
       )}
-      <p className="card-meta">Vence {formatDateTime(card.expiresAt)}</p>
+      <p className="card-status" data-status={expired ? "expired" : "pending"}>
+        {expired ? "Venció. Pedí uno nuevo." : `Vence ${formatDateTime(card.expiresAt)}`}
+      </p>
     </section>
   );
 }

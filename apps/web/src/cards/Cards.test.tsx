@@ -60,12 +60,20 @@ describe("cards", () => {
     expect(html).toContain("Recordatorios");
   });
 
-  it("renders the pairing code and a QR only when it is an image", () => {
-    const html = render({ kind: "pairing", provider: "whatsapp", code: "ABCD-1234", qr: "raw-qr-payload", expiresAt: future });
+  it("renders the pairing code, a QR drawn locally from the raw payload, and an image QR as is", () => {
+    const html = render({ kind: "pairing", provider: "whatsapp", code: "ABCD-1234", qr: "2@ficticio,AbCdEf,ZyXwVu,1", expiresAt: future });
     expect(html).toContain("ABCD-1234");
-    expect(html).not.toContain("<img");
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("ficticio");
     const withImage = render({ kind: "pairing", provider: "whatsapp", qr: "data:image/png;base64,AAAA", expiresAt: future });
     expect(withImage).toContain("<img");
+  });
+
+  it("hides the pairing material once it expired", () => {
+    const html = render({ kind: "pairing", provider: "whatsapp", code: "ABCD-1234", qr: "2@ficticio,AbCdEf,ZyXwVu,1", expiresAt: past });
+    expect(html).not.toContain("<svg");
+    expect(html).not.toContain("ABCD-1234");
+    expect(html).toContain("Venció");
   });
 
   it("renders the notification card with its button and a link card", () => {
