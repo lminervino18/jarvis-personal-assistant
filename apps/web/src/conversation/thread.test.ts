@@ -103,6 +103,33 @@ describe("thread history", () => {
   });
 });
 
+describe("live system messages", () => {
+  const fired = item("sys1", "system", "Recordatorio: llamar al médico", "2026-10-24T15:30:00.000Z");
+
+  it("merges a single-item history by id without replacing the thread", () => {
+    const base = attached([item("m1", "user", "hola", "2026-10-24T14:00:00.000Z", T1), item("m2", "assistant", "buenas", "2026-10-24T14:00:01.000Z", T1)]);
+    const state = apply(base, historyEvent([fired]));
+    expect(state.messages.map((m) => m.id)).toEqual(["m1", "m2", "sys1"]);
+    expect(state.awaitingInitial).toBe(false);
+    expect(apply(state, historyEvent([fired])).messages).toHaveLength(3);
+  });
+
+  it("does not take a live item for an older page while older messages are loading", () => {
+    const base = attached([item("m5", "user", "cinco", "2026-10-24T14:00:05.000Z", T1)]);
+    const state = apply(base, { type: "local.older" }, historyEvent([fired]));
+    expect(state.messages.map((m) => m.id)).toEqual(["m5", "sys1"]);
+    expect(state.loadingOlder).toBe(true);
+    const older = apply(state, historyEvent([item("m1", "user", "uno", "2026-10-24T14:00:01.000Z")], true));
+    expect(older.messages.map((m) => m.id)).toEqual(["m1", "m5", "sys1"]);
+    expect(older.loadingOlder).toBe(false);
+  });
+
+  it("keeps the more-history flag untouched by live items", () => {
+    const base = apply(emptyThread(), readyEvent(), historyEvent([item("m5", "user", "cinco", "2026-10-24T14:00:05.000Z", T1)], true));
+    expect(apply(base, historyEvent([fired])).hasMore).toBe(true);
+  });
+});
+
 describe("thread turns", () => {
   it("streams assistant text and settles it with the server's message", () => {
     let state = apply(attached(), { type: "local.user", turnId: T1, text: "hola" }, server("assistant.delta", { turnId: T1, text: "Buen" }), server("assistant.delta", { turnId: T1, text: "as" }));
