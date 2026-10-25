@@ -19,6 +19,8 @@ export const HelloMessage = z.object({
     output: z.array(AudioFormat).max(4),
   }),
   conversationId: Id.optional(),
+  /** Devices that cannot show a thread send false to skip the history page. */
+  history: z.boolean().optional(),
 });
 
 export const UserTextMessage = z.object({

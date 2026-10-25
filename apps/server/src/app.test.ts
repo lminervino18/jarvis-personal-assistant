@@ -322,4 +322,24 @@ describe("server", () => {
     expect(route.status).toBe(200);
     expect(await route.text()).toContain("shell");
   });
+
+  it("skips the history page for clients that opt out in hello", async () => {
+    const server = await startServer(tempDir(), new ScriptedRuntime());
+    cleanups.push(server.stop);
+    const cookie = await login(server.port);
+    const first = await TestClient.connect(server.port, cookie);
+    cleanups.push(() => first.close());
+    const { conversationId } = await first.hello();
+    const turnId = crypto.randomUUID();
+    first.send({ type: "user.text", conversationId, turnId, text: "hola", replyMode: "text" });
+    await first.waitFor("turn.end", (m) => m.turnId === turnId);
+
+    const device = await TestClient.connect(server.port, cookie);
+    cleanups.push(() => device.close());
+    device.send({ type: "hello", protocol: 1, client: { kind: "device", version: "test" }, audio: { input: [], output: [] }, conversationId, history: false });
+    await device.waitFor("ready");
+    await device.waitFor("state");
+    expect(device.messages.some((m) => m.type === "history")).toBe(false);
+  });
 });
+

@@ -57,6 +57,7 @@ export class ClientConnection implements Subscriber {
   private conversationId?: string;
   private unsubscribe?: () => void;
   private outputFormat: AudioFormat | null = null;
+  private sendHistory = true;
   private readonly captures = new Map<string, Capture>();
   private readonly helloTimer: NodeJS.Timeout;
   private readonly reauthTimer: NodeJS.Timeout;
@@ -208,6 +209,7 @@ export class ClientConnection implements Subscriber {
     if (this.conversationId) return;
     clearTimeout(this.helloTimer);
     this.outputFormat = this.deps.tts.available() ? this.deps.tts.chooseOutputFormat(message.audio.output) : null;
+    this.sendHistory = message.history !== false;
     this.attach(this.deps.store.resolveOrCreate(message.conversationId).id);
   }
 
@@ -229,8 +231,10 @@ export class ClientConnection implements Subscriber {
         pushPublicKey: this.deps.pushPublicKey,
       },
     });
-    const page = this.deps.store.history(conversationId, HISTORY_PAGE);
-    this.send({ type: "history", conversationId, ...page });
+    if (this.sendHistory) {
+      const page = this.deps.store.history(conversationId, HISTORY_PAGE);
+      this.send({ type: "history", conversationId, ...page });
+    }
     const activeTurn = this.deps.orchestrator.activeTurn(conversationId);
     this.send(activeTurn ? { type: "state", state: "thinking", turnId: activeTurn } : { type: "state", state: "idle" });
   }
