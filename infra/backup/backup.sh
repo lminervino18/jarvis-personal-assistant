@@ -22,7 +22,8 @@ finish() {
 trap finish EXIT
 
 snapshot_database() {
-  sqlite3 "$DATA_DIR/jarvis.db" ".timeout 10000" ".backup '$STAGE_DIR/jarvis.db'"
+  [ -f "$DATA_DIR/jarvis.db" ] || { log "database not found in $DATA_DIR"; return 1; }
+  sqlite3 -readonly "$DATA_DIR/jarvis.db" ".timeout 10000" ".backup '$STAGE_DIR/jarvis.db'"
   [ "$(sqlite3 "$STAGE_DIR/jarvis.db" "PRAGMA integrity_check")" = "ok" ] || { log "snapshot failed integrity_check"; return 1; }
   [ -z "$(sqlite3 "$STAGE_DIR/jarvis.db" "PRAGMA foreign_key_check")" ] || { log "snapshot failed foreign_key_check"; return 1; }
 }
