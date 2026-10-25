@@ -8,7 +8,7 @@ Status in one line: the server gateway and the simulator are implemented and tes
 | --- | --- |
 | Device token store, pairing routes, `GET /ws/device` | tested with fixtures (real Fastify server, automated) |
 | `tools/device-sim` against the real server (full voice turn, cancel, reconnection, revocation) | tested with fixtures (automated, fixture STT/TTS, scripted runtime) |
-| Firmware compiles with PlatformIO | see "Build" below for the exact result |
+| Firmware compiles and links with PlatformIO (espressif32 7.1.3, Arduino core 2.0.17) | compiled on 2026-10-25: RAM 15.4 % static, flash 71.5 % of the default 1.25 MB app partition; never run on a board |
 | Firmware logic that has no hardware dependency (frame header, turn gate, message builders) | tested on the host with `g++` |
 | Wi-Fi, TLS, PDM microphone, NS4168 speaker, LED, button, memory use, latency | **pending hardware** |
 | Real STT/TTS/Claude through the device | pending owner connection |
@@ -94,7 +94,18 @@ Automated tests: `pnpm --filter @jarvis/device-sim test` (WAV handling, protocol
 
 ## Firmware
 
-Skeleton in `firmware/atom-echo/`. See "Build" and "Flashing" below.
+Skeleton in `firmware/atom-echo/`:
+
+| File | Role |
+| --- | --- |
+| `platformio.ini`, `certs/root_ca.pem` | pinned platform and library versions, embedded root CA |
+| `include/config.h` | pins, audio format, buffer sizes, timings, gains |
+| `lib/protocol/` | hardware-independent logic: turn ids, frame header, JSON message builders, reply gate, reconnect delay (host tested) |
+| `src/settings.*`, `src/console.*` | NVS settings and the USB serial console |
+| `src/audio_io.*` | I2S driver, audio task, bounded stream buffers |
+| `src/gateway.*` | TLS WebSocket client, event queue, reconnection |
+| `src/assistant.*` | push-to-talk state machine |
+| `src/led.*`, `src/button.h`, `src/main.cpp` | LED states, debounced button, wiring |
 
 ### Arduino or ESP-IDF
 
@@ -113,7 +124,7 @@ The skeleton uses PlatformIO with the **Arduino** framework (arduino-esp32 core 
 
 ### Build
 
-Prerequisites: PlatformIO Core with the `espressif32` platform, which downloads the Xtensa toolchain and the Arduino core (more than 1 GB). The lead machine already has them in `~/.platformio`. CI does not build the firmware because of that size.
+Prerequisites: PlatformIO Core with the `espressif32` platform, which downloads the Xtensa toolchain and the Arduino core (more than 1 GB). The lead machine already has them in `~/.platformio`. The repository has no CI workflow, and the firmware should stay out of CI by default because of that size.
 
 ```sh
 cd firmware/atom-echo
@@ -148,11 +159,11 @@ None of these has been run. Record results here when the board exists.
 1. USB enumeration, serial port, flashing, whether the button must be held for download mode.
 2. LED: color order (SK6812 is expected GRB), brightness at idle, all five states visible.
 3. Button: idle level of G39 (input only, no internal pull), bounce, hold detection.
-4. Microphone: record 5 s of room noise and speech through the serial port or a debug build; check PDM gain, DC offset and noise floor; tune `MIC_GAIN_SHIFT`.
+4. Microphone: record 5 s of room noise and speech through the serial port or a debug build; check PDM gain, DC offset and noise floor; tune `kMicGainShift` in `include/config.h`.
 5. Speaker: play a 1 kHz tone and a 16 kHz speech clip; check clipping, hiss and the volume limit; measure the pop or gap when the I2S driver is reinstalled between capture and playback.
 6. Wi-Fi: RSSI at the intended location; reconnection after the access point restarts.
 7. SNTP and TLS: handshake against the real Caddy host, free heap and largest free block after the handshake.
-8. Streaming: sustained 32 KB/s upstream and downstream; capture overruns and playback underruns (the firmware keeps counters and prints them on the serial console).
+8. Streaming: sustained 32 KB/s upstream and downstream; capture overruns and playback underruns (the firmware keeps counters; the `stats` serial command prints them together with free heap and RSSI).
 9. Latency: button release to first audible reply, compared with the web client numbers in `turns.client_first_audio_ms`.
 10. Cancel: press during speech; time until the speaker is silent; confirm no frame of the cancelled turn is played.
 11. Reconnection and revocation: restart the server mid-turn; revoke the device and check it stops retrying quickly; power from a weak USB supply and look for brownouts.
