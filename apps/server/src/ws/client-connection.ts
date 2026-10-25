@@ -189,7 +189,13 @@ export class ClientConnection implements Subscriber {
           this.send({ type: "notice", level: "warning", code: "push_unavailable", message: "Las notificaciones no están configuradas." });
           return;
         }
-        await this.deps.onPushSubscribe(message.subscription);
+        try {
+          await this.deps.onPushSubscribe(message.subscription);
+        } catch (error) {
+          this.deps.log.warn({ err: error instanceof Error ? error.message : "unknown" }, "push subscription rejected");
+          this.send({ type: "error", code: "bad_request", message: "Ese dispositivo no puede recibir notificaciones.", retryable: false });
+          return;
+        }
         this.send({ type: "notice", level: "info", code: "push_subscribed", message: "Notificaciones activadas en este dispositivo." });
         return;
       case "ping":
