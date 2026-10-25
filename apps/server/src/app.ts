@@ -153,7 +153,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       },
     });
     app.setNotFoundHandler((request, reply) => {
-      if (request.method === "GET" && !request.url.startsWith("/api/") && !request.url.startsWith("/ws")) {
+      const path = request.url.split("?")[0] ?? "";
+      const isAppRoute = !path.startsWith("/api/") && !path.startsWith("/ws") && !/\.[a-z0-9]+$/i.test(path);
+      if (request.method === "GET" && isAppRoute) {
         return reply.header("Cache-Control", "no-cache").sendFile("index.html");
       }
       return reply.code(404).send({ error: "not_found" });

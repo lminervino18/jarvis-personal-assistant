@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { builtinTools, type ServerMessage } from "@jarvis/contracts";
@@ -27,8 +27,9 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function startServer(dataDir: string, runtime: ScriptedRuntime) {
+async function startServer(dataDir: string, runtime: ScriptedRuntime, webDistDir?: string) {
   const config = loadConfig({
+    ...(webDistDir ? { WEB_DIST_DIR: webDistDir } : {}),
     NODE_ENV: "test",
     DATA_DIR: dataDir,
     PORT: "8080",
@@ -305,5 +306,20 @@ describe("server", () => {
     expect(error.code).toBe("quota_exceeded");
     expect(error.message).toMatch(/recordatorios existentes siguen funcionando/);
     expect((await client.waitFor("turn.end", (m) => m.turnId === turnId)).status).toBe("failed");
+  });
+
+  it("serves the app shell for routes but 404s for missing static files", async () => {
+    const dist = tempDir();
+    mkdirSync(join(dist, "assets"));
+    writeFileSync(join(dist, "index.html"), "<!doctype html><title>shell</title>");
+    writeFileSync(join(dist, "assets", "app-123.js"), "console.log(1)");
+    const server = await startServer(tempDir(), new ScriptedRuntime(), dist);
+    cleanups.push(server.stop);
+    const base = `http://127.0.0.1:${server.port}`;
+    expect((await fetch(`${base}/assets/app-123.js`)).status).toBe(200);
+    expect((await fetch(`${base}/assets/app-old.js`)).status).toBe(404);
+    const route = await fetch(`${base}/conversacion?x=1`);
+    expect(route.status).toBe(200);
+    expect(await route.text()).toContain("shell");
   });
 });
