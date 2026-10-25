@@ -82,7 +82,7 @@ Run: `pnpm --filter @jarvis/e2e test` (26 tests, about 12 s). Repeated full `pnp
 - `apps/web/src/protocol/client.test.ts`: "retries with growing delays and resumes the same conversation", "restarts seq counting and resets the backoff after a successful ready".
 - `apps/web/src/conversation/thread.test.ts`: "merges a single-item history by id without replacing the thread", "prepends an older page without duplicating known messages".
 - `apps/server/src/devices/device-sim.test.ts`: "reconnects after the connection drops and completes the next turn in the same conversation".
-- Known gap: defect D1 (a re-sent turn id is dropped silently).
+- D1 fixed: a re-sent turn id now replays the stored outcome (`orchestrator.test.ts` "replays a finished turn instead of running it twice").
 
 ### 7. Create, modify and cancel reminders
 
@@ -209,6 +209,16 @@ D5 (test gap G1). No test asserts the visible alternative when YouTube playback 
 D6 (known performance gap, from the lead's real run). First audio was 4.73 s and 7.80 s with local CPU STT, against a 2 to 3 s target; transcription quality of faster-whisper small is poor. Not reproduced by QA.
 
 D7 (process). The CI evidence predates the current `main` head and the e2e package has not run on GitHub Actions. The one environment-dependent e2e (`reminders-claude-down`, which starts the bundled Claude binary) accepts `claude_auth_failed` and `claude_unavailable`, so a runner without the binary still passes.
+
+## Resolution by the lead (2026-10-25)
+
+- D1 fixed in `7150e37`: a finished turn id replays its stored messages and `turn.end`; a turn id that is still running is ignored. Test: "replays a finished turn instead of running it twice".
+- D2 fixed in `7150e37`: when speech is cut, the reply is marked `interrupted` and `assistant.done` is re-sent with `interrupted: true`. Test: "marks a reply as interrupted when its speech is cut".
+- D3 left to the owner: standard copyright line; the name is already public on the GitHub profile.
+- D4 fixed in `fbeaf52`: WhatsApp export names and `session*.json` are ignored; synthetic fixtures stay tracked.
+- D5 covered: `Cards.test.tsx` "always offers a visible link to open the video on YouTube".
+- D6 open: needs the owner's Groq key to measure external STT.
+- D7: CI re-runs on the current head after this push.
 
 ## Requested changes outside the QA paths
 
