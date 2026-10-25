@@ -19,6 +19,8 @@ export interface IntegrationStatusItem {
 
 export interface IntegrationStatusSource {
   status(): Promise<IntegrationStatusItem[]>;
+  /** A card shown only to the owner's client (e.g. a pairing QR); never returned to the model. */
+  pairingCard?(): Card | undefined;
 }
 
 /** Long-lived services shared by every turn. Integration modules add their clients here. */

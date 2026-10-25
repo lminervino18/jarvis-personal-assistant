@@ -36,3 +36,25 @@ describe("integrations_status with the connectors", () => {
     expect(ctx.security.tainted).toBe(false);
   });
 });
+
+describe("integrations_status pairing card", () => {
+  it("sends the pairing card only to the client, never in the tool result", async () => {
+    const cards: unknown[] = [];
+    const qrSource = {
+      status: async () => [{ provider: "whatsapp" as const, status: "needs_action" as const, detail: "Esperando vinculación." }],
+      pairingCard: () => ({ kind: "pairing" as const, provider: "whatsapp" as const, qr: "QR-SECRET-PAYLOAD", expiresAt: "2026-10-26T12:01:00Z" }),
+    };
+    const ctx: ToolContext = {
+      services: { db: buildGoogleHarness().db, timezone: "America/Argentina/Buenos_Aires", backupRetentionDays: 30, statusSources: [qrSource] },
+      conversationId: "conv-1",
+      turnId: "turn-1",
+      now: () => new Date("2026-10-26T12:00:00Z"),
+      security: { tainted: false, taintSources: new Set() },
+      emitCard: (card) => cards.push(card),
+      emitPlayerCommand: () => {},
+    };
+    const result = await runTool(ctx, toolsByName.get("integrations_status") as AnyToolDefinition, {});
+    expect(cards).toEqual([expect.objectContaining({ kind: "pairing", qr: "QR-SECRET-PAYLOAD" })]);
+    expect(JSON.stringify(result)).not.toContain("QR-SECRET-PAYLOAD");
+  });
+});
