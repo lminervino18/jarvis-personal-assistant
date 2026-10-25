@@ -20,6 +20,7 @@ venv/
 .env.*
 !.env.example
 *.pem
+!firmware/atom-echo/certs/root_ca.pem
 *.key
 *.p12
 *.pfx
