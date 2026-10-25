@@ -17,7 +17,7 @@ const demo = new URLSearchParams(window.location.search).has("demo");
 function createSession(): Session {
   return new Session({
     createEngine: (options) => new WebAudioEngine(options),
-    isSessionValid: async () => (await fetchAuthState()).authenticated,
+    isSessionValid: async () => (await fetchAuthState())?.authenticated !== false,
     subscribePush: subscribeToPush,
   });
 }

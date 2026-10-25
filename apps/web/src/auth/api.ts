@@ -5,13 +5,15 @@ export interface AuthState {
 
 export type LoginOutcome = { ok: true; displayName: string | undefined } | { ok: false; message: string };
 
-export async function fetchAuthState(): Promise<AuthState> {
+/** The server's answer, or null when it could not be reached (which says nothing about the login). */
+export async function fetchAuthState(): Promise<AuthState | null> {
   try {
     const response = await fetch("/api/auth/session", { credentials: "same-origin" });
-    if (!response.ok) return { authenticated: false };
+    if (response.status === 401) return { authenticated: false };
+    if (!response.ok) return null;
     return (await response.json()) as AuthState;
   } catch {
-    return { authenticated: false };
+    return null;
   }
 }
 
