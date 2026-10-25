@@ -58,7 +58,7 @@ async function benchTts(service: TextToSpeechService, count: number) {
   const firstAudio: number[] = [];
   let synthesisMs = 0;
   let audioMs = 0;
-  let sample = new Uint8Array(0);
+  let sample: Uint8Array = new Uint8Array(0);
   for (let i = 0; i < count; i++) {
     const text = SAMPLE_REPLIES[i % SAMPLE_REPLIES.length] as string;
     const recorder = recordingSink(output);
