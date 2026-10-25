@@ -6,6 +6,7 @@ import { gmailTools } from "./gmail-tools.js";
 import { integrationsStatus } from "./integrations-tools.js";
 import { memoryTools } from "./memory-tools.js";
 import { remindersTools } from "./reminders-tools.js";
+import { youtubeTools } from "./youtube-tools.js";
 import type { AnyToolDefinition } from "./types.js";
 
 /** Every tool the assistant can use. A tool absent from this list cannot be called. */
@@ -16,6 +17,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...agreementsTools,
   ...remindersTools,
   ...gmailTools,
+  ...youtubeTools,
   integrationsStatus,
 ];
 

@@ -9,6 +9,7 @@ import { ConversationOrchestrator } from "./conversation/orchestrator.js";
 import { TurnToolRegistry } from "./conversation/turn-tool-registry.js";
 import { openMigratedDatabase } from "./db/database.js";
 import { createGmailIntegration } from "./integrations/gmail/setup.js";
+import { YoutubeService } from "./integrations/youtube/youtube-service.js";
 import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
@@ -43,12 +44,15 @@ const gmail = createGmailIntegration({
   timezone: config.timezone,
 });
 
+const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
+
 const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
-  statusSources: [gmail.statusSource],
+  statusSources: [gmail.statusSource, youtube],
   gmail: gmail.service,
+  youtube,
 };
 
 const vapid = loadVapidConfig();
@@ -84,6 +88,7 @@ const app = await buildApp({
   hub,
   assistantContext,
   registerRoutes: gmail.registerRoutes,
+  onPlayerState: youtube.onPlayerState,
   stt: unavailableStt,
   tts: unavailableTts,
   pushPublicKey: vapid?.publicKey ?? null,

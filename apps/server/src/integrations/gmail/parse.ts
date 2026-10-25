@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { toZonedIso } from "../../util/time.js";
+import { decodeEntities } from "../google/text.js";
 
 export const MAX_BODY_CHARS = 4000;
 
@@ -65,17 +66,6 @@ const HIDDEN_CHARS = /[\p{Cc}\p{Cf}]/gu;
 const KEPT_CONTROLS = new Set(["\n", "\r", "\t"]);
 
 const stripHidden = (text: string) => text.replace(HIDDEN_CHARS, (char) => (KEPT_CONTROLS.has(char) ? char : ""));
-
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&nbsp;/g, " ")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)))
-    .replace(/&amp;/g, "&");
-}
 
 function htmlToText(html: string): string {
   return decodeEntities(
