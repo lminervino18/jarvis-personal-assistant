@@ -1,0 +1,7 @@
+‎[24/10/26, 14:05:33] Ana Prueba: Hola Loren
+‎[24/10/26, 14:05:40] Loren Prueba: ‎imagen omitida
+‎[24/10/26, 14:06:10] Ana Prueba: ‎<adjunto: 00000012-PHOTO-2026-10-24-14-06-10.jpg>
+‎[24/10/26, 14:07:00] Loren Prueba: Esta línea tiene un salto
+y una segunda línea del mismo mensaje
+‎[24/10/26, 14:08:00] Ana Prueba: La reunión es el 25/10 a las 10:30
+‎[24/10/26, 14:09:00] Ana Prueba: Eliminaste este mensaje.

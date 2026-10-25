@@ -6,6 +6,7 @@ import { gmailTools } from "./gmail-tools.js";
 import { integrationsStatus } from "./integrations-tools.js";
 import { memoryTools } from "./memory-tools.js";
 import { remindersTools } from "./reminders-tools.js";
+import { whatsappTools } from "./whatsapp-tools.js";
 import { youtubeTools } from "./youtube-tools.js";
 import type { AnyToolDefinition } from "./types.js";
 
@@ -18,6 +19,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...remindersTools,
   ...gmailTools,
   ...youtubeTools,
+  ...whatsappTools,
   integrationsStatus,
 ];
 
