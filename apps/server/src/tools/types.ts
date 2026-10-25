@@ -1,5 +1,6 @@
 import type { Card, IntegrationProvider, ToolInput, ToolName, ToolResult } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
+import type { GmailService } from "../integrations/gmail/gmail-service.js";
 
 /** Per-turn security state. Once tainted, state-changing tools need owner confirmation. */
 export interface TurnSecurityState {
@@ -25,6 +26,7 @@ export interface ToolServices {
   timezone: string;
   backupRetentionDays: number;
   statusSources: IntegrationStatusSource[];
+  gmail?: GmailService;
 }
 
 export interface PlayerCommand {

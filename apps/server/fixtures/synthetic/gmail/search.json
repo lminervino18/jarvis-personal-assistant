@@ -1,0 +1,77 @@
+{
+  "list": {
+    "messages": [
+      {
+        "id": "m1",
+        "threadId": "t1"
+      },
+      {
+        "id": "m2",
+        "threadId": "t2"
+      }
+    ],
+    "nextPageToken": "PAGE2",
+    "resultSizeEstimate": 2
+  },
+  "metadata": {
+    "m1": {
+      "id": "m1",
+      "threadId": "t1",
+      "labelIds": [
+        "INBOX",
+        "UNREAD"
+      ],
+      "snippet": "Te confirmo la reuni&#39;n del martes",
+      "internalDate": "1792857600000",
+      "payload": {
+        "headers": [
+          {
+            "name": "From",
+            "value": "Ana Prueba <ana@example.test>"
+          },
+          {
+            "name": "To",
+            "value": "Loren Prueba <loren.prueba@example.test>"
+          },
+          {
+            "name": "Subject",
+            "value": "Reunión del martes"
+          },
+          {
+            "name": "Date",
+            "value": "Sat, 24 Oct 2026 12:00:00 +0000"
+          }
+        ]
+      }
+    },
+    "m2": {
+      "id": "m2",
+      "threadId": "t2",
+      "labelIds": [
+        "INBOX"
+      ],
+      "snippet": "Factura de octubre adjunta",
+      "internalDate": "1792771200000",
+      "payload": {
+        "headers": [
+          {
+            "name": "From",
+            "value": "Facturación <facturas@example.test>"
+          },
+          {
+            "name": "To",
+            "value": "loren.prueba@example.test"
+          },
+          {
+            "name": "Subject",
+            "value": "Factura octubre"
+          },
+          {
+            "name": "Date",
+            "value": "Fri, 23 Oct 2026 12:00:00 +0000"
+          }
+        ]
+      }
+    }
+  }
+}

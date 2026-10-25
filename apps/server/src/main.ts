@@ -2,11 +2,13 @@ import { resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
 import { ConversationHub } from "./conversation/hub.js";
 import { ConversationOrchestrator } from "./conversation/orchestrator.js";
 import { TurnToolRegistry } from "./conversation/turn-tool-registry.js";
 import { openMigratedDatabase } from "./db/database.js";
+import { createGmailIntegration } from "./integrations/gmail/setup.js";
 import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
@@ -33,11 +35,20 @@ const assistantContext = () =>
     timezone: config.timezone,
   });
 
+const gmail = createGmailIntegration({
+  db,
+  env: process.env,
+  cipher: TokenCipher.fromEnv(process.env),
+  publicOrigin: config.publicOrigin,
+  timezone: config.timezone,
+});
+
 const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
-  statusSources: [],
+  statusSources: [gmail.statusSource],
+  gmail: gmail.service,
 };
 
 const vapid = loadVapidConfig();
@@ -72,6 +83,7 @@ const app = await buildApp({
   store,
   hub,
   assistantContext,
+  registerRoutes: gmail.registerRoutes,
   stt: unavailableStt,
   tts: unavailableTts,
   pushPublicKey: vapid?.publicKey ?? null,
