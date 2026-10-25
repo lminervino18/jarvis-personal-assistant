@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CardActions } from "./actions.js";
 import { CardView } from "./Cards.js";
+import { playerStatusLabel } from "./youtube-api.js";
 
 const actions: CardActions = {
   decide: () => {},
@@ -86,5 +87,21 @@ describe("cards", () => {
     expect(html).toContain("Cargando el reproductor");
     expect(html).not.toContain("Reproduciendo");
     expect(html).toContain("Abrir en YouTube");
+  });
+});
+
+describe("youtube card when playback is blocked", () => {
+  it("always offers a visible link to open the video on YouTube", () => {
+    const html = render({
+      kind: "youtube",
+      requestId: "r1",
+      videoId: "dQw4w9WgXcQ",
+      title: "Video de ejemplo",
+      url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      autoplay: true,
+    });
+    expect(html).toContain('href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"');
+    expect(html).toContain("Abrir en YouTube");
+    expect(playerStatusLabel("blocked")).toMatch(/Tocá reproducir/);
   });
 });
