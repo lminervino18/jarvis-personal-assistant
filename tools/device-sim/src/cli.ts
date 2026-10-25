@@ -11,7 +11,10 @@ const USAGE = `Usage: JARVIS_DEVICE_TOKEN=<token> pnpm --filter @jarvis/device-s
   --insecure              allow ws:// to a non-local host
 `;
 
+const args = process.argv.slice(2).filter((arg, index) => !(index === 0 && arg === "--"));
+
 const { values } = parseArgs({
+  args,
   options: {
     url: { type: "string" },
     wav: { type: "string" },
