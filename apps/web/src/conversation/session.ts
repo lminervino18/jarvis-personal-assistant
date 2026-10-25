@@ -2,6 +2,7 @@ import {
   STT_INPUT_FORMAT,
   type AssistantState,
   type AudioFormat,
+  type Card,
   type ClientMessage,
   type ServerAssistantState,
   type ServerMessage,
@@ -12,6 +13,7 @@ import type { PcmPlayerOptions } from "../audio/playback.js";
 import { VoiceLoop } from "../audio/voice-loop.js";
 import { ProtocolClient, defaultSocketUrl, type CloseInfo, type ConnectionStatus, type TransportFactory } from "../protocol/client.js";
 import { deriveState, isBusy } from "./assistant-state.js";
+import { integrationResultCard, type IntegrationResult } from "./integration-result.js";
 import { emptyThread, reduceThread, type ThreadEvent, type ThreadState } from "./thread.js";
 
 export type Capabilities = Extract<ServerMessage, { type: "ready" }>["capabilities"];
@@ -87,6 +89,7 @@ export class Session {
   private readonly timings = new Map<string, TurnTiming>();
   private readonly players = new Map<string, PlayerHandle>();
   private readonly pendingCommands = new Map<string, PlayerCommand>();
+  private readonly pendingCards: Card[] = [];
   private engine: AudioEngine | null = null;
   private thread: ThreadState = emptyThread();
   private capabilities: Capabilities | null = null;
@@ -240,6 +243,13 @@ export class Session {
     return { ok: true };
   }
 
+  /** Shows the outcome of a connection flow in the thread once the conversation has loaded. */
+  showIntegrationResult(result: IntegrationResult): void {
+    this.pendingCards.push(integrationResultCard(result));
+    this.flushLocalCards();
+    this.emit();
+  }
+
   dismissNotice(): void {
     if (!this.notice) return;
     this.notice = null;
@@ -316,8 +326,14 @@ export class Session {
     this.emit();
   }
 
+  private flushLocalCards(): void {
+    if (!this.thread.conversationId || this.thread.awaitingInitial) return;
+    for (const card of this.pendingCards.splice(0)) this.thread = reduceThread(this.thread, { type: "local.card", card }, this.isoNow());
+  }
+
   private onMessage(message: ServerMessage): void {
     if (threadEventTypes.has(message.type)) this.thread = reduceThread(this.thread, message as ThreadEvent, this.isoNow());
+    if (message.type === "history") this.flushLocalCards();
     switch (message.type) {
       case "ready":
         this.capabilities = message.capabilities;

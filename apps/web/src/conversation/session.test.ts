@@ -318,3 +318,23 @@ describe("Session voice turns", () => {
     expect(session.getSnapshot().micOpen).toBe(false);
   });
 });
+
+describe("Session integration result", () => {
+  it("shows the outcome after the history loads and keeps it out of the way before", () => {
+    const { session, connect } = setup();
+    session.showIntegrationResult({ status: "connected", label: "personal", reason: null });
+    expect(session.getSnapshot().thread.messages).toEqual([]);
+    connect();
+    const messages = session.getSnapshot().thread.messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.cards[0]).toMatchObject({ kind: "integration", status: "connected" });
+  });
+
+  it("shows it immediately when the conversation is already loaded", () => {
+    const { session, connect } = setup();
+    connect();
+    session.showIntegrationResult({ status: "error", label: "work", reason: "denied" });
+    expect(session.getSnapshot().thread.messages[0]?.cards[0]).toMatchObject({ status: "error", actionLabel: "Reintentar" });
+  });
+});

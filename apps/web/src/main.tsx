@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
 import { fetchAuthState } from "./auth/api.js";
 import { WebAudioEngine } from "./audio/engine.js";
+import { parseIntegrationResult } from "./conversation/integration-result.js";
 import { Session } from "./conversation/session.js";
 import { demoTransport } from "./demo/demo-server.js";
 import { Conversation } from "./ui/Conversation.js";
@@ -16,11 +17,17 @@ const root = createRoot(document.getElementById("root") as HTMLElement);
 const demo = new URLSearchParams(window.location.search).has("demo");
 
 function createSession(): Session {
-  return new Session({
+  const session = new Session({
     createEngine: (options) => new WebAudioEngine(options),
     isSessionValid: async () => (await fetchAuthState())?.authenticated !== false,
     subscribePush: subscribeToPush,
   });
+  const result = parseIntegrationResult(window.location.search);
+  if (result) {
+    session.showIntegrationResult(result);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+  return session;
 }
 
 function createDemoSession(): Session {
