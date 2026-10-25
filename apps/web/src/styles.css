@@ -205,6 +205,8 @@ a {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  scrollbar-color: rgba(70, 227, 255, 0.35) transparent;
+  scrollbar-width: thin;
   padding: 8px 2px 16px;
   scroll-behavior: smooth;
 }
