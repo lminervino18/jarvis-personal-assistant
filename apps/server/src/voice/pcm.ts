@@ -44,7 +44,7 @@ export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /** Wraps mono PCM s16le in a canonical 44-byte RIFF/WAVE header. */
-export function encodeWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
+export function encodeWav(pcm: Uint8Array, sampleRate: number): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(WAV_HEADER_BYTES + pcm.byteLength);
   const view = new DataView(out.buffer);
   const ascii = (offset: number, text: string) => {

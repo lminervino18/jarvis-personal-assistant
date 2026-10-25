@@ -22,7 +22,7 @@ import { PushSubscriptionStore } from "./push/subscriptions.js";
 import { loadVapidConfig } from "./push/vapid.js";
 import { allTools } from "./tools/index.js";
 import type { ToolServices } from "./tools/types.js";
-import { unavailableStt, unavailableTts } from "./voice/types.js";
+import { createVoiceServices } from "./voice/providers.js";
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -63,6 +63,9 @@ const vapid = loadVapidConfig();
 const pushSubscriptions = new PushSubscriptionStore(db);
 services.statusSources.push(new PushStatusSource(db, vapid), new AgendaStatusSource(db, config.timezone));
 
+const voice = createVoiceServices(process.env, { allowFixtures: config.env !== "production" });
+for (const warning of voice.warnings) logger.warn(warning);
+
 const toolRegistry = new TurnToolRegistry();
 const runtime: ModelRuntime =
   config.runtime === "scripted"
@@ -93,8 +96,8 @@ const app = await buildApp({
   assistantContext,
   registerRoutes: gmail.registerRoutes,
   onPlayerState: youtube.onPlayerState,
-  stt: unavailableStt,
-  tts: unavailableTts,
+  stt: voice.stt,
+  tts: voice.tts,
   pushPublicKey: vapid?.publicKey ?? null,
   onPushSubscribe: async (subscription, userAgent) => pushSubscriptions.save(subscription, userAgent),
   orchestrator: new ConversationOrchestrator({
@@ -113,6 +116,8 @@ const app = await buildApp({
 
 const context = assistantContext();
 app.log.info({ runtime: runtime.name, profile: context.profileSource, fingerprint: context.fingerprint }, "assistant context loaded");
+
+app.log.info({ stt: voice.stt.provider, tts: voice.tts.provider }, "voice providers loaded");
 
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
