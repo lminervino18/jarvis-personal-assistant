@@ -40,6 +40,10 @@ Command: `pnpm --filter @jarvis/server probe:claude <report.json>` with the owne
 
 Latency observed (effort `low`, Opus 5.5, local machine, Buenos Aires): first text 1.5–1.9 s for new sessions, about 3.4 s on resume. Each turn spawns a Claude Code process; keeping a streaming-input process per conversation is a planned optimization.
 
+## Model
+
+The assistant defaults to `claude-sonnet-5-5` (`CLAUDE_MODEL`), chosen by the owner on 2026-10-24: it shares the subscription quota with the owner's own Claude Code usage, the turns are short and tool-driven, and it measured as fast as Opus 5.5 with a much tighter p95. The probe results below were taken with the account default (Opus 5.5) before that change.
+
 ## Latency bench
 
 Command: `pnpm --filter @jarvis/server exec tsx scripts/claude-latency.ts 5 low` (real service, owner login, `replyMode: voice`). Measured 2026-10-24 on the development machine while six other build agents were running on it, so the p95 values include local CPU contention and are pessimistic.
@@ -51,3 +55,11 @@ Command: `pnpm --filter @jarvis/server exec tsx scripts/claude-latency.ts 5 low`
 | Resumed, one tool call | 4.31 s | 4.65 s | 4.33 s | 4.70 s |
 
 These are Claude-only numbers. End-to-end voice latency adds STT before and TTS after, and is measured per turn in the `turns` table. Tool turns are slower because the model answers after the tool round trip; a short spoken acknowledgement is not emitted on purpose (provisional text is not read aloud).
+
+Same bench with the new default, `claude-latency.ts 5 low claude-sonnet-5-5`, measured 2026-10-25 02:22 UTC while four build agents ran on the machine:
+
+| Case (n = 5) | First text p50 | First text p95 | Total p50 | Total p95 |
+| - | - | - | - | - |
+| New session, simple | 2.07 s | 2.30 s | 2.55 s | 3.00 s |
+| Resumed, simple | 2.13 s | 2.58 s | 2.84 s | 2.94 s |
+| Resumed, one tool call | 4.27 s | 4.73 s | 4.44 s | 4.80 s |
