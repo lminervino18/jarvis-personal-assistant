@@ -12,7 +12,8 @@
     "hash-password": "tsx scripts/hash-password.ts",
     "vapid:generate": "tsx scripts/generate-vapid-keys.ts",
     "probe:claude": "tsx scripts/claude-probe.ts",
-    "wa:import": "tsx --env-file-if-exists=../../.env scripts/wa-import.ts"
+    "wa:import": "tsx --env-file-if-exists=../../.env scripts/wa-import.ts",
+    "bench:voice": "tsx scripts/voice-bench.ts"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0",
