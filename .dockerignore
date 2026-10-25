@@ -47,3 +47,6 @@ voice/eval-samples
 
 **/*.log
 **/.DS_Store
+**/*.webm
+**/*.mp4
+**/*.mkv

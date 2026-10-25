@@ -99,3 +99,8 @@ Thumbs.db
 
 # Git worktrees used during development
 .worktrees/
+
+# Video containers
+*.webm
+*.mp4
+*.mkv
