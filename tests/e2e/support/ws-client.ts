@@ -27,11 +27,16 @@ export interface ConnectOptions {
   cookie?: string;
 }
 
+export interface UpgradeOptions extends Partial<ConnectOptions> {
+  authorization?: string;
+}
+
 /** Refused WebSocket upgrades surface as the HTTP status the server answered with. */
-export async function upgradeStatus(url: string, options: Partial<ConnectOptions>): Promise<number> {
+export async function upgradeStatus(url: string, options: UpgradeOptions): Promise<number> {
   const headers: Record<string, string> = {};
   if (options.origin) headers.origin = options.origin;
   if (options.cookie) headers.cookie = options.cookie;
+  if (options.authorization) headers.authorization = options.authorization;
   return new Promise((resolveStatus, reject) => {
     const socket = new WebSocket(url, { headers });
     socket.once("unexpected-response", (_request, response) => {
