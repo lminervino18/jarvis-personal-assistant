@@ -70,7 +70,7 @@ size_t buildHello(char* out, size_t capacity, const char* version, const char* c
   if (conversationId && conversationId[0]) std::snprintf(resume, sizeof resume, ",\"conversationId\":\"%s\"", conversationId);
   const int written = std::snprintf(out, capacity,
                                     "{\"type\":\"hello\",\"protocol\":1,\"client\":{\"kind\":\"device\",\"version\":\"%s\"},"
-                                    "\"audio\":{\"input\":[%s],\"output\":[%s]}%s}",
+                                    "\"audio\":{\"input\":[%s],\"output\":[%s]},\"history\":false%s}",
                                     version, kFormat, kFormat, resume);
   return finish(written, capacity);
 }

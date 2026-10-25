@@ -224,6 +224,7 @@ export class DeviceSimulator {
       client: { kind: "simulator", version: this.options.version },
       audio: { input: [DEVICE_AUDIO_FORMAT], output: [DEVICE_AUDIO_FORMAT] },
       conversationId: this.conversationId,
+      history: false,
     });
   }
 
