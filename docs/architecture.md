@@ -23,6 +23,13 @@ One SQLite database is the source of truth for conversations, memory, agenda, ag
 | worker | `apps/server/src/worker.ts` | Reminder scheduling, outbox delivery (Web Push), recovery after restarts. Never imports the Claude runtime. |
 | whatsapp-bridge | `apps/server/src/whatsapp-bridge.ts` | Optional, disabled by default. Read-only sync of the owner's WhatsApp into `wa_messages`. |
 
+## Reminders worker
+
+- Each tick claims due reminders inside `BEGIN IMMEDIATE`, writes outbox rows with unique dedupe keys (`reminder:<id>:<due_utc>:push|chat`) and advances recurring series in their own zone.
+- Downtime policy, applied on every tick: a reminder overdue by at most `REMINDER_GRACE_MINUTES` (default 360) fires once, marked late; older ones are not fired, one-offs become `missed`, recurring ones skip to the next occurrence, and a single digest (push with a count, chat with the list) is sent.
+- The dispatcher leases one outbox row at a time, retries with exponential backoff up to 6 attempts, then marks it `dead`. 404/410 prune the subscription. Chat messages are written in the same transaction that closes the row, so they land exactly once; push is at-least-once and the notification tag deduplicates on the device.
+- Push payload: `{ title, body, tag, url }`. The body is the reminder text, or "Tenés un recordatorio." when the reminder is sensitive. The server's live feed polls new system messages and emits single-item `history` events.
+
 ## Turn lifecycle
 
 1. Client sends `user.text`, or `audio.begin` + binary mic frames + `audio.end`.
