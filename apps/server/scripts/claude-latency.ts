@@ -3,7 +3,7 @@
  * CLAUDE_CODE_OAUTH_TOKEN): time to first text and total, for new sessions, resumed
  * sessions and a tool turn. Never runs in CI.
  *
- * Usage: pnpm --filter @jarvis/server exec tsx scripts/claude-latency.ts [samples] [effort]
+ * Usage: pnpm --filter @jarvis/server exec tsx scripts/claude-latency.ts [samples] [effort] [model]
  */
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import { createTurnToolServer, qualifiedToolName } from "../src/tools/mcp-server
 
 const samples = Number(process.argv[2] ?? 5);
 const effort = (process.argv[3] ?? "low") as Effort;
+const model = process.argv[4] ?? "claude-sonnet-5-5";
 const timezone = "America/Argentina/Buenos_Aires";
 const assistantDir = defaultAssistantDir();
 const context = loadAssistantContext({
@@ -31,6 +32,7 @@ const services = { db: openMigratedDatabase(":memory:"), timezone, backupRetenti
 const runtime = new ClaudeAgentRuntime({
   workspaceDir: resolve(tmpdir(), "jarvis-latency-workspace"),
   timezone,
+  model,
   effort,
   maxTurns: 4,
   allowOverage: false,
@@ -101,5 +103,5 @@ const summary = Object.fromEntries(
     },
   ]),
 );
-console.log(JSON.stringify({ effort, measuredAt: new Date().toISOString(), summary }, null, 2));
+console.log(JSON.stringify({ model, effort, measuredAt: new Date().toISOString(), summary }, null, 2));
 process.exit(0);

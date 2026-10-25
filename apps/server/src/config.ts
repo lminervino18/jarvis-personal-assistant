@@ -18,7 +18,7 @@ const EnvSchema = z.object({
   OWNER_PASSWORD_HASH: z.string().optional(),
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
   RUNTIME: z.enum(["claude", "scripted"]).default("claude"),
-  CLAUDE_MODEL: z.string().optional(),
+  CLAUDE_MODEL: z.string().min(1).default("claude-sonnet-5-5"),
   CLAUDE_CONFIG_DIR: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   CLAUDE_MAX_TURNS: z.coerce.number().int().min(1).max(50).default(12),
@@ -42,7 +42,7 @@ export interface AppConfig {
   sessionTtlDays: number;
   runtime: "claude" | "scripted";
   claude: {
-    model?: string;
+    model: string;
     configDir?: string;
     oauthToken?: string;
     maxTurns: number;
