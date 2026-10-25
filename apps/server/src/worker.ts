@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { openMigratedDatabase } from "./db/database.js";
 import { createLogger } from "./logger.js";
 import { createWebPushSender } from "./push/sender.js";
@@ -23,6 +24,7 @@ async function runCycle(): Promise<void> {
     const result = scheduler.tick(now);
     if (result.fired + result.missed > 0) logger.info(result, "reminders claimed");
     await dispatcher.runOnce(now);
+    writeFileSync(process.env.WORKER_HEARTBEAT_FILE ?? "/tmp/worker-heartbeat", String(Date.now()));
   } catch (error) {
     logger.error({ err: error instanceof Error ? error.message : "unknown" }, "worker cycle failed");
   }

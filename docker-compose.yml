@@ -45,7 +45,11 @@ services:
     <<: *app
     command: ["node", "dist/worker.js"]
     healthcheck:
-      disable: true
+      test: ["CMD", "node", "-e", "const t=Number(require('fs').readFileSync('/tmp/worker-heartbeat','utf8'));process.exit(Date.now()-t<60000?0:1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     depends_on:
       server:
         condition: service_healthy
