@@ -97,6 +97,9 @@ export async function startDeviceTestServer(options: DeviceTestServerOptions = {
       });
       return (response.headers.get("set-cookie") ?? "").split(";")[0] as string;
     },
+    terminateClients(): void {
+      for (const client of app.websocketServer.clients) client.terminate();
+    },
     async close(): Promise<void> {
       await app.close();
       db.close();

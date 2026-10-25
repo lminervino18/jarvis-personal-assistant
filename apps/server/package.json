@@ -16,6 +16,7 @@
     "bench:voice": "tsx scripts/voice-bench.ts"
   },
   "devDependencies": {
+    "@jarvis/device-sim": "workspace:*",
     "@types/better-sqlite3": "9.6.0",
     "@types/luxon": "3.7.6",
     "@types/web-push": "3.6.4",
