@@ -64,6 +64,13 @@ const pushSubscriptions = new PushSubscriptionStore(db);
 services.statusSources.push(new PushStatusSource(db, vapid), new AgendaStatusSource(db, config.timezone));
 
 const voice = createVoiceServices(process.env, { allowFixtures: config.env !== "production" });
+const externalTts = voice.tts.provider === "elevenlabs";
+const textOnlySources = new Set(
+  (process.env.VOICE_TEXT_ONLY_SOURCES ?? (externalTts ? "gmail_search,gmail_get_thread" : ""))
+    .split(",")
+    .map((source) => source.trim())
+    .filter(Boolean),
+);
 for (const warning of voice.warnings) logger.warn(warning);
 
 const toolRegistry = new TurnToolRegistry();
@@ -110,6 +117,7 @@ const app = await buildApp({
     builtinTools,
     ownerName: config.ownerDisplayName,
     sessionMaxTurns: config.claude.sessionMaxTurns,
+    textOnlySources,
     log: logger,
   }),
 });

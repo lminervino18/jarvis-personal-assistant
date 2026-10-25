@@ -24,6 +24,8 @@ export interface OrchestratorDeps {
   builtinTools: readonly string[];
   ownerName: string;
   sessionMaxTurns: number;
+  /** Taint sources whose content must never reach the voice provider (e.g. email over an external TTS). */
+  textOnlySources?: ReadonlySet<string>;
   log: Logger;
   now?: () => Date;
 }
@@ -247,22 +249,35 @@ export class ConversationOrchestrator {
       security,
     });
 
-    const speaker = input.createSpeaker?.(signal);
+    const voice = { speaker: input.createSpeaker?.(signal) };
+    const keepSensitiveAsText = () => {
+      const textOnly = this.deps.textOnlySources;
+      if (!voice.speaker || !textOnly || ![...security.taintSources].some((source) => textOnly.has(source))) return;
+      voice.speaker.cancel();
+      voice.speaker = undefined;
+      emit({
+        type: "notice",
+        level: "info",
+        code: "voice_text_only",
+        message: "Te dejo esta respuesta por escrito porque incluye contenido de tus correos.",
+      });
+    };
     emit({ type: "state", state: "thinking", turnId });
 
     let outcome: TurnOutcome;
     try {
-      outcome = await this.consume(input, resumeSessionId, seedContext, signal, emit, speaker);
+      outcome = await this.consume(input, resumeSessionId, seedContext, signal, emit, voice, keepSensitiveAsText);
       if (outcome.errorCode === "resume_failed" && !outcome.text && !signal.aborted) {
         this.deps.log.warn({ turnId }, "claude session could not be resumed; starting a seeded session");
         resumeSessionId = undefined;
         seedContext = store.seedContext(conversationId, ownerName);
-        outcome = await this.consume(input, undefined, seedContext, signal, emit, speaker);
+        outcome = await this.consume(input, undefined, seedContext, signal, emit, voice, keepSensitiveAsText);
       }
     } finally {
       this.deps.toolRegistry.release(turnId);
     }
 
+    const speaker = voice.speaker;
     const cancelled = signal.aborted || outcome.errorCode === "cancelled";
     if (outcome.sessionId) {
       const sessionTurns = resumeSessionId && outcome.sessionId === resumeSessionId ? conversation.session_turns + 1 : 1;
@@ -328,7 +343,8 @@ export class ConversationOrchestrator {
     seedContext: string | undefined,
     signal: AbortSignal,
     emit: (message: OutgoingServerMessage) => void,
-    speaker: ReplySpeaker | undefined,
+    voice: { speaker?: ReplySpeaker },
+    afterTool: () => void,
   ): Promise<TurnOutcome> {
     const outcome: TurnOutcome = { text: "", usedTools: false };
     const events = this.deps.runtime.runTurn({
@@ -349,16 +365,17 @@ export class ConversationOrchestrator {
           outcome.firstTextAt ??= performance.now();
           outcome.text += event.text;
           emit({ type: "assistant.delta", turnId: input.turnId, text: event.text });
-          speaker?.textDelta(event.text);
+          voice.speaker?.textDelta(event.text);
           break;
         case "tool_start":
           outcome.usedTools = true;
-          speaker?.toolStarted();
+          voice.speaker?.toolStarted();
           emit({ type: "tool", turnId: input.turnId, toolUseId: event.toolUseId, name: event.name, phase: "start" });
           emit({ type: "state", state: "using_tool", turnId: input.turnId, tool: event.name });
           break;
         case "tool_end":
           emit({ type: "tool", turnId: input.turnId, toolUseId: event.toolUseId, name: event.name, phase: "end", ok: !event.isError });
+          afterTool();
           emit({ type: "state", state: "thinking", turnId: input.turnId });
           break;
         case "retry":
