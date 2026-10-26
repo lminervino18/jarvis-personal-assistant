@@ -10,7 +10,8 @@ private/
   raw/               original downloads (untouched)
   normalized/        mono 22.05 kHz WAV, EBU R128 loudness
   separated/         optional vocals stem
-  segments/          one WAV per VAD segment
+  transcripts/       cached Whisper word timings per source (phrases step)
+  segments/          one WAV per clip
   segments.jsonl     one record per segment: source, times, similarity, kept, text, logprob, drop reason, split
   dataset/           train.csv, eval.csv (`file.wav|text`, Piper format) and wavs/
   cache/             downloaded models (ECAPA speaker encoder, Whisper)
@@ -93,3 +94,4 @@ The first run kept segments where another character answered inside a JARVIS lin
 | Eval (2 source clips) | 3 | 8.6 |
 
 Phrase scores split cleanly: other characters at 0.35 or less, the character at 0.54 or more, with a handful of ambiguous phrases between 0.40 and 0.49 that the 0.5 threshold drops. Reading every kept transcript found no line from another character. Less audio than the first run, but clean; more Iron Man 1 and 2 material is the way to grow it.
+

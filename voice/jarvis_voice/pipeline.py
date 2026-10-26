@@ -2,6 +2,8 @@ import csv
 import json
 import shutil
 from collections import Counter
+from dataclasses import asdict
+from functools import cache
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +12,7 @@ from . import audio, manifest
 from .dedupe import group_duplicates
 from .phrases import Word, clip_bounds, join_accepted, split_phrases
 from .segment import detect_speech
-from .speakers import dominant_centroid, embed_segments, similarity_to
+from .speakers import dominant_centroid, embed, embed_segments, load_encoder, similarity_to
 from .split import choose_eval_sources
 from .transcribe import load_model, transcribe, transcribe_words
 
@@ -98,29 +100,47 @@ def histogram(similarity: np.ndarray) -> dict:
     return dict(sorted(Counter(round(float(np.floor(s * 10) / 10), 1) for s in similarity).items()))
 
 
-def transcribe_sources(private: Path) -> dict[str, tuple[np.ndarray, list[list[Word]]]]:
-    model = load_model(str(private / "cache"))
-    sources = {}
-    for source in manifest.active_sources(private):
-        sid = manifest.source_id(source)
-        samples, rate = audio.read_mono(private / "normalized" / f"{sid}.wav")
-        sources[sid] = (samples, split_phrases(transcribe_words(model, samples, rate)))
-    return sources
+def read_normalized(private: Path, sid: str) -> np.ndarray:
+    return audio.read_mono(private / "normalized" / f"{sid}.wav")[0]
+
+
+def cached_words(private: Path, sid: str, model) -> list[Word]:
+    path = private / "transcripts" / f"{sid}.json"
+    if not path.exists():
+        words = transcribe_words(model(), read_normalized(private, sid), audio.TRAIN_RATE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps([asdict(word) for word in words], ensure_ascii=False))
+    return [Word(**word) for word in json.loads(path.read_text())]
+
+
+def source_phrases(private: Path) -> dict[str, list[list[Word]]]:
+    """Phrases of every active source. Word timings are cached in transcripts/, so a rerun with another threshold skips Whisper."""
+    model = cache(lambda: load_model(str(private / "cache")))
+    sids = [manifest.source_id(source) for source in manifest.active_sources(private)]
+    return {sid: split_phrases(cached_words(private, sid, model)) for sid in sids}
 
 
 def cut(samples: np.ndarray, start: float, end: float, rate: int = audio.TRAIN_RATE) -> np.ndarray:
     return samples[int(start * rate): int(end * rate)]
 
 
-def score_phrases(private: Path, sources: dict[str, tuple[np.ndarray, list[list[Word]]]], reference: str) -> tuple[dict[tuple[str, int], float], dict]:
-    """Similarity to the dominant speaker of the reference source for every phrase long enough to embed."""
-    keys = [(sid, i) for sid, (_, phrases) in sources.items() for i, p in enumerate(phrases) if p[-1].end - p[0].start >= MIN_PHRASE_S]
-    waveforms = [cut(sources[sid][0], sources[sid][1][i][0].start, sources[sid][1][i][-1].end) for sid, i in keys]
-    embeddings = embed_segments(waveforms, audio.TRAIN_RATE, str(private / "cache"))
-    durations = np.array([len(w) / audio.TRAIN_RATE for w in waveforms])
+def score_phrases(private: Path, sources: dict[str, list[list[Word]]], reference: str) -> tuple[dict[tuple[str, int], float], dict]:
+    """Similarity to the dominant speaker of the reference source for every phrase long enough to embed, one source in memory at a time."""
+    encoder = load_encoder(str(private / "cache"))
+    keys, embeddings, durations = [], [], []
+    for sid, phrases in sources.items():
+        long = [i for i, p in enumerate(phrases) if p[-1].end - p[0].start >= MIN_PHRASE_S]
+        if not long:
+            continue
+        samples = read_normalized(private, sid)
+        waveforms = [cut(samples, phrases[i][0].start, phrases[i][-1].end) for i in long]
+        keys += [(sid, i) for i in long]
+        embeddings.append(embed(encoder, waveforms, audio.TRAIN_RATE))
+        durations += [len(w) / audio.TRAIN_RATE for w in waveforms]
+    vectors, seconds = np.concatenate(embeddings), np.array(durations)
     in_reference = np.array([sid == reference for sid, _ in keys])
-    centroid, cluster = dominant_centroid(embeddings[in_reference], durations[in_reference])
-    similarity = similarity_to(centroid, embeddings)
+    centroid, cluster = dominant_centroid(vectors[in_reference], seconds[in_reference])
+    similarity = similarity_to(centroid, vectors)
     stats = {"reference_phrases": int(in_reference.sum()), "reference_cluster_phrases": int(cluster.sum()), "histogram": histogram(similarity)}
     return {key: float(score) for key, score in zip(keys, similarity)}, stats
 
@@ -139,7 +159,8 @@ def phrase_record(sid: str, name: str, phrases: list[list[Word]], indices: list[
     }
 
 
-def write_phrase_clips(private: Path, sid: str, samples: np.ndarray, phrases: list[list[Word]], scores: dict[int, float], threshold: float) -> list[dict]:
+def write_phrase_clips(private: Path, sid: str, phrases: list[list[Word]], scores: dict[int, float], threshold: float) -> list[dict]:
+    samples = read_normalized(private, sid)
     accepted = [scores.get(i, 0.0) >= threshold for i in range(len(phrases))]
     records = []
     for n, clip in enumerate(join_accepted(phrases, accepted)):
@@ -154,15 +175,15 @@ def segment_phrases(private: Path, reference: str, threshold: float) -> dict:
     Cuts every active source at speaker turns: Whisper words grouped into phrases, each phrase scored against
     the reference speaker, and runs of accepted phrases written as clips. Replaces segment, filter and transcribe.
     """
-    sources = transcribe_sources(private)
+    sources = source_phrases(private)
     scores, stats = score_phrases(private, sources, reference)
     shutil.rmtree(private / "segments", ignore_errors=True)
     records = []
-    for sid, (samples, phrases) in sources.items():
+    for sid, phrases in sources.items():
         own = {i: score for (source, i), score in scores.items() if source == sid}
-        records += write_phrase_clips(private, sid, samples, phrases, own, threshold)
+        records += write_phrase_clips(private, sid, phrases, own, threshold)
     write_segments(private, records)
-    total = sum(len(phrases) for _, phrases in sources.values())
+    total = sum(len(phrases) for phrases in sources.values())
     report = {"reference": reference, "phrases": total, "phrases_too_short": total - len(scores), **stats, "threshold": threshold}
     (private / "speaker_report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report

@@ -26,13 +26,21 @@ def dominant_centroid(embeddings: np.ndarray, durations: np.ndarray, threshold: 
     return centroid, vectors @ centroid >= threshold
 
 
-def embed_segments(waveforms: list[np.ndarray], rate: int, cache_dir: str) -> np.ndarray:
-    import torch
+def load_encoder(cache_dir: str):
     from speechbrain.inference.speaker import EncoderClassifier
 
-    encoder = EncoderClassifier.from_hparams(
+    return EncoderClassifier.from_hparams(
         source="speechbrain/spkrec-ecapa-voxceleb", savedir=f"{cache_dir}/ecapa", run_opts={"device": "cpu"},
     )
+
+
+def embed_segments(waveforms: list[np.ndarray], rate: int, cache_dir: str) -> np.ndarray:
+    return embed(load_encoder(cache_dir), waveforms, rate)
+
+
+def embed(encoder, waveforms: list[np.ndarray], rate: int) -> np.ndarray:
+    import torch
+
     vectors = []
     for samples in waveforms:
         audio = torch.from_numpy(resample(samples, rate, ANALYSIS_RATE)).unsqueeze(0)

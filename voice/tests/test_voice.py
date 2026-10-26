@@ -4,7 +4,7 @@ import shutil
 import numpy as np
 import pytest
 
-from jarvis_voice import audio, manifest
+from jarvis_voice import audio, manifest, pipeline
 from jarvis_voice.dedupe import group_duplicates, near_duplicates, normalize_text
 from jarvis_voice.phrases import Word, clip_bounds, join_accepted, split_phrases
 from jarvis_voice.segment import Span, merge_spans
@@ -43,6 +43,16 @@ def test_clip_bounds_pad_without_crossing_the_gap_midpoint():
     words = [Word(2.0, 3.0, "hola")]
     assert clip_bounds(words, Word(1.0, 1.9, "x"), Word(4.0, 4.5, "y")) == (1.95, 3.15)
     assert clip_bounds([Word(0.05, 1.0, "hola")], None, None) == (0.0, 1.15)
+
+
+def test_cached_words_skip_whisper(tmp_path):
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "x.json").write_text(json.dumps([{"start": 0.0, "end": 0.5, "text": "Señor.", "probability": 0.9}]))
+
+    def model():
+        raise AssertionError("Whisper must not run when a transcript is cached")
+
+    assert pipeline.cached_words(tmp_path, "x", model) == [Word(0.0, 0.5, "Señor.", 0.9)]
 
 
 def test_text_normalization_ignores_case_accents_and_punctuation():
