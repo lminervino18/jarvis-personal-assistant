@@ -200,11 +200,24 @@ def transcribe_kept(private: Path) -> None:
     write_segments(private, segments)
 
 
+def review_drops(private: Path) -> set[str]:
+    """Clip ids dropped by hand after listening or reading transcripts, from review.json: {"drop": {"<id>": "<reason>"}}."""
+    path = private / "review.json"
+    return set(json.loads(path.read_text())["drop"]) if path.exists() else set()
+
+
+def drop_reason(segment: dict, reviewed: set[str]) -> str:
+    if not segment.get("kept"):
+        return "other_speaker"
+    return "manual_review" if segment["id"] in reviewed else "low_confidence_transcript"
+
+
 def dedupe_and_split(private: Path, reference: str) -> dict:
     segments = read_segments(private)
-    usable = [s for s in segments if s.get("kept") and s.get("text") and s["logprob"] >= MIN_LOGPROB]
+    reviewed = review_drops(private)
+    usable = [s for s in segments if s.get("kept") and s.get("text") and s["logprob"] >= MIN_LOGPROB and s["id"] not in reviewed]
     for segment in segments:
-        segment["drop"] = None if segment in usable else ("other_speaker" if not segment.get("kept") else "low_confidence_transcript")
+        segment["drop"] = None if segment in usable else drop_reason(segment, reviewed)
     for group in group_duplicates([s["text"] for s in usable]):
         best = max(group, key=lambda i: (usable[i]["duration"], usable[i]["similarity"]))
         for i in group:
@@ -225,7 +238,7 @@ def summarize(segments: list[dict]) -> dict:
     def stats(rows: list[dict]) -> dict:
         return {"segments": len(rows), "seconds": round(sum(r["duration"] for r in rows), 1)}
 
-    dropped = {reason: stats([s for s in segments if s.get("drop") == reason]) for reason in ("other_speaker", "low_confidence_transcript", "near_duplicate")}
+    dropped = {reason: stats([s for s in segments if s.get("drop") == reason]) for reason in ("other_speaker", "manual_review", "low_confidence_transcript", "near_duplicate")}
     final = [s for s in segments if s.get("drop") is None and s.get("split")]
     return {
         "candidates": stats(segments),

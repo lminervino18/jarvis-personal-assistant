@@ -12,6 +12,7 @@ private/
   separated/         optional vocals stem
   transcripts/       cached Whisper word timings per source (phrases step)
   segments/          one WAV per clip
+  review.json        optional hand-made drops after listening: {"drop": {"<clip id>": "<reason>"}}
   segments.jsonl     one record per segment: source, times, similarity, kept, text, logprob, drop reason, split
   dataset/           train.csv, eval.csv (`file.wav|text`, Piper format) and wavs/
   cache/             downloaded models (ECAPA speaker encoder, Whisper)
@@ -42,7 +43,7 @@ uv run pytest                    # synthetic audio only
 4. **Phrases.** faster-whisper transcribes each source with word timings. Words are grouped into phrases that break at sentence punctuation, at an opening `¿` or `¡`, at pauses over 0.3 s and at 15 s, which is where speakers take turns in film dialogue. Phrases under 0.8 s are too short to verify and are dropped. Each phrase is scored against the speaker centroid (step 5) and runs of consecutive accepted phrases with pauses up to 0.35 s become one clip, padded by 0.15 s without crossing the midpoint to a neighbouring word. A fast reply from another voice therefore splits the clip instead of riding inside it. The older `segment` command (Silero VAD, silences of 250 ms split, segments of 1 to 15 s) cannot split such turns.
 5. **Speaker filter.** The reference clip (a compilation that is mostly the target character) provides the centroid: the speaker who talks the longest in it, found with an ECAPA-TDNN embedding (`speechbrain/spkrec-ecapa-voxceleb`, Apache-2.0) by duration-weighted cosine clustering. Every segment of every clip is scored against that centroid; segments below `--threshold` are dropped. The speaker report prints the similarity histogram; pick the threshold in the valley between the two modes, not by habit. Check the choice by reading transcripts around the boundary (the character addresses the protagonist as "señor"), never by trusting the score alone.
 6. **Transcribe.** faster-whisper `large-v3-turbo` int8, Spanish, beam 5. Segments with mean log-probability below -1.0 are dropped as unreliable text; read the rest before training, ASR slips on names and numbers are normal.
-7. **De-duplicate.** Transcripts are lowercased, stripped of accents and punctuation, and compared with a similarity ratio of 0.85 plus containment of 4 or more words. Each group of near-identical lines keeps one segment (longest, then highest speaker similarity), because a compilation clip often contains several shorter lines of the same group and keeping it preserves all of them. Compilations repeat the same line across clips, so this matters.
+7. **De-duplicate.** Transcripts are lowercased, stripped of accents and punctuation, and compared with a similarity ratio of 0.85 plus containment of 4 or more words. Each group of near-identical lines keeps one segment (longest, then highest speaker similarity), because a compilation clip often contains several shorter lines of the same group and keeping it preserves all of them. Compilations repeat the same line across clips, so this matters. Clips listed in `review.json` are dropped before de-duplication, so a rejected take never wins a group. The clip ids stay stable while the cached transcripts and the threshold stay the same.
 8. **Split by source clip.** Whole clips go to evaluation until they hold about 20 percent of the audio, the reference clip last because its voice defined the centroid. Because duplicates collapse across all clips before the split, no near-identical line can sit on both sides.
 9. **Export.** `train.csv` and `eval.csv` with pipe-delimited `file.wav|text`, the format `python -m piper.train fit` reads, plus `report.json`.
 
@@ -95,3 +96,21 @@ The first run kept segments where another character answered inside a JARVIS lin
 
 Phrase scores split cleanly: other characters at 0.35 or less, the character at 0.54 or more, with a handful of ambiguous phrases between 0.40 and 0.49 that the 0.5 threshold drops. Reading every kept transcript found no line from another character. Less audio than the first run, but clean; more Iron Man 1 and 2 material is the way to grow it.
 
+## Third run: bulk download (aggregates only)
+
+54 more clips picked by title from YouTube searches (Iron Man 1 and 2, The Avengers, Iron Man 3, character compilations and a dub greeting), 163 min of audio. Every JARVIS phrase from Iron Man 3 scores 0.40 to 0.58, even in a compilation that holds only the character, against 0.55 to 0.94 for Iron Man 1 and 2. That is a different mix or actor, so its 18 clips are excluded like Age of Ultron. Compilations narrated by an uploader score low for the narrator and high for the character, which is the per-phrase behaviour the step is built for. Three clips were dropped in `review.json`: two where the transcript glued another character's words to the line and one with an unreadable transcript.
+
+| Stage | Clips | Seconds |
+| --- | --- | --- |
+| Active sources (59 downloaded, 19 excluded) | 40 | |
+| Phrases transcribed | 1431 | |
+| Phrases too short to verify (< 0.8 s) | 470 | |
+| Candidate clips and rejected phrases | 935 | 2484.8 |
+| Dropped: other speaker (similarity below 0.5) | 821 | 2014.0 |
+| Dropped: manual review | 3 | 10.7 |
+| Dropped: near-duplicate line | 67 | 231.8 |
+| Kept | 44 | 228.2 |
+| Train | 26 | 173.1 |
+| Eval (11 source clips) | 18 | 55.1 |
+
+The kept transcripts were read one by one; apart from the three review drops, every clip is a line of the character.

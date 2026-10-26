@@ -55,6 +55,19 @@ def test_cached_words_skip_whisper(tmp_path):
     assert pipeline.cached_words(tmp_path, "x", model) == [Word(0.0, 0.5, "Señor.", 0.9)]
 
 
+def test_review_drops_win_over_duplicates_and_are_reported(tmp_path):
+    rows = [
+        {"id": "a_000", "source": "a", "duration": 3.0, "similarity": 0.6, "kept": True, "text": "Bienvenido a casa, señor.", "logprob": -0.1},
+        {"id": "b_000", "source": "b", "duration": 2.0, "similarity": 0.7, "kept": True, "text": "Bienvenido a casa señor", "logprob": -0.1},
+    ]
+    pipeline.write_segments(tmp_path, rows)
+    (tmp_path / "review.json").write_text(json.dumps({"drop": {"a_000": "mixed with another voice"}}))
+    report = pipeline.dedupe_and_split(tmp_path, reference="b")
+    kept = {s["id"]: s["drop"] for s in pipeline.read_segments(tmp_path)}
+    assert kept == {"a_000": "manual_review", "b_000": None}
+    assert report["dropped"]["manual_review"] == {"segments": 1, "seconds": 3.0}
+
+
 def test_text_normalization_ignores_case_accents_and_punctuation():
     assert normalize_text("¡Buenas noches, Señor Stark!") == "buenas noches senor stark"
 
