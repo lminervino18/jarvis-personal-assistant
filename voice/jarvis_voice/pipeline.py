@@ -108,7 +108,7 @@ def dedupe_and_split(private: Path, reference: str) -> dict:
     for segment in segments:
         segment["drop"] = None if segment in usable else ("other_speaker" if not segment.get("kept") else "low_confidence_transcript")
     for group in group_duplicates([s["text"] for s in usable]):
-        best = max(group, key=lambda i: (usable[i]["similarity"], usable[i]["duration"]))
+        best = max(group, key=lambda i: (usable[i]["duration"], usable[i]["similarity"]))
         for i in group:
             if i != best:
                 usable[i]["drop"] = "near_duplicate"
