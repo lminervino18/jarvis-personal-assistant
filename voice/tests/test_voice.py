@@ -6,6 +6,7 @@ import pytest
 
 from jarvis_voice import audio, manifest
 from jarvis_voice.dedupe import group_duplicates, near_duplicates, normalize_text
+from jarvis_voice.phrases import Word, clip_bounds, join_accepted, split_phrases
 from jarvis_voice.segment import Span, merge_spans
 from jarvis_voice.speakers import dominant_centroid
 from jarvis_voice.split import choose_eval_sources
@@ -19,6 +20,29 @@ def test_merge_spans_joins_short_gaps_and_drops_short_leftovers():
 def test_merge_spans_respects_the_maximum_length():
     spans = [Span(0.0, 8.0), Span(8.1, 16.0)]
     assert merge_spans(spans) == [Span(0.0, 8.0), Span(8.1, 16.0)]
+
+
+def test_split_phrases_breaks_at_punctuation_pauses_and_opening_marks():
+    words = [Word(0.0, 0.4, "Entonces,"), Word(0.5, 0.9, "qué"), Word(0.9, 1.3, "dices?"), Word(1.4, 1.8, "Nuestra"),
+             Word(1.8, 2.3, "descarga"), Word(2.9, 3.2, "lista"), Word(3.2, 3.5, "señor"), Word(3.6, 3.9, "¿Iniciamos?")]
+    texts = [[w.text for w in phrase] for phrase in split_phrases(words)]
+    assert texts == [["Entonces,", "qué", "dices?"], ["Nuestra", "descarga"], ["lista", "señor"], ["¿Iniciamos?"]]
+
+
+def test_split_phrases_caps_the_phrase_length():
+    words = [Word(float(i), i + 0.9, "palabra") for i in range(20)]
+    assert [len(phrase) for phrase in split_phrases(words, max_gap=1.0, max_len=5.0)] == [5, 5, 5, 5]
+
+
+def test_join_accepted_merges_only_adjacent_accepted_phrases():
+    phrases = [[Word(0.0, 1.0, "a.")], [Word(1.2, 2.0, "b.")], [Word(2.1, 3.0, "c.")], [Word(3.1, 4.0, "d.")], [Word(5.0, 6.0, "e.")]]
+    assert join_accepted(phrases, [True, True, False, True, True]) == [[0, 1], [3], [4]]
+
+
+def test_clip_bounds_pad_without_crossing_the_gap_midpoint():
+    words = [Word(2.0, 3.0, "hola")]
+    assert clip_bounds(words, Word(1.0, 1.9, "x"), Word(4.0, 4.5, "y")) == (1.95, 3.15)
+    assert clip_bounds([Word(0.05, 1.0, "hola")], None, None) == (0.0, 1.15)
 
 
 def test_text_normalization_ignores_case_accents_and_punctuation():
@@ -64,6 +88,9 @@ def test_manifest_refuses_missing_authorization(tmp_path):
     entry["authorization"] = "personal use"
     (tmp_path / "manifest.json").write_text(json.dumps({"sources": [entry]}))
     assert manifest.source_id(manifest.load_verified(tmp_path)[0]) == "x"
+    entry["status"] = "excluded"
+    (tmp_path / "manifest.json").write_text(json.dumps({"sources": [entry]}))
+    assert manifest.active_sources(tmp_path) == []
 
 
 def test_manifest_template_never_overwrites_existing_provenance(tmp_path):

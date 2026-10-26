@@ -27,18 +27,18 @@ export VOICE_PRIVATE_DIR=/path/to/private
 uv run jarvis-voice manifest     # once: skeleton to fill by hand (refuses to overwrite)
 uv run jarvis-voice normalize    # needs ffmpeg
 uv run jarvis-voice separate     # optional, see below
-uv run jarvis-voice segment [--from separated]
-uv run jarvis-voice filter --reference <source id> --threshold 0.5
-uv run jarvis-voice transcribe
+uv run jarvis-voice phrases --reference <source id> --threshold 0.5
 uv run jarvis-voice split --reference <source id>
 uv run jarvis-voice export
 uv run pytest                    # synthetic audio only
 ```
 
-1. **Provenance.** `load_verified` stops the pipeline if any raw file lacks source URL, dub, authorization or status.
+`phrases` replaces the older `segment`, `filter` and `transcribe` commands, which cut by silence and score whole segments; they are kept for comparison.
+
+1. **Provenance.** `load_verified` stops the pipeline if any raw file lacks source URL, dub, authorization or status. A source with `"status": "excluded"` (plus an `excluded_reason`) is skipped by `phrases`, for example a film where the character has a different voice actor.
 2. **Normalize.** ffmpeg to mono 22.05 kHz with loudness normalization. 22.05 kHz is what Piper medium voices train at; the analysis models resample to 16 kHz internally.
 3. **Separate (optional).** Demucs `htdemucs` vocals stem for clips with music and effects. Source separation leaves artifacts (watery highs, ducked consonants, music bleeding in silences). Review every separated clip by ear next to the original and keep the better one per clip: `segment --from separated` only for clips that pass. Prefer the original audio when the stem sounds smeared, because a clone learns the artifacts.
-4. **Segment.** Silero VAD, speech spans at least 0.3 s, silences of 250 ms split, neighbours closer than 0.35 s merge, segments of 1 to 15 s.
+4. **Phrases.** faster-whisper transcribes each source with word timings. Words are grouped into phrases that break at sentence punctuation, at an opening `¿` or `¡`, at pauses over 0.3 s and at 15 s, which is where speakers take turns in film dialogue. Phrases under 0.8 s are too short to verify and are dropped. Each phrase is scored against the speaker centroid (step 5) and runs of consecutive accepted phrases with pauses up to 0.35 s become one clip, padded by 0.15 s without crossing the midpoint to a neighbouring word. A fast reply from another voice therefore splits the clip instead of riding inside it. The older `segment` command (Silero VAD, silences of 250 ms split, segments of 1 to 15 s) cannot split such turns.
 5. **Speaker filter.** The reference clip (a compilation that is mostly the target character) provides the centroid: the speaker who talks the longest in it, found with an ECAPA-TDNN embedding (`speechbrain/spkrec-ecapa-voxceleb`, Apache-2.0) by duration-weighted cosine clustering. Every segment of every clip is scored against that centroid; segments below `--threshold` are dropped. The speaker report prints the similarity histogram; pick the threshold in the valley between the two modes, not by habit. Check the choice by reading transcripts around the boundary (the character addresses the protagonist as "señor"), never by trusting the score alone.
 6. **Transcribe.** faster-whisper `large-v3-turbo` int8, Spanish, beam 5. Segments with mean log-probability below -1.0 are dropped as unreliable text; read the rest before training, ASR slips on names and numbers are normal.
 7. **De-duplicate.** Transcripts are lowercased, stripped of accents and punctuation, and compared with a similarity ratio of 0.85 plus containment of 4 or more words. Each group of near-identical lines keeps one segment (longest, then highest speaker similarity), because a compilation clip often contains several shorter lines of the same group and keeping it preserves all of them. Compilations repeat the same line across clips, so this matters.
@@ -76,3 +76,20 @@ Five audio-only clips, 654 s in total (about 282 s of detected speech in 70 segm
 | Eval (3 source clips) | 7 | 35.3 |
 
 Reading the boundary: 10 of the 19 kept segments contain the character's "señor" address, and 5 of the 11 transcribed-but-rejected segments contain it too, so the threshold favours precision over recall and discards some real lines recorded under music or reverb. A few kept segments contain a short reply from another voice because VAD cannot split fast turn-taking. Both need a listen before any training run. At 107 s of training audio this is enough for an instant clone reference, not for training.
+
+## Second run: phrase-level cuts (aggregates only)
+
+The first run kept segments where another character answered inside a JARVIS line, and its eval split included the Age of Ultron clip. Scored phrase by phrase, that clip's JARVIS lines land at 0.20 to 0.58 against 0.55 to 0.83 for the Iron Man 1 and 2 lines: a different voice, as the owner noticed by ear. It is now excluded in the manifest.
+
+| Stage | Clips | Seconds |
+| --- | --- | --- |
+| Phrases transcribed (4 sources) | 135 | |
+| Phrases too short to verify (< 0.8 s) | 49 | |
+| Candidate clips and rejected phrases | 75 | 218.2 |
+| Dropped: other speaker (similarity below 0.5) | 46 | 99.8 |
+| Dropped: near-duplicate line | 10 | 28.5 |
+| Kept | 19 | 89.9 |
+| Train | 16 | 81.3 |
+| Eval (2 source clips) | 3 | 8.6 |
+
+Phrase scores split cleanly: other characters at 0.35 or less, the character at 0.54 or more, with a handful of ambiguous phrases between 0.40 and 0.49 that the 0.5 threshold drops. Reading every kept transcript found no line from another character. Less audio than the first run, but clean; more Iron Man 1 and 2 material is the way to grow it.

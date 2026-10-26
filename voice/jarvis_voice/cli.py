@@ -28,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
     speaker.add_argument("--reference", required=True, help="source id whose dominant speaker is the target")
     speaker.add_argument("--threshold", type=float, default=pipeline.DEFAULT_THRESHOLD)
     commands.add_parser("transcribe", help="faster-whisper transcripts for kept segments")
+    phrases = commands.add_parser("phrases", help="cut at speaker turns phrase by phrase (replaces segment, filter, transcribe)")
+    phrases.add_argument("--reference", required=True, help="source id whose dominant speaker is the target")
+    phrases.add_argument("--threshold", type=float, default=pipeline.DEFAULT_THRESHOLD)
     split = commands.add_parser("split", help="drop duplicates and split train/eval by source clip")
     split.add_argument("--reference", required=True)
     commands.add_parser("export", help="write dataset CSVs, WAVs and report.json")
@@ -49,6 +52,8 @@ def main(argv: list[str] | None = None) -> None:
         print(json.dumps(pipeline.filter_speaker(private, args.reference, args.threshold), indent=2))
     elif args.command == "transcribe":
         pipeline.transcribe_kept(private)
+    elif args.command == "phrases":
+        print(json.dumps(pipeline.segment_phrases(private, args.reference, args.threshold), indent=2))
     elif args.command == "split":
         print(json.dumps(pipeline.dedupe_and_split(private, args.reference), indent=2))
     else:

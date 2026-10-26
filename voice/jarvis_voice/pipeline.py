@@ -1,5 +1,6 @@
 import csv
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -7,13 +8,15 @@ import numpy as np
 
 from . import audio, manifest
 from .dedupe import group_duplicates
+from .phrases import Word, clip_bounds, join_accepted, split_phrases
 from .segment import detect_speech
 from .speakers import dominant_centroid, embed_segments, similarity_to
 from .split import choose_eval_sources
-from .transcribe import load_model, transcribe
+from .transcribe import load_model, transcribe, transcribe_words
 
 DEFAULT_THRESHOLD = 0.5
 MIN_LOGPROB = -1.0
+MIN_PHRASE_S = 0.8
 
 
 def read_segments(private: Path) -> list[dict]:
@@ -85,8 +88,82 @@ def filter_speaker(private: Path, reference: str, threshold: float) -> dict:
         "reference_cluster_segments": int(cluster.sum()),
         "reference_cluster_seconds": round(float(durations[in_reference][cluster].sum()), 1),
         "threshold": threshold,
-        "histogram": dict(sorted(Counter(round(float(np.floor(s * 10) / 10), 1) for s in similarity).items())),
+        "histogram": histogram(similarity),
     }
+    (private / "speaker_report.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
+def histogram(similarity: np.ndarray) -> dict:
+    return dict(sorted(Counter(round(float(np.floor(s * 10) / 10), 1) for s in similarity).items()))
+
+
+def transcribe_sources(private: Path) -> dict[str, tuple[np.ndarray, list[list[Word]]]]:
+    model = load_model(str(private / "cache"))
+    sources = {}
+    for source in manifest.active_sources(private):
+        sid = manifest.source_id(source)
+        samples, rate = audio.read_mono(private / "normalized" / f"{sid}.wav")
+        sources[sid] = (samples, split_phrases(transcribe_words(model, samples, rate)))
+    return sources
+
+
+def cut(samples: np.ndarray, start: float, end: float, rate: int = audio.TRAIN_RATE) -> np.ndarray:
+    return samples[int(start * rate): int(end * rate)]
+
+
+def score_phrases(private: Path, sources: dict[str, tuple[np.ndarray, list[list[Word]]]], reference: str) -> tuple[dict[tuple[str, int], float], dict]:
+    """Similarity to the dominant speaker of the reference source for every phrase long enough to embed."""
+    keys = [(sid, i) for sid, (_, phrases) in sources.items() for i, p in enumerate(phrases) if p[-1].end - p[0].start >= MIN_PHRASE_S]
+    waveforms = [cut(sources[sid][0], sources[sid][1][i][0].start, sources[sid][1][i][-1].end) for sid, i in keys]
+    embeddings = embed_segments(waveforms, audio.TRAIN_RATE, str(private / "cache"))
+    durations = np.array([len(w) / audio.TRAIN_RATE for w in waveforms])
+    in_reference = np.array([sid == reference for sid, _ in keys])
+    centroid, cluster = dominant_centroid(embeddings[in_reference], durations[in_reference])
+    similarity = similarity_to(centroid, embeddings)
+    stats = {"reference_phrases": int(in_reference.sum()), "reference_cluster_phrases": int(cluster.sum()), "histogram": histogram(similarity)}
+    return {key: float(score) for key, score in zip(keys, similarity)}, stats
+
+
+def phrase_record(sid: str, name: str, phrases: list[list[Word]], indices: list[int], scores: dict[int, float]) -> dict:
+    words = [word for i in indices for word in phrases[i]]
+    before = phrases[indices[0] - 1][-1] if indices[0] > 0 else None
+    after = phrases[indices[-1] + 1][0] if indices[-1] + 1 < len(phrases) else None
+    start, end = clip_bounds(words, before, after)
+    spoken = [phrases[i][-1].end - phrases[i][0].start for i in indices]
+    return {
+        "id": f"{sid}_{name}", "source": sid, "start": round(start, 2), "end": round(end, 2), "duration": round(end - start, 2),
+        "similarity": round(float(np.average([scores[i] for i in indices], weights=spoken)), 3),
+        "text": " ".join(word.text for word in words),
+        "logprob": round(float(np.mean(np.log([max(word.probability, 1e-6) for word in words]))), 3),
+    }
+
+
+def write_phrase_clips(private: Path, sid: str, samples: np.ndarray, phrases: list[list[Word]], scores: dict[int, float], threshold: float) -> list[dict]:
+    accepted = [scores.get(i, 0.0) >= threshold for i in range(len(phrases))]
+    records = []
+    for n, clip in enumerate(join_accepted(phrases, accepted)):
+        record = phrase_record(sid, f"{n:03d}", phrases, clip, scores) | {"kept": True}
+        audio.write_wav(private / "segments" / sid / f"{record['id']}.wav", cut(samples, record["start"], record["end"]), audio.TRAIN_RATE)
+        records.append(record)
+    return records + [phrase_record(sid, f"x{i:03d}", phrases, [i], scores) | {"kept": False} for i in sorted(scores) if not accepted[i]]
+
+
+def segment_phrases(private: Path, reference: str, threshold: float) -> dict:
+    """
+    Cuts every active source at speaker turns: Whisper words grouped into phrases, each phrase scored against
+    the reference speaker, and runs of accepted phrases written as clips. Replaces segment, filter and transcribe.
+    """
+    sources = transcribe_sources(private)
+    scores, stats = score_phrases(private, sources, reference)
+    shutil.rmtree(private / "segments", ignore_errors=True)
+    records = []
+    for sid, (samples, phrases) in sources.items():
+        own = {i: score for (source, i), score in scores.items() if source == sid}
+        records += write_phrase_clips(private, sid, samples, phrases, own, threshold)
+    write_segments(private, records)
+    total = sum(len(phrases) for _, phrases in sources.values())
+    report = {"reference": reference, "phrases": total, "phrases_too_short": total - len(scores), **stats, "threshold": threshold}
     (private / "speaker_report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
@@ -142,6 +219,7 @@ def summarize(segments: list[dict]) -> dict:
 def export_dataset(private: Path) -> dict:
     segments = [s for s in read_segments(private) if s.get("split")]
     out = private / "dataset"
+    shutil.rmtree(out / "wavs", ignore_errors=True)
     for split in ("train", "eval"):
         rows = [s for s in segments if s["split"] == split]
         for segment in rows:

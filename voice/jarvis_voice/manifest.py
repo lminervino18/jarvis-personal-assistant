@@ -39,5 +39,10 @@ def load_verified(private_dir: Path) -> list[dict]:
     return manifest["sources"]
 
 
+def active_sources(private_dir: Path) -> list[dict]:
+    """Verified sources minus the ones the owner set to status "excluded", such as a different voice actor."""
+    return [source for source in load_verified(private_dir) if source["status"] != "excluded"]
+
+
 def source_id(source: dict) -> str:
     return Path(source["file"]).stem
