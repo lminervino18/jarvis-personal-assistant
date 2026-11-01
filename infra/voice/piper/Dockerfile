@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.15-slim
 
 ARG PIPER_VERSION=1.8.0
 ARG PIPER_VOICE=es_MX-ald-medium
