@@ -16,6 +16,7 @@ import { ReconnectPolicy } from "./reconnect-policy.js";
 import { BRIDGE_BROWSER, conservativeSocketConfig } from "./socket-config.js";
 import { WhatsAppStatusSource } from "./status.js";
 import { loadBaileysFixture } from "./test-support.js";
+import { WhatsAppOutbox } from "./outbox.js";
 
 const START = new Date("2026-10-26T12:00:00Z");
 const fixture = loadBaileysFixture<{ live: WAMessage[]; history: BaileysEventMap["messaging-history.set"] }>();
@@ -26,8 +27,18 @@ class FakeSocket implements BridgeSocket {
   readonly ev = {
     on: <E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void) => void this.emitter.on(event, listener),
   };
+  readonly sent: { jid: string; text: string }[] = [];
+  failNext = false;
   end() {
     this.ended += 1;
+  }
+  async sendMessage(jid: string, content: { text: string }) {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error("send failed");
+    }
+    this.sent.push({ jid, text: content.text });
+    return { key: { id: `sent-${this.sent.length}` } };
   }
   emit<E extends keyof BaileysEventMap>(event: E, data: BaileysEventMap[E]) {
     this.emitter.emit(event, data);
@@ -40,6 +51,18 @@ class FakeSocket implements BridgeSocket {
   }
 }
 
+function setupOptions(db: ReturnType<typeof openMigratedDatabase>, log: { info: () => void; warn: () => void; error: () => void }) {
+  const cipher = new TokenCipher(randomBytes(32));
+  return {
+    store: new WhatsAppStore(db),
+    auth: useDbAuthState(db, cipher),
+    pairing: new PairingStore(db, cipher),
+    policy: new ReconnectPolicy({ baseDelayMs: 5_000, maxDelayMs: 300_000, maxAttempts: 8, random: () => 0.5 }),
+    log,
+    connect: () => new FakeSocket(),
+  };
+}
+
 function setup(options: { paired?: boolean; random?: number; maxAttempts?: number } = {}) {
   const db = openMigratedDatabase(":memory:");
   const cipher = new TokenCipher(randomBytes(32));
@@ -47,6 +70,7 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
   const auth = useDbAuthState(db, cipher);
   if (options.paired !== false) Object.assign(auth.state.creds, { me: { id: "5490000000099:1@s.whatsapp.net" }, registered: true });
   const pairing = new PairingStore(db, cipher);
+  const outbox = new WhatsAppOutbox(db);
   const sockets: FakeSocket[] = [];
   const policy = new ReconnectPolicy({ baseDelayMs: 5_000, maxDelayMs: 300_000, maxAttempts: options.maxAttempts ?? 8, random: () => options.random ?? 0.5 });
   const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -54,6 +78,7 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
     store,
     auth,
     pairing,
+    outbox,
     policy,
     log,
     now: () => new Date(),
@@ -65,7 +90,7 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
   });
   const status = () => db.prepare("SELECT status, detail FROM wa_sync_state WHERE source = 'baileys'").get() as { status: string; detail: string | null } | undefined;
   const count = () => (db.prepare("SELECT count(*) AS n FROM wa_messages").get() as { n: number }).n;
-  return { db, cipher, auth, pairing, bridge, sockets, status, count, log };
+  return { db, cipher, auth, pairing, outbox, bridge, sockets, status, count, log };
 }
 
 beforeEach(() => {
@@ -371,8 +396,33 @@ describe("conservative configuration", () => {
     expect(ignore("5490000000001@s.whatsapp.net")).toBe(false);
   });
 
-  it("has no code path that sends, marks as read or announces presence", () => {
-    const forbidden = /\b(sendMessage|sendPresenceUpdate|presenceSubscribe|readMessages|sendReceipt|sendReceipts|fetchMessageHistory|requestPlaceholderResend|updateMediaMessage|relayMessage|groupFetchAllParticipating|chatModify|logout)\b/;
+  it("sends confirmed messages one at a time, records failures and never retries an interrupted send", async () => {
+    const { db, outbox, bridge, sockets, log } = setup();
+    bridge.start();
+    sockets[0]?.open();
+    const jid = "5490000000001@s.whatsapp.net";
+    outbox.enqueue({ id: "m1", chatJid: jid, text: "llego en 10" }, new Date());
+    outbox.enqueue({ id: "m2", chatJid: jid, text: "dale" }, new Date(Date.now() + 1));
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.sent).toEqual([{ jid, text: "llego en 10" }]);
+    expect(outbox.status("m1")).toEqual({ status: "sent", error: null });
+    sockets[0]!.failNext = true;
+    await bridge.sendNextConfirmed();
+    expect(outbox.status("m2")).toMatchObject({ status: "failed", error: "Error" });
+
+    outbox.enqueue({ id: "m3", chatJid: jid, text: "otra" }, new Date(Date.now() + 2));
+    outbox.claimNext(new Date());
+    bridge.stop();
+    const restarted = new WhatsAppBridge({ ...setupOptions(db, log), outbox });
+    expect(outbox.status("m3")).toMatchObject({ status: "unknown" });
+    await restarted.sendNextConfirmed();
+    expect(sockets[0]?.sent).toHaveLength(1);
+  });
+
+  it("sends only from the confirmed outbox and never marks as read or announces presence", () => {
+    const sendCalls = readFileSync(new URL("bridge.ts", import.meta.url), "utf8").match(/\.sendMessage\(/g) ?? [];
+    expect(sendCalls).toHaveLength(1);
+    const forbidden = /\b(sendPresenceUpdate|presenceSubscribe|readMessages|sendReceipt|sendReceipts|fetchMessageHistory|requestPlaceholderResend|updateMediaMessage|relayMessage|groupFetchAllParticipating|chatModify|logout)\b/;
     const files = [
       ...readdirSync(new URL(".", import.meta.url)).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts") && name !== "test-support.ts").map((name) => new URL(name, import.meta.url)),
       new URL("../../whatsapp-bridge.ts", import.meta.url),

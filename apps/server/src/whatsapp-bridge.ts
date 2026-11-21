@@ -5,6 +5,7 @@ import { openMigratedDatabase } from "./db/database.js";
 import { useDbAuthState } from "./integrations/whatsapp/auth-state.js";
 import { WhatsAppBridge } from "./integrations/whatsapp/bridge.js";
 import { InstanceLockError, acquireInstanceLock } from "./integrations/whatsapp/instance-lock.js";
+import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
 import { WhatsAppStore } from "./integrations/whatsapp/message-store.js";
 import { PairingStore } from "./integrations/whatsapp/pairing-store.js";
 import { DEFAULT_RECONNECT, ReconnectPolicy } from "./integrations/whatsapp/reconnect-policy.js";
@@ -46,6 +47,7 @@ async function run(): Promise<void> {
     store,
     auth,
     pairing: new PairingStore(db, cipher),
+    outbox: new WhatsAppOutbox(db),
     policy: new ReconnectPolicy(DEFAULT_RECONNECT),
     log,
     connect: (state) => makeWASocket({ ...conservativeSocketConfig(log.child({ library: "baileys" }, { level: "warn" })), auth: state }),

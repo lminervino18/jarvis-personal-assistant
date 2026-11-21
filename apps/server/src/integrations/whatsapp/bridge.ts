@@ -3,23 +3,28 @@ import type { Logger } from "pino";
 import { WhatsAppEventHandlers } from "./event-handlers.js";
 import type { WaSyncStatus, WhatsAppStore } from "./message-store.js";
 import type { DbAuthState } from "./auth-state.js";
+import type { WhatsAppOutbox } from "./outbox.js";
 import type { PairingStore } from "./pairing-store.js";
 import type { CloseDecision, ReconnectPolicy } from "./reconnect-policy.js";
 
 const HEARTBEAT_MS = 60_000;
 const STABLE_MS = 120_000;
 const QR_VALID_MS = 60_000;
+const OUTBOX_POLL_MS = 3_000;
 
-/** The slice of a Baileys socket the bridge uses. It deliberately has no way to send anything. */
+/** The slice of a Baileys socket the bridge uses: events, plus sending a text the owner confirmed. */
 export interface BridgeSocket {
   ev: { on<E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void): void };
   end(error: Error | undefined): void;
+  sendMessage(jid: string, content: { text: string }): Promise<{ key?: { id?: string | null } } | undefined>;
 }
 
 export interface BridgeOptions {
   store: WhatsAppStore;
   auth: Pick<DbAuthState, "state" | "saveCreds" | "clear">;
   pairing: Pick<PairingStore, "publish" | "clear">;
+  /** Messages the owner confirmed. Without it the bridge never sends anything. */
+  outbox?: Pick<WhatsAppOutbox, "claimNext" | "markSent" | "markFailed" | "abandonInterrupted">;
   connect(auth: AuthenticationState): BridgeSocket;
   policy: ReconnectPolicy;
   log: Pick<Logger, "info" | "warn" | "error">;
@@ -32,8 +37,9 @@ const statusCodeOf = (error: unknown): number | undefined => (error as { output?
 const errorName = (error: unknown) => (error instanceof Error ? error.name : "unknown");
 
 /**
- * Read-only WhatsApp session. It reacts to events and records them; it never sends messages,
- * receipts or presence, reconnects with capped backoff, and stops when the session is signed out or invalid.
+ * WhatsApp session. It reacts to events and records them, and sends only texts the owner
+ * confirmed through the outbox, one at a time. It never sends receipts or presence, reconnects
+ * with capped backoff, and stops when the session is signed out or invalid.
  */
 export class WhatsAppBridge {
   phase: BridgePhase = "idle";
@@ -41,12 +47,16 @@ export class WhatsAppBridge {
   private reconnectTimer?: NodeJS.Timeout;
   private heartbeat?: NodeJS.Timeout;
   private stableTimer?: NodeJS.Timeout;
+  private outboxTimer?: NodeJS.Timeout;
+  private sending = false;
   private readonly handlers: WhatsAppEventHandlers;
   private readonly now: () => Date;
 
   constructor(private readonly options: BridgeOptions) {
     this.now = options.now ?? (() => new Date());
     this.handlers = new WhatsAppEventHandlers(options.store, this.now);
+    const abandoned = options.outbox?.abandonInterrupted(this.now()) ?? 0;
+    if (abandoned > 0) options.log.warn({ abandoned }, "whatsapp messages interrupted while sending were not retried");
   }
 
   start(): void {
@@ -124,7 +134,28 @@ export class WhatsAppBridge {
     this.options.store.refreshSyncState("baileys", "connected", this.now());
     this.heartbeat = setInterval(() => this.options.store.setStatus("baileys", "connected", this.now()), HEARTBEAT_MS);
     this.stableTimer = setTimeout(() => this.options.policy.reset(), STABLE_MS);
+    if (this.options.outbox) this.outboxTimer = setInterval(() => void this.sendNextConfirmed(), OUTBOX_POLL_MS);
     this.options.log.info("whatsapp connection open");
+  }
+
+  /** Sends the oldest confirmed message, at most once: it is claimed before the socket call. */
+  async sendNextConfirmed(): Promise<void> {
+    const { outbox } = this.options;
+    const socket = this.socket;
+    if (!outbox || !socket || this.phase !== "open" || this.sending) return;
+    const message = outbox.claimNext(this.now());
+    if (!message) return;
+    this.sending = true;
+    try {
+      const sent = await socket.sendMessage(message.chatJid, { text: message.text });
+      outbox.markSent(message.id, sent?.key?.id ?? undefined, this.now());
+      this.options.log.info("whatsapp message sent");
+    } catch (error) {
+      outbox.markFailed(message.id, errorName(error), this.now());
+      this.options.log.warn({ error: errorName(error) }, "whatsapp message could not be sent");
+    } finally {
+      this.sending = false;
+    }
   }
 
   private handleClose(socket: BridgeSocket, error: unknown): void {
@@ -155,6 +186,7 @@ export class WhatsAppBridge {
     clearTimeout(this.reconnectTimer);
     clearInterval(this.heartbeat);
     clearTimeout(this.stableTimer);
-    this.reconnectTimer = this.heartbeat = this.stableTimer = undefined;
+    clearInterval(this.outboxTimer);
+    this.reconnectTimer = this.heartbeat = this.stableTimer = this.outboxTimer = undefined;
   }
 }
