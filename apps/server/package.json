@@ -13,7 +13,8 @@
     "vapid:generate": "tsx scripts/generate-vapid-keys.ts",
     "probe:claude": "tsx scripts/claude-probe.ts",
     "wa:import": "tsx --env-file-if-exists=../../.env scripts/wa-import.ts",
-    "bench:voice": "tsx scripts/voice-bench.ts"
+    "bench:voice": "tsx scripts/voice-bench.ts",
+    "demo:tasks": "tsx scripts/agent-demo.ts"
   },
   "devDependencies": {
     "@jarvis/device-sim": "workspace:*",
