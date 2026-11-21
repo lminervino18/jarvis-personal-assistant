@@ -31,7 +31,7 @@ Es una sola conversación, un solo backend y un solo box. El diseño técnico es
 | Servidor Lightsail São Paulo 2 GB (USD 12) | Se modifica a 4 GB (USD 24) | Los agentes corren Claude Code, pruebas y builds en el mismo box. 2 GB no alcanza. |
 | Sistema operativo del VPS | Se modifica: preferir Debian 13 | En Ubuntu, AppArmor bloquea el sandbox de Bash de los agentes (medido acá). Hay que confirmarlo en el VPS. |
 | Docker Compose, Caddy, backups a R2 | Se modifica | Servicio `agent-runner` (perfil `agents`), volumen `work-data` y backup de `work.db`. |
-| Dominio `jarvis.lminervino18.com`, Groq, ElevenLabs, R2, healthchecks | Se mantiene | Sin cambios. |
+| Subdominio de tu dominio actual, Groq, ElevenLabs, R2, healthchecks | Se mantiene | Sin cambios. |
 | Fase 1: alarmas, timers y llamadas con Atajos de iPhone | Se posterga | Primero el flujo de tareas. El diseño sigue vigente. |
 | Fase 2: avisos de WhatsApp por reglas | Se posterga | Igual que arriba. |
 | Fase 3: Instagram con la API oficial (y la cuenta de Meta for Developers) | Se posterga | Igual que arriba. |
@@ -52,7 +52,7 @@ Es una sola conversación, un solo backend y un solo box. El diseño técnico es
 | `jarvis.db` y `work.db` (SQLite) y los espacios de trabajo por tarea | Google (Gmail) y WhatsApp, si los conectás |
 | Backup con restic | |
 
-La única excepción prevista es la red de la empresa. Si sus sistemas exigen VPN, otro sistema operativo u otra red, ese conector va aparte. Se decide cuando se conozcan los accesos.
+La única excepción prevista es la red de la empresa. Si sus sistemas exigen VPN, otro sistema operativo u otra red, ese conector va aparte. Al 2026-11-21 todavía no se sabe. No bloquea nada: las tareas cargadas a mano y los repositorios copiados en `projects/<slug>/repo` funcionan sin acceso a la red de la empresa. Se decide cuando se conozcan los accesos.
 
 ## Costo mensual
 
@@ -76,7 +76,7 @@ Precios del 2026-11-20, antes de impuestos argentinos. El detalle está en [cost
 0. **Poner en marcha:**
    - VPS de 4 GB, preferentemente con Debian 13;
    - Max, y un token de suscripción solo para agentes (`claude setup-token`) en `/etc/jarvis/agents.env`;
-   - desactivar el uso de tus datos para entrenar modelos en la privacidad de claude.ai, y confirmar que la empresa permite procesar su material con Claude;
+   - desactivar el uso de tus datos para entrenar modelos en la privacidad de claude.ai (recomendado; la empresa ya confirmó el 2026-11-21 que permite procesar su código y sus datos con Claude);
    - `COMPOSE_PROFILES=agents`;
    - verificar el sandbox de Bash en el VPS;
    - repetir la prueba controlada con Claude real y Bash.

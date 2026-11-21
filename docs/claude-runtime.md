@@ -53,7 +53,7 @@ What this implies, and how the runner limits it:
 - **Lower consumption by default.** Concurrency 1, the planner on Haiku (USD 0.003 per plan in the real runs, with criteria as good as Sonnet's on the controlled task), a read-only Haiku explorer, per-session and per-task budgets, and at most 2 fix rounds.
 - **Budgets are estimates.** `total_cost_usd` is the SDK's API-equivalent estimate. On the subscription nothing is charged per task; the USD figures only cap how much of the plan a task may use.
 - **No paid overage.** The chat stops on `isUsingOverage` unless `CLAUDE_ALLOW_OVERAGE=true`. The runner ends the session as soon as the plan refuses requests or overage starts. Keeping extra usage disabled on the account makes that a hard guarantee. On 2026-11-21 the account reported overage as rejected.
-- **Data.** Subscription sessions follow the Consumer Terms. Before sending company material, the owner must turn off model training in claude.ai privacy settings and confirm that the company allows it.
+- **Data.** Subscription sessions follow the Consumer Terms. The owner confirmed on 2026-11-21 that the company allows its code and data to be processed with Claude. Turning off model training in claude.ai privacy settings is still recommended.
 - **Ordinary, individual usage.** Plan limits assume it. A single owner delegating their own work at concurrency 1 fits that reading, but sustained background automation is the part Anthropic could judge otherwise. If that happens, the switch is configuration only: the backend sits behind `AgentBackend`.
 
 Alternatives considered and set aside:
