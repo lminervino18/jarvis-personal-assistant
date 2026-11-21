@@ -2,17 +2,28 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { sql as initSql } from "./migrations/001-init.js";
+import { sql as syncCursorsSql } from "./migrations/002-sync-cursors.js";
+import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 
 export type Db = Database.Database;
 
-interface Migration {
+export interface Migration {
   version: number;
   name: string;
   sql: string;
 }
 
 /** Ordered list of schema migrations. Only append; never edit an applied migration. */
-export const migrations: Migration[] = [{ version: 1, name: "init", sql: initSql }];
+export const migrations: Migration[] = [
+  { version: 1, name: "init", sql: initSql },
+  { version: 2, name: "sync_cursors", sql: syncCursorsSql },
+];
+
+/**
+ * Migrations of the work database (delegated tasks). It is a separate file so the agent
+ * runner never mounts the personal database.
+ */
+export const workMigrations: Migration[] = [{ version: 1, name: "tasks", sql: tasksSql }];
 
 /**
  * Opens the SQLite database with the settings every process (server, worker, WhatsApp
@@ -29,7 +40,7 @@ export function openDatabase(path: string): Db {
   return db;
 }
 
-export function migrate(db: Db): number[] {
+export function migrate(db: Db, list: readonly Migration[] = migrations): number[] {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -37,7 +48,7 @@ export function migrate(db: Db): number[] {
   )`);
   const isApplied = db.prepare("SELECT 1 FROM schema_migrations WHERE version = ?");
   const newlyApplied: number[] = [];
-  for (const migration of migrations) {
+  for (const migration of list) {
     if (isApplied.get(migration.version)) continue;
     const applied = db.transaction(() => {
       if (isApplied.get(migration.version)) return false;
@@ -54,8 +65,8 @@ export function migrate(db: Db): number[] {
   return newlyApplied;
 }
 
-export function openMigratedDatabase(path: string): Db {
+export function openMigratedDatabase(path: string, list: readonly Migration[] = migrations): Db {
   const db = openDatabase(path);
-  migrate(db);
+  migrate(db, list);
   return db;
 }
