@@ -212,6 +212,7 @@ See [`claude-runtime.md`](claude-runtime.md#plans-and-authentication-checked-202
 | Real Claude, file tools only, after the fix | Planner, executor and reviewer ran on `claude-sonnet-5-5`: 45 s and USD 0.19 estimated. The executor's code is correct (independent check 4/4). The reviewer read it, found it correct, and refused to approve because it could not run `node --test`. The task waits for the owner. | validated with real service (without Bash) |
 | Real Claude, file tools only, Haiku planner (2026-11-21) | Haiku planned (7 criteria, USD 0.0035), Sonnet executed and reviewed: 41 s, USD 0.14 estimated, independent check 4/4. The reviewer refused to approve without running tests. | validated with real service (without Bash) |
 | Real Claude, file tools only, shipped defaults (2026-11-21) | Same result: 45 s, USD 0.11 estimated, independent check 4/4. Every session recorded the plan at 22 % (weekly window). | validated with real service (without Bash) |
+| Production VPS, host runner, Bash in the sandbox (2026-11-21) | The first try exposed the `/run/containerd` mount problem: agents could not run commands and the reviewer refused to approve. After the fix, the task ended `ready` with the reviewer approving 6/6 criteria it checked by running `node --test`. About 1 minute, USD 0.12 estimated. | validated with real service |
 
 Pending: a real run with Bash inside the sandbox. It needs a host where bubblewrap can create user namespaces: the VPS, or this machine with the AppArmor profile from the Claude Code sandboxing docs.
 
@@ -227,11 +228,25 @@ Measured on the development machine (Ubuntu with `kernel.apparmor_restrict_unpri
 
 The runner checks this when it starts. With Bash enabled and the sandbox required, it refuses to start and logs the exact error instead of failing task by task.
 
-Ways forward, in order of preference. Decide on the VPS, measuring, not here:
+Measured on the VPS (Debian 13.7, 2026-11-21), in the same order:
 
-1. **Debian 13 host** (no Ubuntu user-namespace restriction) with the runner container on a seccomp profile that only adds user namespaces to Docker's default. Keep `enableWeakerNestedSandbox` (already set in compose).
-2. **Runner as a host service** (systemd, its own unprivileged user, owning only the work directory). The server and worker containers bind-mount that directory. The sandbox then runs at full strength, but the runner leaves Docker.
-3. **Degraded mode `AGENT_BASH=false`.** Agents edit files but execute nothing. As the real run showed, the reviewer then refuses to approve what only execution proves, so coding tasks end waiting for the owner.
+| Where bubblewrap runs | Result |
+| --- | --- |
+| Host, unprivileged user | works |
+| Container with the default seccomp profile | blocked: `No permissions to create a new namespace` |
+| Container with seccomp and AppArmor unconfined (diagnostic only) | blocked: `Can't mount proc on /proc` |
+
+**Decision: the runner runs as a host service.** `infra/agents/install-host-runner.sh` sets it up:
+- user `jarvis-agents`, UID 10001 like the containers' user, with no access to the personal volume, `jarvis.env` or the Docker socket;
+- the app and the Node binary are copied from the `jarvis-agent-runner:<tag>` image, so the host runs exactly what was built and tested;
+- `/srv/jarvis/work` replaces the `work-data` volume; server, worker, bridge and backup bind-mount it through `infra/agents/compose.host-runner.yml`;
+- a hardened systemd unit: read-only system, write access only to the work area, private `/tmp` and devices, memory, CPU and task limits.
+
+Hardening details that matter:
+- `ProtectKernelTunables`, `ProtectKernelLogs` and `RestrictSUIDSGID` each break bubblewrap ("Function not implemented"), so the unit leaves them out.
+- Claude Code's sandbox masks known sockets, and bubblewrap cannot create the mount point under the root-only `/run/containerd`. The unit mounts an empty tmpfs there (`TemporaryFileSystem=/run/containerd:ro`), so for agents the socket does not exist at all.
+
+The other two options are kept for other hosts: a seccomp profile for the container (not enough on this host), or `AGENT_BASH=false` (agents edit but cannot execute; the reviewer then refuses to approve what only execution proves).
 
 Do not set `AGENT_SANDBOX_REQUIRED=false` in production. It exists for development; inside the runner container, unsandboxed Bash would reach every task's folder and `work.db`.
 
@@ -252,7 +267,6 @@ COMPOSE_PROFILES=agents docker compose up -d agent-runner
 
 ## Known gaps
 
-- Real run with Bash and the sandbox on the target host: pending hardware (the VPS), see the section above.
 - Memory per Claude Code process was not measured. The 4 GB sizing in `costs.md` is an estimate.
 - How much of the plan a real task uses is unknown; only the controlled task was measured. `task_runs.plan_utilization` over the first real tasks answers it.
 - The plan reserve reads each window's usage from a field the CLI sends but does not document. If a release drops it, the reserve falls back to the documented warning levels, which the server sets.

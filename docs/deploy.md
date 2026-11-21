@@ -158,9 +158,22 @@ See [agents.md](agents.md) for the design and [claude-runtime.md](claude-runtime
 
 1. **Account.** Agents run on the owner's subscription. In claude.ai, keep extra usage disabled and turn off model training in the privacy settings before any company material goes in.
 2. **Agent token.** Run `claude setup-token` on your own machine a second time, so agents get a token separate from the chat's. Then run `install -m 600 infra/agents/agents.env.example /etc/jarvis/agents.env` and set `AGENT_CLAUDE_CODE_OAUTH_TOKEN`. Do not copy anything from `jarvis.env` into it.
-3. **Projects.** One folder per company system, created when access exists. The `projects/` tree lives in the `work-data` volume.
+3. **Projects.** One folder per company system, created when access exists. The `projects/` tree lives in the work area (`/srv/jarvis/work` with the host runner).
    - `projects/<slug>/CONTEXT.md` is mandatory: what the system is, conventions, and how to test.
    - `projects/<slug>/repo/` is optional: a git clone, or plain files.
-4. **Start.** `COMPOSE_PROFILES=agents docker compose up -d agent-runner`. With Bash enabled and the sandbox required, the runner refuses to start when bubblewrap cannot create user namespaces. Read the "Bash sandbox on the target host" section of `agents.md` before deciding how to fix it. As a fallback, `AGENT_BASH=false` runs agents with file tools only.
+4. **Start, as a host service** (the setup validated on Debian 13; see "Bash sandbox on the target host" in `agents.md`). Once, as root, with the server and worker stopped so `work.db` can move:
+   ```bash
+   JARVIS_TAG=<tag> docker compose --profile agents build agent-runner
+   docker compose stop server worker backup
+   install -m 755 infra/agents/install-host-runner.sh /usr/local/sbin/jarvis-agent-runner-install
+   echo "deploy ALL=(root) NOPASSWD: /usr/local/sbin/jarvis-agent-runner-install" > /etc/sudoers.d/jarvis-agent-runner && chmod 440 /etc/sudoers.d/jarvis-agent-runner
+   /usr/local/sbin/jarvis-agent-runner-install <tag>
+   echo "COMPOSE_FILE=docker-compose.yml:infra/agents/compose.host-runner.yml" >> /opt/jarvis/.env
+   docker compose up -d --wait
+   ```
+   - The installer copies the old `work-data` volume to `/srv/jarvis/work` the first time.
+   - From then on, `deploy.sh` rebuilds the runner image and reinstalls the service with each tag, including on rollback.
+   - With Bash enabled and the sandbox required, the runner refuses to start when bubblewrap cannot work; `journalctl -u jarvis-agent-runner` shows why.
+   - The Docker variant (`COMPOSE_PROFILES=agents`) is still available for hosts where the container sandbox works; `AGENT_BASH=false` is the last resort.
 5. **Check.** In the chat, ask "¿están andando los agentes?"; `integrations_status` reports the runner's heartbeat. Then run the controlled task from a development checkout (`pnpm --filter @jarvis/server demo:tasks --claude`) to see the full path with real models.
 

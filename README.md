@@ -34,15 +34,16 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | Gmail read-only, personal and work accounts kept separate | tested with fixtures; pending owner connection |
 | WhatsApp: export import and experimental read-only Baileys bridge | tested with fixtures; pending owner pairing |
 | YouTube search and in-chat player | tested with fixtures; player validated in Chrome (demo mode) |
-| Voice: sentence-streamed TTS, STT, robotic effect, interruption | tested with fixtures; Piper and faster-whisper validated locally; Groq/ElevenLabs pending owner keys |
+| Voice: sentence-streamed TTS, STT, robotic effect, interruption | tested with fixtures; Piper and faster-whisper validated locally; Groq key and the ElevenLabs instant clone validated with real service (samples generated with the production engine) |
 | Conversational PWA with animated core | validated in Chrome against the local server; Safari/iPhone pending hardware |
-| Docker, Caddy TLS, encrypted backups with restore test, CI | tested locally and in CI; real VPS, domain and bucket pending owner |
+| Docker, Caddy TLS, encrypted backups with restore test, CI | validated with real service: Lightsail São Paulo, Let's Encrypt, restic to R2 with a test restore |
 | Device gateway with revocable tokens, simulator | tested with fixtures; simulator validated against the server |
 | ATOM Echo firmware (PlatformIO, push-to-talk) | compiles; pending hardware |
 | End-to-end voice turn with real Claude and local STT/TTS | validated with real service (first audio 4.7 s; see [docs/voice.md](docs/voice.md)) |
 | Acceptance tests (18) with evidence | see [docs/qa/acceptance.md](docs/qa/acceptance.md) |
 | Delegated work: task tools, runner (plan, execute, independent review), limits, recovery, approvals, notifications, attachments | tested with fixtures (scripted agents and a controlled task checked by running code), see [docs/agents.md](docs/agents.md) |
-| Delegated work with real Claude agents (Haiku 5.5 planner, Sonnet 5.5 executor and reviewer, on the subscription) | validated with real service in file-tools-only mode; with Bash and the sandbox, pending hardware (the VPS) |
+| Delegated work with real Claude agents (Haiku 5.5 planner, Sonnet 5.5 executor and reviewer, on the subscription) | validated with real service on the VPS, with Bash in the sandbox and the runner as a host service |
+| Call mode, hold-to-record voice notes, speaker toggle, HUD core, chart and table cards | tested with fixtures; deployed, pending the owner's first use on the iPhone |
 
 ## Screenshots
 
