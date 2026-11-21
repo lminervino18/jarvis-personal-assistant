@@ -1,0 +1,13 @@
+services:
+  server:
+    volumes:
+      - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work
+  worker:
+    volumes:
+      - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work
+  whatsapp-bridge:
+    volumes:
+      - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work
+  backup:
+    volumes:
+      - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work

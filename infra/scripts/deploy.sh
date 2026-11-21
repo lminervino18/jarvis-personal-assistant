@@ -16,16 +16,20 @@ write_var() {
   if grep -qE "^$1=" "$env_file"; then sed -i "s|^$1=.*|$1=$2|" "$env_file"; else echo "$1=$2" >> "$env_file"; fi
 }
 
+host_runner_installer=/usr/local/sbin/jarvis-agent-runner-install
+
 switch_tag() {
   write_var JARVIS_PREVIOUS_TAG "$(read_var JARVIS_TAG)"
   write_var JARVIS_TAG "$1"
   docker compose up -d --wait
+  if [ -x "$host_runner_installer" ]; then sudo -n "$host_runner_installer" "$1"; fi
 }
 
 deploy() {
   local tag=$1
   if [ -n "$(read_var JARVIS_TAG)" ]; then docker compose run --rm backup backup.sh; fi
   JARVIS_TAG=$tag docker compose build
+  if [ -x "$host_runner_installer" ]; then JARVIS_TAG=$tag docker compose --profile agents build agent-runner; fi
   switch_tag "$tag"
 }
 
