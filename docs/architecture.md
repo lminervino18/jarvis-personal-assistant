@@ -2,18 +2,32 @@
 
 ## Overview
 
+J.A.R.V.IS has two jobs on one box:
+
+- the personal assistant (conversation, memory, agenda, mail, messages, reminders);
+- the control point for work tasks that agents do in the background.
+
+The owner talks to one assistant. Delegation is described in [agents.md](agents.md).
+
 ```
  Browser PWA ─┐                         ┌─ Claude Code (Agent SDK subprocess, owner's subscription)
-              │ WSS /ws  (cookie)        │      └─ in-process MCP server "jarvis" (per turn)
+              │ WSS /ws  (cookie)        │      └─ in-process MCP server "jarvis" (per turn, incl. task_* tools)
  ESP32 device ┤ WSS /ws/device (token)   │
               ▼                          │
-          Caddy (TLS) ──► server (Fastify) ──► SQLite (WAL, FTS5)  ◄── worker (reminders, outbox, Web Push)
-                               │                                   ◄── whatsapp-bridge (optional, Baileys)
-                               ├─► STT provider (swappable)
+          Caddy (TLS) ──► server (Fastify) ──► jarvis.db (personal)  ◄── worker (reminders, outbox, Web Push,
+                               │      │                                        task notifications)
+                               │      └──────► work.db (tasks) ◄──────────── agent-runner (separate container)
+                               │                                                └─ Claude Code per phase (owner's
+                               ├─► STT provider (swappable)                         subscription): plan → execute → review
                                └─► TTS provider (swappable)
 ```
 
-One SQLite database is the source of truth for conversations, memory, agenda, agreements, reminders, messages and integration state. Claude session files are a resumable cache, never the source of truth.
+There are two SQLite databases:
+
+- `jarvis.db` is the source of truth for personal data: conversations, memory, agenda, agreements, reminders, messages and integration state.
+- `work.db` holds delegated tasks, their runs, events, approvals and attachments. It lives on its own volume so the agent runner never mounts personal data.
+
+Claude session files are a resumable cache, never the source of truth.
 
 ## Processes
 
@@ -22,6 +36,9 @@ One SQLite database is the source of truth for conversations, memory, agenda, ag
 | server | `apps/server/src/main.ts` | HTTP, auth, WebSocket protocol, turn orchestration, tools, voice pipeline |
 | worker | `apps/server/src/worker.ts` | Reminder scheduling, outbox delivery (Web Push), recovery after restarts. Never imports the Claude runtime. |
 | whatsapp-bridge | `apps/server/src/whatsapp-bridge.ts` | Optional, disabled by default. Read-only sync of the owner's WhatsApp into `wa_messages`. |
+| agent-runner | `apps/server/src/agent-runner.ts` | Compose profile `agents`. Runs delegated tasks through plan, execute and review with leases, limits and recovery. Mounts only the work volume and holds only the agents' subscription token. Pauses agents when the plan passes the reserve kept for the chat. |
+
+The worker also turns notifiable task events from `work.db` into chat messages and Web Push entries, with dedupe keys `task-event:<id>:chat|push`.
 
 ## Reminders worker
 
@@ -55,10 +72,28 @@ One SQLite database is the source of truth for conversations, memory, agenda, ag
 - The Claude subprocess gets an allowlisted environment: no API keys, no server secrets. `settingSources: []`, `strictMcpConfig`, claude.ai connectors disabled, `permissionMode: dontAsk`, built-ins limited to `WebSearch`, and a `PreToolUse` hook that denies anything outside the per-turn allowlist.
 - Tool policy (`tools/runner.ts`): zod validation (strict), idempotent writes keyed by turn + tool + input, and taint tracking. After a turn reads untrusted content, state-changing tools create a pending action and a confirm card; only the owner's tap executes the stored input, without the model.
 - Tokens for Google and WhatsApp are encrypted at rest with a key separate from the database.
+- Delegated work is isolated from personal data:
+  - separate database, volume, container, network and Claude credentials;
+  - agent file tools confined to their task folder by a `PreToolUse` path policy;
+  - Bash in Claude Code's sandbox, required in production;
+  - agents limited to Sonnet and Haiku.
+- `task_status` and `task_result` count as untrusted content, and `task_create`, `task_feedback` and `task_control` as state changes.
+- Task approvals and acceptance come only from card taps (`task.action`), never from the model.
 
-## Data model (migration 001)
+## Data model (`jarvis.db`, migrations 001 and 002)
 
 conversations, turns (with latency metrics), messages (+FTS), memories (+FTS) and memory_events (audit; text scrubbed on forget), contacts, contact_aliases, contact_identities, agreements, agreement_parties, agreement_events, calendar_events, reminders, outbox, push_subscriptions, auth_sessions, devices, oauth_accounts, oauth_states, wa_chats, wa_messages (+FTS), wa_sync_state, wa_auth_state, tool_executions (idempotency), pending_actions.
+
+Migration 002 adds `sync_cursors`, the worker's position in the task event log.
+
+`work.db` (work migration 001) has these tables:
+
+- `tasks`: request, spec, report, review, evidence, blocker, feedback, cost, budget, and source with its external reference;
+- `task_runs`: leased runs, with a partial unique index of one active run per task;
+- `task_events`;
+- `task_approvals`;
+- `task_attachments`;
+- `runner_heartbeat`.
 
 Timestamps are stored as UTC ISO strings; anything recurring also stores the IANA zone.
 

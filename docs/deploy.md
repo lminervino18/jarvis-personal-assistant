@@ -12,8 +12,14 @@ One small Linux VPS runs everything with Docker Compose: the server (API, WebSoc
 | `backup` | `jarvis-backup:<tag>` (`infra/backup`) | none | always |
 | `whatsapp-bridge` | same image, `node dist/whatsapp-bridge.js` | none | `whatsapp` |
 | `whisper`, `piper` | `infra/voice/*` | none, private network without internet | `voice` |
+| `agent-runner` | `jarvis-agent-runner:<tag>` (`Dockerfile` target `agent-runner`: adds git, bubblewrap, socat) | none, own network `agents` | `agents` |
 
-All containers: `restart: unless-stopped`, read-only root filesystem, all capabilities dropped (Caddy keeps only `NET_BIND_SERVICE`), `no-new-privileges`, CPU, memory and PID limits, JSON logs rotated at 10 MB x 5 files. The application image runs as UID 10001. The data lives in the `jarvis-data` volume (`/data`: `jarvis.db`, `memory/loren.md`, `claude/`).
+All containers: `restart: unless-stopped`, read-only root filesystem, all capabilities dropped (Caddy keeps only `NET_BIND_SERVICE`), `no-new-privileges`, CPU, memory and PID limits, JSON logs rotated at 10 MB x 5 files. The application image runs as UID 10001. The data lives in two volumes:
+
+- `jarvis-data` (`/data`): `jarvis.db`, `memory/loren.md`, `claude/`;
+- `work-data` (`/work`): `work.db`, task workspaces, the inbox of attachments and project contexts.
+
+`agent-runner` mounts only `work-data` and reads only `/etc/jarvis/agents.env`.
 
 ## 1. Decisions and accounts (owner)
 
@@ -145,3 +151,16 @@ infra/scripts/restore-test.sh      # synthetic database, local restic repository
 ```
 
 `restore-test.sh` seeds a synthetic database while the server runs, backs it up twice, wipes the volume, restores, compares row counts of every table, and boots the server on the restored database.
+
+## Delegated work (profile `agents`)
+
+See [agents.md](agents.md) for the design and [claude-runtime.md](claude-runtime.md#chosen-mode-owner-decision-2026-11-21) for how agents use the plan.
+
+1. **Account.** Agents run on the owner's subscription. In claude.ai, keep extra usage disabled and turn off model training in the privacy settings before any company material goes in.
+2. **Agent token.** Run `claude setup-token` on your own machine a second time, so agents get a token separate from the chat's. Then run `install -m 600 infra/agents/agents.env.example /etc/jarvis/agents.env` and set `AGENT_CLAUDE_CODE_OAUTH_TOKEN`. Do not copy anything from `jarvis.env` into it.
+3. **Projects.** One folder per company system, created when access exists. The `projects/` tree lives in the `work-data` volume.
+   - `projects/<slug>/CONTEXT.md` is mandatory: what the system is, conventions, and how to test.
+   - `projects/<slug>/repo/` is optional: a git clone, or plain files.
+4. **Start.** `COMPOSE_PROFILES=agents docker compose up -d agent-runner`. With Bash enabled and the sandbox required, the runner refuses to start when bubblewrap cannot create user namespaces. Read the "Bash sandbox on the target host" section of `agents.md` before deciding how to fix it. As a fallback, `AGENT_BASH=false` runs agents with file tools only.
+5. **Check.** In the chat, ask "¿están andando los agentes?"; `integrations_status` reports the runner's heartbeat. Then run the controlled task from a development checkout (`pnpm --filter @jarvis/server demo:tasks --claude`) to see the full path with real models.
+

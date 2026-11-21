@@ -20,16 +20,36 @@ Assumptions: 30 days per month, 8 s of owner speech and 12 s of reply per turn.
 
 ## Claude (separate, not a per-query price)
 
-| Plan | Price | Source (page, 2026-10-24) |
-| --- | --- | --- |
-| Pro | $20 per month, or $200 billed up front ($17 per month equivalent) | [claude.com/pricing](https://claude.com/pricing) |
-| Max | from $100 per month | same |
+Re-checked on 2026-11-20 on [claude.com/pricing](https://claude.com/pricing) and the Help Center (details and links in `docs/claude-runtime.md`).
 
-Claude Code is listed as included in Pro and Max. The assistant runs on the owner's subscription through the Agent SDK, so the cost is the subscription itself. How many turns a plan allows depends on usage limits that Anthropic changes and that vary with model, effort and conversation length; this document does not turn the subscription into a number of queries and nobody should plan on one. If the limit is reached, the runtime reports it (see `docs/claude-runtime.md`) and the owner decides whether to raise the plan. Claude is not part of the totals below.
+| Plan | Price | Usage vs Pro | API credits included | Source |
+| --- | --- | --- | --- | --- |
+| Pro | $20 per month, or $200 per year ($17 per month equivalent) | 1x | none | page |
+| Max | $100 per month | 5x | $100 per month on the Claude Platform; it expires each cycle and stops when used up if no card is added | page and Help Center |
+| Ultra | $200 per month | 10x weekly, no 5-hour limit on verified accounts | $200 per month | page |
+
+**Recommended: Max, with everything on the subscription** (owner decision, 2026-11-21).
+
+- The chat and the background agents both run on the plan, with separate tokens. No API key is used, so the included $100 of API credits stays unused.
+- Nothing is billed per query or per task beyond the plan. Extra usage must stay disabled on the account. On 2026-11-21 the account reported overage as rejected.
+- Agents share the 5-hour and weekly limits with the chat and with the owner's own Claude Code. The runner stops starting phases once any window passes 70 % and waits for the reset (`AGENT_PLAN_MAX_UTILIZATION`), so the chat keeps the rest.
+
+How much of the plan a task uses (measured and estimated, not promised):
+
+- **Measured** (2026-11-21, `pnpm demo:tasks --claude`, file tools only, shipped defaults: Haiku planner, Sonnet executor and reviewer): a small synthetic coding task used about **$0.11** of estimated usage in 45 s, and the plan's weekly window stayed at 22 % at that resolution. With a Sonnet planner (2026-11-20) the same task was about $0.19.
+- **Estimated**: a real task with command execution, a larger repository and one fix round, about **$0.5 to $3** of estimated usage. The plan's limits are not published in dollars, so how many tasks fit per week is only known by measuring `task_runs.plan_utilization` over the first real tasks.
+- Each task has its own budget (default $5 of estimated usage) and each run its own cap (default $2). The runner stops at either one and asks the owner.
+
+Pro also works to start, because the reserve keeps agents from using up the chat's quota. Agents will pause much more often, since Pro has a fifth of Max's usage. Measure on the plan you have before buying Max.
 
 ## Server
 
-Needs for the stack with external voice: the server idles near 70 MB, the worker near 30 MB, Caddy near 20 MB (measured in the local compose test). Even a 2 GB machine is comfortable. Running faster-whisper and Piper on the same machine is the only reason to go larger (see "Voice on the VPS").
+Needs for the stack with external voice: the server idles near 70 MB, the worker near 30 MB, Caddy near 20 MB (measured in the local compose test).
+
+The agent runner changes the sizing. Each agent session is a Claude Code process, and the work itself runs builds and tests. Memory per session was not measured yet; an estimate of 0.5 to 1.5 GB at peak with concurrency 1 makes **4 GB the minimum** for the single box. Re-checked on 2026-11-20:
+
+- Lightsail 4 GB: $24 per month, 2 vCPU, 80 GB, 4 TB transfer (half in São Paulo).
+- Hetzner CX33: 4 vCPU, 8 GB, EUR 8.99 per month with IPv4 included. The page still showed it as unavailable.
 
 | Option | Specs | Price | Notes |
 | --- | --- | --- | --- |
@@ -94,19 +114,27 @@ Backup size estimate: the synthetic database in the restore test is 340 KB with 
 
 ## Totals
 
-Recommended configuration: a 2 GB machine, external voice (Groq turbo STT + ElevenLabs Flash TTS), R2 or B2 backups, a `.com` domain.
+Previous recommendation (2026-10-24): Lightsail São Paulo 2 GB, external voice, R2 backups, `.com` domain, about $15 to $26 per month without Claude. With delegated work on the same box, 2 GB is no longer enough.
+
+New recommendation (2026-11-20, confirmed by the owner on 2026-11-21): Lightsail São Paulo 4 GB, external voice, R2 backups and the domain the owner already has, plus Claude Max with chat and agents on the subscription. USD per month, before Argentine taxes:
 
 | | 10 turns per day | 30 turns per day | 60 turns per day |
 | --- | --- | --- | --- |
-| Server, Lightsail Sao Paulo 2 GB | $12.00 | $12.00 | $12.00 |
+| Server, Lightsail São Paulo 4 GB | $24.00 | $24.00 | $24.00 |
 | Voice (Groq + Flash) | $2.19 | $6.58 | $13.16 |
-| Backups | about $0.01 | about $0.01 | about $0.02 |
-| Domain ($11.08 per year) | $0.92 | $0.92 | $0.92 |
-| Total without Claude | about $15.1 | about $19.5 | about $26.1 |
+| Backups (R2 free tier) | $0 | $0 | $0 |
+| Domain (subdomain of the owner's existing domain) | $0 | $0 | $0 |
+| Total without Claude | about $26.2 | about $30.6 | about $37.2 |
+| Claude Max (chat and agents) | $100 | $100 | $100 |
+| Total | about $126 | about $131 | about $137 |
 
-The cheaper server variant, Hetzner CX23 with IPv4 at EUR 6.49 (about $7.46 at the assumed rate), lowers each total by about $4.5 at the cost of the latency discussed above. Add the Claude subscription (from $20 per month, separate) for the all-in figure. Voice on the VPS (profile `voice`) replaces the voice line with $0 but requires the 4 vCPU / 8 GB class (Hetzner CX33 EUR 9.49 with IPv4, about $10.9), which gives roughly $11.8 per month without Claude (server, domain and backups) for any turn volume, with slower and less natural voice.
+Variants:
 
-Free tiers (for example an always-free cloud instance) were not researched or priced. They are acceptable only for experiments: instances can be reclaimed or throttled, and the assistant holds private data.
+- **Hetzner CX33** instead of Lightsail: about $10.3 at the assumed rate, which lowers each total by about $13.7. In exchange, latency from Buenos Aires to Europe is higher on every chat and voice turn, and availability is uncertain. The agents do not care about latency.
+- **Pro instead of Max**: $80 less (totals of about $46 to $57). Chat and agents share Pro's limits with the owner's own Claude Code. The plan reserve protects the chat, but agents pause about five times as often.
+- **Local voice** (profile `voice`): removes the voice line, but needs the 8 GB class once agents share the machine.
+
+Free tiers were not researched for production use: the box holds private data and company work.
 
 ## Re-checking before spending
 

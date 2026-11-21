@@ -44,6 +44,23 @@ docker compose exec worker node -e 'const D=require("better-sqlite3");const db=n
 
 `claude setup-token` prints an OAuth token valid for about a year. Put a yearly reminder in your calendar. To renew: run it on your computer, replace `CLAUDE_CODE_OAUTH_TOKEN`, `docker compose up -d server`, and ask the assistant something simple. If the account ever shows as logged out, revoke the old token from your Claude account settings. If Anthropic changes the plan rules, `docs/claude-runtime.md` is where the route was checked.
 
+## Delegated tasks
+
+- **Runner status.** `integrations_status` in the chat, or `docker compose logs --tail 50 agent-runner`. The heartbeat in `work.db` is refreshed every 3 s while the runner lives.
+- **Stop all agent work.** `docker compose stop agent-runner`. Running phases are interrupted; on restart their tasks go back to the queue with one more attempt.
+- **A task looks stuck.** `task_status` shows the phase, the blocker and the last events. Leases expire after 2 minutes without a heartbeat.
+- **Agents paused for the plan.** When a session sees a plan window past `AGENT_PLAN_MAX_UTILIZATION`, or the plan refuses requests, agents hold until the reported reset and the owner gets one notice. `integrations_status` shows until when. To release a hold early (it will come back if usage is still high):
+
+  ```bash
+  docker compose exec agent-runner node -e 'const D=require("better-sqlite3");const db=new D("/work/work.db");db.prepare("UPDATE runner_heartbeat SET hold_until = NULL").run();db.close()'
+  ```
+
+  To change the threshold, set it in `/etc/jarvis/agents.env` and run `docker compose up -d agent-runner`. Turning on paid extra usage is a spending decision, not a fix.
+- **How much of the plan tasks use.** `task_runs.plan_utilization` is the most used plan window seen by each session, as a fraction. Compare it across a task's runs.
+- **Suspected leak of the agent token.** Revoke it from your Claude account, run `claude setup-token` again, update `/etc/jarvis/agents.env` and restart `agent-runner`. The chat token is separate and keeps working. No personal secret is in that container.
+- **Renew the agent token.** Like the chat token, it lasts about a year. Set its own yearly reminder.
+- **Inspect a task by hand.** The work volume holds `tasks/<id>/request`, `work` (a git repository: `git log` shows one commit per iteration) and `.runner/iteration-N.diff`.
+
 ## Restore
 
 When: the database is corrupted, a bad deploy migrated it, data was deleted by mistake, or the server was lost.

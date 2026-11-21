@@ -8,6 +8,60 @@
 - Precedence: `ANTHROPIC_API_KEY` would win over the subscription in `-p` mode. The runtime builds the subprocess environment from an allowlist, so API keys never reach it and paid API usage cannot be activated silently.
 - Paid overage: `rate_limit_event` messages report `isUsingOverage`; the turn is stopped unless `CLAUDE_ALLOW_OVERAGE=true`.
 
+## Plans and authentication (checked 2026-11-20)
+
+Sources, read on 2026-11-20:
+
+- [claude.com/pricing](https://claude.com/pricing)
+- Help Center: [Monthly API credits for Max, Ultra and Team plans](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans)
+- Help Center: [Use the Claude Agent SDK with your Claude plan](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) (updates of 2026-06-15 and 2026-10-07)
+- Help Center: [Use Claude Code with your Pro, Max or Ultra plan](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-max-or-ultra-plan)
+- [Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)
+- [Claude Code sandboxing](https://code.claude.com/docs/en/sandboxing)
+- Anthropic, [updates to the consumer terms](https://www.anthropic.com/news/updates-to-our-consumer-terms)
+
+| Plan | Price | Usage | API credits included |
+| --- | --- | --- | --- |
+| Pro | USD 20 per month (17 per month billed yearly) | 1x; 5-hour and weekly limits | none |
+| Max | USD 100 per month | 5x Pro; 5-hour and weekly limits, plus a separate weekly Fable limit | USD 100 per month on the Claude Platform |
+| Ultra | USD 200 per month | 10x Pro weekly; no 5-hour limit on verified accounts | USD 200 per month |
+
+What the pages say, and what it means here:
+
+- **Subscription login.** When signed in with the plan, the Agent SDK and `claude -p` draw from the plan's usage limits. Those limits are shared with claude.ai and with the owner's own Claude Code, and they "assume ordinary, individual usage of Claude Code and the Agent SDK". Max is not unlimited.
+- **Monthly API credits (Max and Ultra).**
+  - They cover the Messages API, Managed Agents, and the Agent SDK and `claude -p` *when run with an API key* from the Console organization linked to the plan (Settings > Billing > API credits > Link organization; one organization, changed only through support).
+  - They work with any available model.
+  - They expire at the end of each billing cycle.
+  - They need no card. Without purchased credits or auto-reload, requests stop when the credits run out; usage is never charged to the plan.
+  - They do not apply to interactive Claude Code or to the plan's usage credits.
+- **API key for products.** Developers building products on the Agent SDK should use API key authentication. Anthropic does not allow offering Claude.ai login, or routing requests through plan credentials, on behalf of others. J.A.R.V.IS has a single owner who signs in to the unmodified binary with their own subscription, which the page explicitly does not restrict.
+- **Data.** Pro and Max chats and coding sessions follow the Consumer Terms: they can be used for training unless the owner opts out, with exceptions for feedback and safety review. API usage follows the Commercial Terms, and prompts are not used for training.
+
+### Chosen mode (owner decision, 2026-11-21)
+
+Everything runs on the owner's subscription. No API key is read or forwarded anywhere, and the API credits included with Max stay unused.
+
+| Traffic | Authentication | Notes |
+| --- | --- | --- |
+| Personal chat (server runtime) | Subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`), validated on 2026-10-24 | Unchanged. |
+| Delegated work (agent runner) | A second subscription token from `claude setup-token` (`AGENT_CLAUDE_CODE_OAUTH_TOKEN`), only in `/etc/jarvis/agents.env` | Validated on 2026-11-21 with the local login: the controlled task cost USD 0.11 of estimated usage and the session reported the plan windows. |
+
+What this implies, and how the runner limits it:
+
+- **Shared limits.** Agents draw from the same 5-hour and weekly limits as the chat and the owner's own Claude Code. The runner keeps a reserve for the chat: when a session reports that any plan window passed `AGENT_PLAN_MAX_UTILIZATION` (default 0.7), no new phase starts until that window resets, and the owner gets one notice. See [agents.md](agents.md#plan-reserve).
+- **Lower consumption by default.** Concurrency 1, the planner on Haiku (USD 0.003 per plan in the real runs, with criteria as good as Sonnet's on the controlled task), a read-only Haiku explorer, per-session and per-task budgets, and at most 2 fix rounds.
+- **Budgets are estimates.** `total_cost_usd` is the SDK's API-equivalent estimate. On the subscription nothing is charged per task; the USD figures only cap how much of the plan a task may use.
+- **No paid overage.** The chat stops on `isUsingOverage` unless `CLAUDE_ALLOW_OVERAGE=true`. The runner ends the session as soon as the plan refuses requests or overage starts. Keeping extra usage disabled on the account makes that a hard guarantee. On 2026-11-21 the account reported overage as rejected.
+- **Data.** Subscription sessions follow the Consumer Terms. Before sending company material, the owner must turn off model training in claude.ai privacy settings and confirm that the company allows it.
+- **Ordinary, individual usage.** Plan limits assume it. A single owner delegating their own work at concurrency 1 fits that reading, but sustained background automation is the part Anthropic could judge otherwise. If that happens, the switch is configuration only: the backend sits behind `AgentBackend`.
+
+Alternatives considered and set aside:
+
+- **API key with the Max credits.** It needs no card and has a hard cap, Commercial Terms and separate limits. The owner chose not to use any API.
+- **OpenRouter.** It is a pay-per-token API with its own billing. It does not use the plan, and Claude there costs the same per token. Cheaper models would mean leaving Sonnet and Haiku, and sending company code to more third parties.
+- **Managed Agents.** It moves execution off the box and bills by session runtime. Postponed.
+
 ## Adapter (`apps/server/src/runtime/claude-runtime.ts`)
 
 | Requirement | Implementation |

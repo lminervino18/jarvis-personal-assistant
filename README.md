@@ -4,9 +4,17 @@
 
 # J.A.R.V.IS
 
-A private, voice-first personal assistant powered by Claude, with conversational memory, messaging integrations, reminders, and a cinematic web interface.
+A private, voice-first personal assistant powered by Claude, with conversational memory, messaging integrations, reminders, a cinematic web interface, and a control point for work tasks done by background agents.
 
-The interface is a single conversation, by text or voice. There are no dashboards: you ask "¿Qué tengo mañana?", "¿Qué dijo Fran del partido?" or "Recordame pagar esto el viernes" and the assistant uses its tools to answer. It is built for exactly one owner, runs entirely in the cloud, and is designed to later drive a small Wi-Fi speaker (M5Stack ATOM Echo).
+The interface is a single conversation, by text or voice. There are no dashboards. You can:
+
+- ask "¿Qué tengo mañana?" or "¿Qué dijo Fran del partido?";
+- ask for "Recordame pagar esto el viernes";
+- hand over work with "Revisá esta tarea de la empresa y resolvela", then ask "¿Cómo viene?" and "Mostrame el resultado".
+
+Quick questions are answered in the conversation. Work is registered as a task: background agents plan it, execute it and review it with evidence, and you get a card to approve or send back.
+
+It is built for exactly one owner, runs on a single server, and is designed to later drive a desk voice terminal (ReSpeaker XVF3800 in a 3D-printed ARC enclosure).
 
 > Personal project. Not affiliated with Marvel, Disney or Anthropic. The code is public; any deployment requires authentication and holds the owner's data privately.
 
@@ -33,6 +41,8 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | ATOM Echo firmware (PlatformIO, push-to-talk) | compiles; pending hardware |
 | End-to-end voice turn with real Claude and local STT/TTS | validated with real service (first audio 4.7 s; see [docs/voice.md](docs/voice.md)) |
 | Acceptance tests (18) with evidence | see [docs/qa/acceptance.md](docs/qa/acceptance.md) |
+| Delegated work: task tools, runner (plan, execute, independent review), limits, recovery, approvals, notifications, attachments | tested with fixtures (scripted agents and a controlled task checked by running code), see [docs/agents.md](docs/agents.md) |
+| Delegated work with real Claude agents (Haiku 5.5 planner, Sonnet 5.5 executor and reviewer, on the subscription) | validated with real service in file-tools-only mode; with Bash and the sandbox, pending hardware (the VPS) |
 
 ## Screenshots
 
@@ -47,21 +57,28 @@ Demo mode with fictitious data (`?demo`).
 
 ```
  Browser PWA ─┐                         ┌─ Claude Code (Agent SDK subprocess, owner's subscription)
-              │ WSS /ws  (cookie)        │      └─ in-process MCP server "jarvis" (per turn)
+              │ WSS /ws  (cookie)        │      └─ in-process MCP server "jarvis" (per turn, incl. task_* tools)
  ESP32 device ┤ WSS /ws/device (token)   │
               ▼                          │
-          Caddy (TLS) ──► server (Fastify) ──► SQLite (WAL, FTS5)  ◄── worker (reminders, outbox, Web Push)
-                               │                                   ◄── whatsapp-bridge (optional)
-                               ├─► STT provider (swappable)
-                               └─► TTS provider (swappable)
+          Caddy (TLS) ──► server (Fastify) ──► jarvis.db (personal)  ◄── worker (reminders, outbox, Web Push,
+                               │      │                                        task notifications)
+                               │      └──────► work.db (tasks) ◄──────────── agent-runner (separate container)
+                               ├─► STT provider (swappable)                     └─ plan → execute → review
+                               └─► TTS provider (swappable)                        (Haiku / Sonnet, subscription)
 ```
 
 - **Monorepo** (pnpm, Node 24, TypeScript): `packages/contracts` (shared zod schemas), `apps/server` (Fastify, SQLite, Agent SDK), `apps/web` (React + Vite PWA).
-- **One SQLite database** (WAL, FTS5) is the source of truth for conversations, memories, agenda, agreements, reminders and messages. Claude session files are only a resumable cache.
+- **SQLite** (WAL, FTS5).
+  - `jarvis.db` is the source of truth for conversations, memories, agenda, agreements, reminders and messages.
+  - `work.db` holds delegated tasks on its own volume. The agents' container mounts only that volume.
+  - Claude session files are only a resumable cache.
 - **Claude** runs as the unmodified Claude Code binary through the Agent SDK, authenticated with the owner's subscription. Each turn gets a strict allowlist of tools served by an in-process MCP server; no shell, no filesystem, no web fetch.
 - **Reminders** are delivered by an independent worker with an outbox, so they keep working when Claude is unavailable or out of quota.
+- **Delegated work** runs in a separate `agent-runner` container with its own database (`work.db`), volume and Claude credentials.
+  - Each task goes through a planner (Haiku), an executor and an independent reviewer (Sonnet), with budgets, a plan reserve, leases and recovery owned by code.
+  - Nothing an agent finishes is published or deployed without an explicit tap from the owner.
 
-Details: [docs/architecture.md](docs/architecture.md).
+Details: [docs/architecture.md](docs/architecture.md) and [docs/agents.md](docs/agents.md). The plan as of 2026-11-20, with what changed and why: [docs/plan.es.md](docs/plan.es.md).
 
 ## Setup
 
@@ -79,18 +96,20 @@ pnpm check                                 # lint, typecheck, tests, build
 
 ## Costs and limitations
 
-Estimates from official price pages retrieved on 2026-10-24 ([docs/costs.md](docs/costs.md)); they are not quotes and exclude taxes.
+Estimates from official price pages; they are not quotes and exclude taxes. The full breakdown, re-checked on 2026-11-20 with delegated work included, is in [docs/costs.md](docs/costs.md).
 
-| Turns per day | Server (2 vCPU / 2 GB, São Paulo) | Voice (Groq STT + ElevenLabs Flash) | Backups + domain | Total |
-| - | - | - | - | - |
-| 10 | USD 12.00 | USD 2.19 | USD 0.93 | ~USD 15 / month |
-| 30 | USD 12.00 | USD 6.58 | USD 0.93 | ~USD 20 / month |
-| 60 | USD 12.00 | USD 13.16 | USD 0.94 | ~USD 26 / month |
+| Turns per day | Server (Lightsail São Paulo 4 GB) | Voice (Groq STT + ElevenLabs Flash) | Backups + domain | Claude Max | Total |
+| - | - | - | - | - | - |
+| 10 | USD 24.00 | USD 2.19 | USD 0 | USD 100 | ~USD 126 / month |
+| 60 | USD 24.00 | USD 13.16 | USD 0 | USD 100 | ~USD 137 / month |
 
-- Claude is the owner's existing subscription. Its limits are shared with the owner's own Claude usage and are not a guaranteed number of queries; when the quota runs out the assistant says so and reminders keep working. Paid overage is refused unless explicitly enabled.
-- A cheaper Hetzner server lowers the totals by about USD 4.5 at the cost of higher latency from Buenos Aires; local Piper + faster-whisper removes the voice line but needs a larger server.
-- Measured latency (Claude only, Sonnet 5.5): first text p50 ≈ 2.1 s for simple turns, ≈ 4.3 s with one tool call. End-to-end voice latency adds STT and TTS and is recorded per turn.
-- WhatsApp access is unofficial and may get the number restricted; history coverage is partial and always reported. Push delivery and background listening are not guaranteed on iPhone.
+- **Claude Max.** The chat and the background agents both run on the subscription, with separate tokens and no API key. Agents stop starting work once any plan window passes 70 % and wait for the reset, so the chat keeps the rest. Paid extra usage stays off.
+- **Limits.** Subscription limits are shared with the owner's own Claude usage and are not a guaranteed number of queries. When the quota runs out the assistant says so, and reminders keep working. Paid overage is refused unless explicitly enabled.
+- **Cheaper server.** Hetzner CX33 (Europe) cuts about USD 14 per month, with higher chat latency from Buenos Aires.
+- **Measured latency** (Claude only, Sonnet 5.5): first text p50 ≈ 2.1 s for simple turns, ≈ 4.3 s with one tool call.
+- **Known caveats.**
+  - WhatsApp access is unofficial and may get the number restricted; history coverage is partial and always reported.
+  - Push delivery and background listening are not guaranteed on iPhone.
 
 ## Privacy
 
@@ -102,12 +121,22 @@ Estimates from official price pages retrieved on 2026-10-24 ([docs/costs.md](doc
 
 ## Roadmap
 
+Done:
+
 1. Chat with Claude, memory and persistent sessions.
 2. Two-way voice, personality, follow-up listening and interruption.
 3. Gmail, WhatsApp, agenda, agreements and reminders.
 4. Animated PWA, notifications and YouTube.
 5. Deployment, backups, recovery, costs and real-service tests.
-6. Physical device.
+6. Delegated work tasks with independent review (first version).
+
+Next, from [docs/plan.es.md](docs/plan.es.md):
+
+- deploy on a 4 GB server with Claude Max and verify the agent sandbox there;
+- run the first real work tasks;
+- integrate the company's own task app once its access is known;
+- phone actions, WhatsApp alerts and Instagram;
+- the voice terminal.
 
 ## Contributing and security
 
