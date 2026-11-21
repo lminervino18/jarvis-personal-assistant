@@ -28,13 +28,13 @@ export interface CoreStyle {
 
 export const coreStyles: Record<AssistantState, CoreStyle> = {
   offline: { speed: 0.04, color: palette.dim, accentRing: -1, glow: 0.08, breathe: 0, sweep: false, source: "none" },
-  connecting: { speed: 0.5, color: palette.dim, accentRing: -1, glow: 0.2, breathe: 0.02, sweep: true, source: "none" },
-  idle: { speed: 0.14, color: palette.cyan, accentRing: -1, glow: 0.3, breathe: 0.05, sweep: false, source: "none" },
-  listening: { speed: 0.26, color: palette.lightCyan, accentRing: -1, glow: 0.4, breathe: 0.02, sweep: false, source: "input" },
-  transcribing: { speed: 0.7, color: palette.cyan, accentRing: -1, glow: 0.4, breathe: 0.02, sweep: true, source: "none" },
-  thinking: { speed: 1.1, color: palette.blue, accentRing: -1, glow: 0.45, breathe: 0.03, sweep: true, source: "none" },
-  using_tool: { speed: 0.9, color: palette.cyan, accentRing: 2, glow: 0.45, breathe: 0.03, sweep: true, source: "none" },
-  speaking: { speed: 0.34, color: palette.cyan, accentRing: -1, glow: 0.5, breathe: 0.02, sweep: false, source: "output" },
+  connecting: { speed: 0.7, color: palette.dim, accentRing: -1, glow: 0.2, breathe: 0.02, sweep: true, source: "none" },
+  idle: { speed: 0.3, color: palette.cyan, accentRing: -1, glow: 0.3, breathe: 0.05, sweep: false, source: "none" },
+  listening: { speed: 0.5, color: palette.lightCyan, accentRing: -1, glow: 0.4, breathe: 0.02, sweep: false, source: "input" },
+  transcribing: { speed: 1.0, color: palette.cyan, accentRing: -1, glow: 0.4, breathe: 0.02, sweep: true, source: "none" },
+  thinking: { speed: 1.7, color: palette.blue, accentRing: -1, glow: 0.45, breathe: 0.03, sweep: true, source: "none" },
+  using_tool: { speed: 1.4, color: palette.cyan, accentRing: 2, glow: 0.45, breathe: 0.03, sweep: true, source: "none" },
+  speaking: { speed: 0.6, color: palette.cyan, accentRing: -1, glow: 0.5, breathe: 0.02, sweep: false, source: "output" },
   interrupted: { speed: 0.08, color: palette.amber, accentRing: 0, glow: 0.3, breathe: 0, sweep: false, source: "none" },
   error: { speed: 0.02, color: palette.amber, accentRing: 0, glow: 0.22, breathe: 0, sweep: false, source: "none" },
 };
@@ -73,6 +73,8 @@ export class CoreAnimator {
   glow = 0.3;
   color: Rgb = palette.dim;
   sweepAngle = 0;
+  /** Accumulated angle for orbiting particles and sliding readouts; follows the style speed. */
+  orbit = 0;
   clock = 0;
 
   step(dtMs: number, style: CoreStyle, levels: LevelReading, reducedMotion: boolean): void {
@@ -88,5 +90,6 @@ export class CoreAnimator {
       this.angles[i] = (angle + direction * advance * (0.9 - i * 0.18)) % (Math.PI * 2);
     });
     this.sweepAngle = (this.sweepAngle + advance * 3.2) % (Math.PI * 2);
+    this.orbit = (this.orbit + advance * 1.6) % (Math.PI * 200);
   }
 }

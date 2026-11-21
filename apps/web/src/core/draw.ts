@@ -72,18 +72,102 @@ function drawSweep(ctx: CanvasRenderingContext2D, radius: number, animator: Core
   }
 }
 
+const TICKS = 72;
+const LIT_TICKS = 9;
+
 function drawTicks(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator): void {
-  const count = 72;
+  const offset = -(animator.angles[3] as number) * 0.4;
+  const lit = Math.floor(animator.orbit * 6) % TICKS;
   ctx.lineWidth = Math.max(1, radius * 0.006);
-  ctx.strokeStyle = rgba(animator.color, 0.22);
-  ctx.beginPath();
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * TAU;
+  for (let i = 0; i < TICKS; i++) {
+    const angle = offset + (i / TICKS) * TAU;
+    const distance = (i - lit + TICKS) % TICKS;
+    const glow = distance < LIT_TICKS ? 1 - distance / LIT_TICKS : 0;
     const inner = radius * (i % 6 === 0 ? 0.935 : 0.955);
+    ctx.strokeStyle = rgba(glow > 0 ? palette.lightCyan : animator.color, 0.2 + glow * 0.7);
+    ctx.beginPath();
     ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
     ctx.lineTo(Math.cos(angle) * radius * 0.975, Math.sin(angle) * radius * 0.975);
+    ctx.stroke();
+  }
+}
+
+function drawReticle(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator): void {
+  ctx.lineWidth = Math.max(1, radius * 0.004);
+  ctx.strokeStyle = rgba(animator.color, 0.14 + animator.glow * 0.1);
+  for (const ring of [0.31, 0.63, 0.995]) {
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * ring, 0, TAU);
+    ctx.stroke();
+  }
+  const spin = animator.orbit * 0.12;
+  ctx.beginPath();
+  for (let i = 0; i < 4; i++) {
+    const angle = spin + (i * TAU) / 4;
+    ctx.moveTo(Math.cos(angle) * radius * 0.64, Math.sin(angle) * radius * 0.64);
+    ctx.lineTo(Math.cos(angle) * radius * 0.69, Math.sin(angle) * radius * 0.69);
   }
   ctx.stroke();
+}
+
+function drawReadouts(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator): void {
+  ctx.lineCap = "butt";
+  ctx.lineWidth = radius * 0.016;
+  for (let i = 0; i < 3; i++) {
+    const start = -animator.orbit * 0.35 + (i * TAU) / 3;
+    const length = 0.18 + 0.12 * Math.sin(animator.clock * 0.9 + i * 2);
+    ctx.strokeStyle = rgba(i === 0 ? palette.lightCyan : animator.color, 0.42 + animator.level * 0.3);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.915, start, start + length);
+    ctx.stroke();
+  }
+}
+
+const ORBITERS = [
+  { ring: 1, speed: 1, phase: 0 },
+  { ring: 2, speed: -0.72, phase: 2.1 },
+  { ring: 3, speed: 0.46, phase: 4 },
+  { ring: 2, speed: -0.72, phase: 5.2 },
+  { ring: 3, speed: 0.46, phase: 1.3 },
+] as const;
+
+function drawOrbiters(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator): void {
+  const size = radius * (0.013 + animator.level * 0.012);
+  ctx.lineCap = "round";
+  for (const orbiter of ORBITERS) {
+    const angle = animator.orbit * orbiter.speed + orbiter.phase;
+    const distance = radius * (RINGS[orbiter.ring] as RingSpec).radius;
+    const trail = 0.4 + animator.level * 0.3;
+    ctx.strokeStyle = rgba(palette.lightCyan, 0.28);
+    ctx.lineWidth = size;
+    ctx.beginPath();
+    if (orbiter.speed > 0) ctx.arc(0, 0, distance, angle - trail, angle);
+    else ctx.arc(0, 0, distance, angle, angle + trail);
+    ctx.stroke();
+    ctx.fillStyle = rgba(palette.lightCyan, 0.95);
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * distance, Math.sin(angle) * distance, size, 0, TAU);
+    ctx.fill();
+  }
+}
+
+const BARS = 56;
+
+function drawEqualizer(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator): void {
+  const energy = Math.max(animator.level, animator.glow * 0.12);
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(1.5, radius * 0.011);
+  const inner = radius * 0.27;
+  for (let i = 0; i < BARS; i++) {
+    const angle = (i / BARS) * TAU + animator.orbit * 0.25;
+    const wave = 0.5 + 0.5 * Math.sin(i * 2.3 + animator.clock * 9) * Math.sin(i * 0.7 - animator.clock * 5);
+    const length = radius * (0.015 + energy * 0.19 * wave);
+    ctx.strokeStyle = rgba(palette.lightCyan, 0.25 + energy * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner);
+    ctx.lineTo(Math.cos(angle) * (inner + length), Math.sin(angle) * (inner + length));
+    ctx.stroke();
+  }
 }
 
 function drawDisc(ctx: CanvasRenderingContext2D, radius: number, animator: CoreAnimator, style: CoreStyle): void {
@@ -106,10 +190,14 @@ export function drawCore(ctx: CanvasRenderingContext2D, size: number, animator: 
   ctx.save();
   ctx.translate(radius, radius);
   drawHalo(ctx, radius, animator);
+  if (quality > 0) drawReticle(ctx, radius, animator);
   const rings = quality === 0 ? [0, 2, 3] : [0, 1, 2, 3];
   for (const index of rings) drawRing(ctx, radius, index, animator, style, quality);
   if (style.sweep) drawSweep(ctx, radius, animator);
   if (quality === 2) drawTicks(ctx, radius, animator);
+  if (quality > 0) drawReadouts(ctx, radius, animator);
+  if (quality > 0) drawOrbiters(ctx, radius, animator);
+  drawEqualizer(ctx, radius, animator);
   drawDisc(ctx, radius, animator, style);
   ctx.restore();
 }
