@@ -754,3 +754,38 @@ a {
   background: #ff4d5e;
   color: #fff;
 }
+
+.chart-box {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.table-scroll {
+  margin-top: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.card-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.card-table th,
+.card-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(70, 227, 255, 0.12);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.card-table th {
+  color: var(--light);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.card-table tbody tr:nth-child(odd) {
+  background: rgba(70, 227, 255, 0.04);
+}

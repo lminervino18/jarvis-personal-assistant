@@ -62,8 +62,39 @@ function demoHistory(now: Date): HistoryItem[] {
         },
       ]),
     },
+    { id: "demo-5", turnId: uuid(3), role: "user", text: "¿Cómo vienen mis tareas?", at: inAt(now, -12), interrupted: false, cards: [] },
+    {
+      id: "demo-6",
+      turnId: uuid(3),
+      role: "assistant",
+      text: "La migración de pagos va adelantada; el informe trimestral espera tu respuesta.",
+      at: inAt(now, -12),
+      interrupted: false,
+      cards: cards(DEMO_TASK_CARDS),
+    },
   ];
 }
+
+const DEMO_TASK_CARDS: Card[] = [
+  {
+    kind: "chart",
+    title: "Avance de tareas (ficticio)",
+    chart: "progress",
+    labels: ["#3 Migración de pagos", "#4 Informe trimestral", "#5 Tests de facturación"],
+    series: [{ name: "Avance", values: [80, 45, 20] }],
+    unit: "%",
+  },
+  {
+    kind: "table",
+    title: "Detalle",
+    columns: ["#", "Tarea", "Estado"],
+    rows: [
+      ["3", "Migración de pagos", "En revisión"],
+      ["4", "Informe trimestral", "Espera respuesta"],
+      ["5", "Tests de facturación", "Ejecutando"],
+    ],
+  },
+];
 
 function confirmCard(now: Date, status: "pending" | "confirmed" | "rejected"): Card {
   return {
@@ -93,6 +124,9 @@ function reply(text: string, now: Date): { text: string; cards: Card[] } {
       text: "Te dejo el reproductor. Tocá reproducir cuando quieras.",
       cards: [{ kind: "youtube", requestId: "demo-video", ...DEMO_VIDEO, url: `https://www.youtube.com/watch?v=${DEMO_VIDEO.videoId}`, autoplay: false }],
     };
+  }
+  if (lower.includes("tarea") || lower.includes("gráfico") || lower.includes("grafico")) {
+    return { text: "Así vienen las tareas (datos ficticios).", cards: DEMO_TASK_CARDS };
   }
   if (lower.includes("correo") || lower.includes("mail")) {
     return { text: "Antes de enviarlo necesito que lo confirmes.", cards: [confirmCard(now, "pending")] };

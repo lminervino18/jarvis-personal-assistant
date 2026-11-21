@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@jarvis/contracts": "workspace:*",
+    "echarts": "6.1.0",
     "qrcode-generator": "2.0.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",

@@ -4,6 +4,7 @@ import { formatDateTime, safeHref } from "../format.js";
 import type { CardActions } from "./actions.js";
 import { QrCode } from "./QrCode.js";
 import { YoutubeCard } from "./YoutubeCard.js";
+import { ChartCard } from "./ChartCard.js";
 
 type Of<K extends Card["kind"]> = Extract<Card, { kind: K }>;
 
@@ -330,6 +331,38 @@ function LinkCard({ card }: { card: Of<"link"> }) {
   );
 }
 
+function TableCard({ card }: { card: Extract<Card, { kind: "table" }> }) {
+  return (
+    <section className="card card-table" aria-label={`Tabla: ${card.title}`}>
+      <p className="card-kicker">Tabla</p>
+      <h3 className="card-title">{card.title}</h3>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              {card.columns.map((column, i) => (
+                <th key={i} scope="col">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {card.rows.map((row, r) => (
+              <tr key={r}>
+                {card.columns.map((_, c) => (
+                  <td key={c}>{row[c] ?? ""}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {card.note && <p className="card-meta">{card.note}</p>}
+    </section>
+  );
+}
+
 export function CardView({ card, actions }: { card: Card; actions: CardActions }) {
   switch (card.kind) {
     case "youtube":
@@ -352,5 +385,9 @@ export function CardView({ card, actions }: { card: Card; actions: CardActions }
       return <LinkCard card={card} />;
     case "task":
       return <TaskCard card={card} actions={actions} />;
+    case "chart":
+      return <ChartCard card={card} />;
+    case "table":
+      return <TableCard card={card} />;
   }
 }

@@ -149,4 +149,13 @@ describe("youtube card when playback is blocked", () => {
     expect(render({ ...base, status: "queued", phase: "execute", paused: true })).toContain("Reanudar");
     expect(render({ ...base, status: "cancelled" })).not.toContain("<button");
   });
+
+  it("renders a table with every column even when a row is short, and a chart container", () => {
+    const table = render({ kind: "table", title: "Tareas", columns: ["#", "Estado", "Nota"], rows: [["1", "Lista"]] });
+    expect(table).toContain("<th scope=\"col\">Estado</th>");
+    expect(table.match(/<td>/g)).toHaveLength(3);
+    const chart = render({ kind: "chart", title: "Avance", chart: "progress", labels: ["#1"], series: [{ name: "Avance", values: [60] }], unit: "%" });
+    expect(chart).toContain("Gráfico: Avance");
+    expect(chart).toContain("Avance: 60");
+  });
 });
