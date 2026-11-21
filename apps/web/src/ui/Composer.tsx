@@ -1,4 +1,5 @@
-import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { attachmentLine, type UploadOutcome } from "../tasks/attachments.js";
 
 interface Props {
   online: boolean;
@@ -7,11 +8,15 @@ interface Props {
   onSend(text: string): boolean;
   onMicrophone(): void;
   onStop(): void;
+  onAttach?(file: File): Promise<UploadOutcome>;
 }
 
-export function Composer({ online, micOpen, busy, onSend, onMicrophone, onStop }: Props) {
+export function Composer({ online, micOpen, busy, onSend, onMicrophone, onStop, onAttach }: Props) {
   const [text, setText] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
@@ -29,11 +34,34 @@ export function Composer({ online, micOpen, busy, onSend, onMicrophone, onStop }
     }
   };
 
+  const onFiles = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = "";
+    if (!onAttach || files.length === 0) return;
+    setUploading(true);
+    setUploadError(null);
+    for (const file of files) {
+      const outcome = await onAttach(file);
+      if (!outcome.ok) {
+        setUploadError(outcome.message);
+        break;
+      }
+      setText((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${attachmentLine(outcome.id, outcome.name)}\n`);
+    }
+    setUploading(false);
+    field.current?.focus();
+  };
+
   return (
     <form className="composer" onSubmit={submit}>
       <label className="sr-only" htmlFor="message">
         Mensaje
       </label>
+      {uploadError && (
+        <p className="composer-error" role="status">
+          {uploadError}
+        </p>
+      )}
       <textarea
         id="message"
         ref={field}
@@ -49,6 +77,16 @@ export function Composer({ online, micOpen, busy, onSend, onMicrophone, onStop }
         <button type="button" className="button stop" onClick={onStop} aria-label="Detener">
           Detener
         </button>
+      )}
+      {onAttach && (
+        <>
+          <input ref={picker} type="file" multiple hidden onChange={(event) => void onFiles(event)} />
+          <button type="button" className="button icon" aria-label={uploading ? "Subiendo archivo" : "Adjuntar archivo o captura"} disabled={!online || uploading} onClick={() => picker.current?.click()}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+              <path fill="currentColor" d="M16.5 6.5v10a4.5 4.5 0 0 1-9 0V5a3 3 0 0 1 6 0v10.5a1.5 1.5 0 0 1-3 0V6.5H9v9a3 3 0 0 0 6 0V5a4.5 4.5 0 0 0-9 0v11.5a6 6 0 0 0 12 0v-10h-1.5Z" />
+            </svg>
+          </button>
+        </>
       )}
       <button type="button" className="button icon" aria-pressed={micOpen} aria-label={micOpen ? "Dejar de escuchar" : "Hablar"} onClick={onMicrophone} disabled={!online}>
         <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">

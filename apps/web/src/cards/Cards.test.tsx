@@ -10,6 +10,7 @@ const actions: CardActions = {
   registerPlayer: () => () => {},
   reportPlayer: () => {},
   enablePush: async () => ({ ok: true }),
+  taskAction: () => {},
 };
 
 const render = (card: Card) => renderToStaticMarkup(<CardView card={card} actions={actions} />);
@@ -103,5 +104,49 @@ describe("youtube card when playback is blocked", () => {
     expect(html).toContain('href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"');
     expect(html).toContain("Abrir en YouTube");
     expect(playerStatusLabel("blocked")).toMatch(/Tocá reproducir/);
+  });
+
+  it("shows a task's state, review evidence and only the actions that fit it", () => {
+    const base = {
+      kind: "task" as const,
+      taskId: "3f0c6f53-9a0e-4c4e-9a43-2e0a8a5f1b10",
+      ref: 7,
+      title: "Corregir el descuento",
+      phase: null,
+      paused: false,
+      iteration: 2,
+      costUsd: 0.42,
+      budgetUsd: 5,
+      updatedAt: "2026-11-20T15:00:00.000Z",
+    };
+    const ready = render({
+      ...base,
+      status: "ready",
+      summary: "Corregí la fórmula.",
+      review: { verdict: "approve", passed: 4, total: 4 },
+      deliverables: [{ path: "CHANGES.md", description: "resumen" }],
+    });
+    expect(ready).toContain("Tarea #7");
+    expect(ready).toContain("Lista para revisar");
+    expect(ready).toContain("4 de 4 criterios");
+    expect(ready).toContain("Aceptar entrega");
+    expect(ready).toContain("/api/tasks/7/files?path=CHANGES.md");
+    expect(ready).not.toContain("Pausar");
+
+    const approval = render({
+      ...base,
+      status: "awaiting_owner",
+      phase: "execute",
+      blocker: { kind: "approval", message: "Desplegar a staging", approvalId: "8e1f2a7c-1b2c-4d3e-8f90-123456789abc" },
+    });
+    expect(approval).toContain("Pide tu aprobación");
+    expect(approval).toContain("Desplegar a staging");
+    expect(approval).toContain("Aprobar");
+
+    const running = render({ ...base, status: "running", phase: "review" });
+    expect(running).toContain("Trabajando · revisión");
+    expect(running).toContain("Pausar");
+    expect(render({ ...base, status: "queued", phase: "execute", paused: true })).toContain("Reanudar");
+    expect(render({ ...base, status: "cancelled" })).not.toContain("<button");
   });
 });

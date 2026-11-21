@@ -3,6 +3,7 @@ import { Core } from "../core/Core.js";
 import { stateLabel } from "../conversation/assistant-state.js";
 import type { Session } from "../conversation/session.js";
 import { useAssistantAnnouncement, useSnapshot, useViewportHeight } from "../hooks.js";
+import { uploadAttachment } from "../tasks/attachments.js";
 import { Composer } from "./Composer.js";
 import { Thread } from "./Thread.js";
 
@@ -85,6 +86,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
         onSend={(text) => session.sendText(text)}
         onMicrophone={() => void session.toggleMicrophone()}
         onStop={() => session.stopAll()}
+        onAttach={demo ? undefined : uploadAttachment}
       />
     </div>
   );

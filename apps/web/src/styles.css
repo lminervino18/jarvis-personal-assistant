@@ -344,11 +344,28 @@ a {
 }
 
 .card-status[data-status="failed"],
+.card-status[data-status="awaiting_owner"],
 .card-status[data-status="error"],
 .card-status[data-status="expired"],
 .card-status[data-status="blocked"],
 .card-status[data-status="needs_action"] {
   color: var(--amber);
+}
+
+.card-task {
+  display: grid;
+  gap: 6px;
+}
+
+.card-blocker {
+  padding: 8px 10px;
+  border-left: 3px solid var(--amber);
+  background: rgba(5, 11, 24, 0.6);
+}
+
+.card-task a {
+  color: var(--cyan);
+  overflow-wrap: anywhere;
 }
 
 .card-details {
@@ -449,6 +466,17 @@ a {
   align-items: flex-end;
   gap: 8px;
   padding: 8px 0 12px;
+}
+
+.composer {
+  flex-wrap: wrap;
+}
+
+.composer-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--amber);
+  font-size: 14px;
 }
 
 .composer textarea {

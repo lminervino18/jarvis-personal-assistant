@@ -6,6 +6,7 @@ import {
   type ClientMessage,
   type ServerAssistantState,
   type ServerMessage,
+  type TaskCardAction,
 } from "@jarvis/contracts";
 import { MicError, type AudioEngine } from "../audio/engine.js";
 import { pcm16ToBytes } from "../audio/pcm.js";
@@ -218,6 +219,12 @@ export class Session {
 
   decide(actionId: string, decision: "confirm" | "reject"): void {
     if (!this.client.send({ type: "action.decide", actionId, decision })) this.refuse("No hay conexión: la decisión no se envió.");
+  }
+
+  taskAction(taskId: string, action: TaskCardAction, approvalId?: string): void {
+    if (!this.client.send({ type: "task.action", taskId, action, ...(approvalId ? { approvalId } : {}) })) {
+      this.refuse("No hay conexión: la acción sobre la tarea no se envió.");
+    }
   }
 
   newConversation(): void {

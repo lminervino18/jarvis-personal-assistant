@@ -1,3 +1,4 @@
+import type { TaskCardAction } from "@jarvis/contracts";
 import type { PlayerHandle, PlayerReport, PushResult } from "../conversation/session.js";
 
 /** What cards may ask of the conversation. */
@@ -6,4 +7,5 @@ export interface CardActions {
   registerPlayer(requestId: string, handle: PlayerHandle): () => void;
   reportPlayer(requestId: string, videoId: string, state: PlayerReport): void;
   enablePush(): Promise<PushResult>;
+  taskAction(taskId: string, action: TaskCardAction, approvalId?: string): void;
 }

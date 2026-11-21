@@ -1,4 +1,4 @@
-import type { Card } from "@jarvis/contracts";
+import type { Card, TaskCardAction } from "@jarvis/contracts";
 import { useState } from "react";
 import { formatDateTime, safeHref } from "../format.js";
 import type { CardActions } from "./actions.js";
@@ -210,6 +210,116 @@ function PushPermissionCard({ card, actions }: { card: Of<"push_permission">; ac
   );
 }
 
+const taskStatus: Record<Of<"task">["status"], string> = {
+  queued: "En cola",
+  running: "Trabajando",
+  awaiting_owner: "Te necesita",
+  ready: "Lista para revisar",
+  accepted: "Aceptada",
+  failed: "Falló",
+  cancelled: "Cancelada",
+};
+
+const taskPhase: Record<NonNullable<Of<"task">["phase"]>, string> = {
+  plan: "planificación",
+  execute: "ejecución",
+  review: "revisión",
+};
+
+const blockerLabel: Record<NonNullable<Of<"task">["blocker"]>["kind"], string> = {
+  question: "Pregunta",
+  approval: "Pide tu aprobación",
+  review_limit: "No pasó la revisión",
+  budget: "Sin presupuesto",
+  usage_limit: "Límite de uso de Claude",
+  error: "Error",
+};
+
+function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: string; primary?: boolean }[] {
+  if (card.status === "ready") return [{ action: "accept", label: "Aceptar entrega", primary: true }];
+  if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return [];
+  if (card.blocker?.kind === "approval") {
+    return [
+      { action: "approve", label: "Aprobar", primary: true },
+      { action: "reject", label: "Rechazar" },
+      { action: "cancel", label: "Cancelar tarea" },
+    ];
+  }
+  if (card.status === "awaiting_owner") {
+    const resumable = card.blocker && ["usage_limit", "error", "review_limit"].includes(card.blocker.kind);
+    return [...(resumable ? [{ action: "resume" as const, label: "Reintentar" }] : []), { action: "cancel", label: "Cancelar tarea" }];
+  }
+  return [card.paused ? { action: "resume", label: "Reanudar" } : { action: "pause", label: "Pausar" }, { action: "cancel", label: "Cancelar tarea" }];
+}
+
+function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions }) {
+  const [sent, setSent] = useState<string | null>(null);
+  const status = card.paused && (card.status === "queued" || card.status === "running") ? "En pausa" : taskStatus[card.status];
+  const phase = card.phase && (card.status === "queued" || card.status === "running") ? ` · ${taskPhase[card.phase]}` : "";
+  const buttons = taskActionsFor(card);
+  const act = (action: TaskCardAction) => {
+    setSent(`${card.updatedAt}:${action}`);
+    actions.taskAction(card.taskId, action, action === "approve" || action === "reject" ? card.blocker?.approvalId : undefined);
+  };
+  const pending = sent?.startsWith(`${card.updatedAt}:`);
+  return (
+    <section className="card card-task" aria-label={`Tarea ${card.ref}: ${card.title}`}>
+      <p className="card-kicker">Tarea #{card.ref}</p>
+      <h3 className="card-title">{card.title}</h3>
+      <p className="card-status" data-status={card.status} role="status">
+        {status}
+        {phase}
+        {card.iteration > 0 ? ` · iteración ${card.iteration}` : ""}
+      </p>
+      {card.blocker && (
+        <div className="card-blocker">
+          <p className="card-kicker">{blockerLabel[card.blocker.kind]}</p>
+          <p>{card.blocker.message}</p>
+        </div>
+      )}
+      {card.summary && <p>{card.summary}</p>}
+      {card.review && (
+        <p className="card-meta">
+          Revisión independiente: {card.review.passed} de {card.review.total} criterios con evidencia
+        </p>
+      )}
+      {card.deliverables && card.deliverables.length > 0 && (
+        <ul className="card-sources">
+          {card.deliverables.map((item) => (
+            <li key={item.path}>
+              <a href={`/api/tasks/${card.ref}/files?path=${encodeURIComponent(item.path)}`} target="_blank" rel="noopener noreferrer">
+                {item.path}
+              </a>
+              <span className="card-meta">{item.description}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="card-meta">
+        Consumo del plan ≈ USD {card.costUsd.toFixed(2)} de {card.budgetUsd.toFixed(2)}
+        {card.iteration > 0 && (
+          <>
+            {" · "}
+            <a href={`/api/tasks/${card.ref}/diff`} target="_blank" rel="noopener noreferrer">
+              ver cambios
+            </a>
+          </>
+        )}
+      </p>
+      {card.status === "ready" && <p className="card-meta">Para pedir cambios, escribilos en el chat.</p>}
+      {buttons.length > 0 && !pending && (
+        <div className="card-actions">
+          {buttons.map((button) => (
+            <button key={button.action} type="button" className={button.primary ? "button primary" : "button"} onClick={() => act(button.action)}>
+              {button.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function LinkCard({ card }: { card: Of<"link"> }) {
   const href = safeHref(card.url);
   return (
@@ -240,5 +350,7 @@ export function CardView({ card, actions }: { card: Card; actions: CardActions }
       return <PushPermissionCard card={card} actions={actions} />;
     case "link":
       return <LinkCard card={card} />;
+    case "task":
+      return <TaskCard card={card} actions={actions} />;
   }
 }

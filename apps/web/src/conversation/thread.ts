@@ -212,6 +212,8 @@ export function cardIdentity(card: Card): string | null {
       return `reminder:${card.reminderId}`;
     case "event":
       return `event:${card.eventId}`;
+    case "task":
+      return `task:${card.taskId}`;
     default:
       return null;
   }
