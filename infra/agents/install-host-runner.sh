@@ -20,6 +20,7 @@ if [ ! -e "$work/.migrated" ] && docker volume inspect jarvis_work-data >/dev/nu
   docker run --rm --user 10001:10001 -v jarvis_work-data:/from:ro -v "$work":/to --entrypoint sh "$image" -c 'cp -a /from/. /to/'
   install -m 640 -o 10001 -g 10001 /dev/null "$work/.migrated"
 fi
+chmod 750 "$work"
 
 rm -rf "$dir.new"
 install -d -m 755 "$dir.new/bin"
@@ -61,11 +62,8 @@ ReadWritePaths=/srv/jarvis/work
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectKernelLogs=yes
 ProtectControlGroups=yes
-RestrictSUIDSGID=yes
 LockPersonality=yes
 MemoryMax=2500M
 CPUQuota=150%
