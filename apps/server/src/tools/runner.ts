@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  confirmAlwaysTools,
   stateChangingTools,
   toolInputs,
   untrustedContentTools,
@@ -51,7 +52,7 @@ async function executeOnce(ctx: ToolContext, definition: AnyToolDefinition, inpu
   return result;
 }
 
-function requestConfirmation(ctx: ToolContext, definition: AnyToolDefinition, input: unknown): ToolResult<unknown> {
+function requestConfirmation(ctx: ToolContext, definition: AnyToolDefinition, input: unknown, tainted: boolean): ToolResult<unknown> {
   const describe = definition.describe as ((c: ToolContext, i: unknown) => ConfirmCardValue | undefined) | undefined;
   const summary = describe?.(ctx, input) ?? { title: definition.name, summary: "Acción pendiente", details: [] };
   const id = randomUUID();
@@ -75,12 +76,10 @@ function requestConfirmation(ctx: ToolContext, definition: AnyToolDefinition, in
       expiresAt,
     );
   ctx.emitCard({ kind: "confirm", actionId: id, ...summary, expiresAt, status: "pending" });
-  return fail(
-    "needs_confirmation",
-    "Esta acción proviene de un turno que leyó contenido de terceros. Quedó pendiente de confirmación del dueño en la tarjeta.",
-    false,
-    id,
-  );
+  const reason = tainted
+    ? "Esta acción proviene de un turno que leyó contenido de terceros. Quedó pendiente de confirmación del dueño en la tarjeta."
+    : "Esta acción siempre la confirma el dueño: quedó pendiente en la tarjeta y solo se ejecuta si la confirma.";
+  return fail("needs_confirmation", reason, false, id);
 }
 
 /**
@@ -92,7 +91,9 @@ export async function runTool(ctx: ToolContext, definition: AnyToolDefinition, r
   if (!parsed.success) return fail("invalid_input", z.prettifyError(parsed.error));
 
   const changesState = stateChangingTools.has(definition.name);
-  if (changesState && ctx.security.tainted) return requestConfirmation(ctx, definition, parsed.data);
+  if (changesState && (ctx.security.tainted || confirmAlwaysTools.has(definition.name))) {
+    return requestConfirmation(ctx, definition, parsed.data, ctx.security.tainted);
+  }
 
   try {
     const result = changesState

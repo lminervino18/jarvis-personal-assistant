@@ -59,6 +59,10 @@ export const toolInputs = {
     after: IsoWithOffset.optional(),
     limit: z.number().int().min(1).max(50).optional(),
   },
+  whatsapp_send: {
+    chatId: z.string().min(1).max(128),
+    text: z.string().trim().min(1).max(2000),
+  },
   calendar_list: {
     from: IsoWithOffset,
     to: IsoWithOffset,
@@ -205,7 +209,11 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "task_create",
   "task_feedback",
   "task_control",
+  "whatsapp_send",
 ]);
+
+/** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */
+export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send"]);
 
 export const ToolErrorCode = z.enum([
   "not_connected",

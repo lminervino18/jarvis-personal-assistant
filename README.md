@@ -32,7 +32,7 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | Agenda, agreements, contacts, reminders worker with outbox | tested with fixtures; worker validated in Docker |
 | Web Push (VAPID, discreet notifications) | tested with fixtures; pending owner connection (keys and a device) |
 | Gmail read-only, personal and work accounts kept separate | tested with fixtures; pending owner connection |
-| WhatsApp: export import and experimental read-only Baileys bridge | tested with fixtures; pending owner pairing |
+| WhatsApp: export import and experimental Baileys bridge (sync, plus sending only after the owner confirms a card) | sync validated with real service; sending tested with fixtures |
 | YouTube search and in-chat player | tested with fixtures; player validated in Chrome (demo mode) |
 | Voice: sentence-streamed TTS, STT, robotic effect, interruption | tested with fixtures; Piper and faster-whisper validated locally; Groq key and the ElevenLabs instant clone validated with real service (samples generated with the production engine) |
 | Conversational PWA with animated core | validated in Chrome against the local server; Safari/iPhone pending hardware |

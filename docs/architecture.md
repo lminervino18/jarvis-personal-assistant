@@ -35,7 +35,7 @@ Claude session files are a resumable cache, never the source of truth.
 | - | - | - |
 | server | `apps/server/src/main.ts` | HTTP, auth, WebSocket protocol, turn orchestration, tools, voice pipeline |
 | worker | `apps/server/src/worker.ts` | Reminder scheduling, outbox delivery (Web Push), recovery after restarts. Never imports the Claude runtime. |
-| whatsapp-bridge | `apps/server/src/whatsapp-bridge.ts` | Optional, disabled by default. Read-only sync of the owner's WhatsApp into `wa_messages`. |
+| whatsapp-bridge | `apps/server/src/whatsapp-bridge.ts` | Optional, disabled by default. Syncs the owner's WhatsApp into `wa_messages` and sends only texts the owner confirmed on a card (`wa_outbox`, at most once). |
 | agent-runner | `apps/server/src/agent-runner.ts` | Compose profile `agents`. Runs delegated tasks through plan, execute and review with leases, limits and recovery. Mounts only the work volume and holds only the agents' subscription token. Pauses agents when the plan passes the reserve kept for the chat. |
 
 The worker also turns notifiable task events from `work.db` into chat messages and Web Push entries, with dedupe keys `task-event:<id>:chat|push`.

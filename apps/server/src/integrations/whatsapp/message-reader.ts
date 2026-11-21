@@ -228,7 +228,8 @@ export class WhatsAppReader {
     }
   }
 
-  private resolveChat(chatId: string): { jid: string; name: string | null } {
+  /** Finds a chat by its id or exact name (case-insensitive); ambiguous names are refused. */
+  resolveChat(chatId: string): { jid: string; name: string | null } {
     const byJid = this.db.prepare("SELECT jid, name FROM wa_chats WHERE jid = ?").get(chatId) as { jid: string; name: string | null } | undefined;
     if (byJid) return byJid;
     const byName = this.db.prepare("SELECT jid, name FROM wa_chats WHERE name = ? COLLATE NOCASE").all(chatId) as { jid: string; name: string | null }[];

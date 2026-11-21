@@ -1,6 +1,6 @@
 # WhatsApp
 
-Read-only. The assistant can search and read the owner's WhatsApp history; there is no way to send, reply, react, mark as read or change presence, in the tools or in the bridge.
+The assistant can search and read the owner's WhatsApp history. It can send a text only through `whatsapp_send`, and only after the owner taps Confirm on a card that shows the recipient and the exact text. It never replies on its own, reacts, marks as read or changes presence.
 
 Two sources feed the same tables (`wa_chats`, `wa_messages` with FTS, `wa_sync_state`, `wa_auth_state`):
 
@@ -64,7 +64,7 @@ Session, events and history:
 
 The owner accepts the risk of using an unofficial client on the main number and asked to minimize the chance of a restriction. Each choice below is enforced in code and covered by tests with fixtures.
 
-1. No send path. The bridge exposes no method that sends, replies, reacts, forwards or edits, the tools cannot reach one, and a test fails if any send, receipt, presence, read-marking or history-request API name appears in the bridge sources. The phone remains the only sender.
+1. Owner-confirmed sends only. `whatsapp_send` always stops at a confirmation card (`confirmAlwaysTools` in the runner), even in a clean turn; the confirmed text goes to `wa_outbox` and the bridge sends it as a plain text, one message at a time, polling every 3 s while connected. Delivery is at most once: a message is claimed before the socket call, and one interrupted by a crash becomes `unknown` and is never retried. Imported chats are refused, and nothing is queued while the bridge is disconnected. A test fails if the bridge has more than one `sendMessage` call or any receipt, presence, read-marking or history-request API name. Sending raises the restriction risk compared with read-only use, so it should stay occasional and conversational.
 2. No read receipts. `readMessages` and receipt APIs are never called, so contacts never see blue ticks caused by the assistant. Baileys still sends the low-level delivery acknowledgements and decryption retry requests every linked device must send to receive messages; those cannot be switched off.
 3. No presence. `markOnlineOnConnect: false`; no `available`, `composing` or subscription calls. Baileys itself announces `unavailable` once per connection (the quiet state, so the phone keeps receiving notifications); that is the only presence traffic.
 4. Single instance. An exclusive lock file refuses a second bridge process (stale locks from dead processes are taken over). Two sessions fighting over one account is the classic trigger of reconnect loops.

@@ -7,6 +7,14 @@ import type { PairingStore } from "./pairing-store.js";
 
 const BRIDGE_STALE_MS = 3 * 60_000;
 
+/** Whether the live bridge is connected and sent a heartbeat recently. */
+export function bridgeConnected(db: Db, now: Date): boolean {
+  const row = db.prepare("SELECT status, last_event_at FROM wa_sync_state WHERE source = 'baileys'").get() as
+    | { status: string; last_event_at: string | null }
+    | undefined;
+  return row?.status === "connected" && row.last_event_at !== null && now.getTime() - Date.parse(row.last_event_at) <= BRIDGE_STALE_MS;
+}
+
 interface SyncRow {
   status: string;
   last_event_at: string | null;
