@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ChartShape, TableShape } from "./cards.js";
 
 const IsoWithOffset = z.iso.datetime({ offset: true });
 const EntityId = z.string().min(1).max(64);
@@ -136,6 +137,8 @@ export const toolInputs = {
   },
   youtube_pause: {},
   integrations_status: {},
+  show_chart: ChartShape,
+  show_table: TableShape,
   task_create: {
     title: z.string().min(3).max(80),
     request: z.string().min(10).max(8000),

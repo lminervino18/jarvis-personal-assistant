@@ -102,6 +102,34 @@ export const TaskCard = z.object({
   updatedAt: IsoDateTime,
 });
 
+export const ChartKind = z.enum(["bar", "line", "area", "pie", "progress"]);
+export type ChartKind = z.infer<typeof ChartKind>;
+
+/** Data for a chart the assistant shows in the chat. Every series has one value per label; "progress" reads values as percentages. */
+export const ChartShape = {
+  title: z.string().min(1).max(80),
+  chart: ChartKind,
+  labels: z.array(z.string().min(1).max(40)).min(1).max(60),
+  series: z
+    .array(z.object({ name: z.string().min(1).max(40), values: z.array(z.number().finite()).min(1).max(60) }))
+    .min(1)
+    .max(6),
+  unit: z.string().max(12).optional(),
+  note: z.string().max(200).optional(),
+};
+
+export const ChartCard = z.object({ kind: z.literal("chart"), ...ChartShape });
+
+/** A small table the assistant shows in the chat; cells are plain text. */
+export const TableShape = {
+  title: z.string().min(1).max(80),
+  columns: z.array(z.string().min(1).max(40)).min(1).max(8),
+  rows: z.array(z.array(z.string().max(120)).max(8)).max(50),
+  note: z.string().max(200).optional(),
+};
+
+export const TableCard = z.object({ kind: z.literal("table"), ...TableShape });
+
 export const Card = z.discriminatedUnion("kind", [
   YoutubeCard,
   SourcesCard,
@@ -113,5 +141,7 @@ export const Card = z.discriminatedUnion("kind", [
   PushPermissionCard,
   LinkCard,
   TaskCard,
+  ChartCard,
+  TableCard,
 ]);
 export type Card = z.infer<typeof Card>;
