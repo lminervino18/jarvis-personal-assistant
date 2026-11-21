@@ -4,12 +4,13 @@ import {
   type AudioFormat,
   type Card,
   type ClientMessage,
+  type ReplyMode,
   type ServerAssistantState,
   type ServerMessage,
   type TaskCardAction,
 } from "@jarvis/contracts";
 import { MicError, type AudioEngine } from "../audio/engine.js";
-import { pcm16ToBytes } from "../audio/pcm.js";
+import { levelFromDbfs, pcm16ToBytes, rmsDbfs } from "../audio/pcm.js";
 import type { PcmPlayerOptions } from "../audio/playback.js";
 import { VoiceLoop } from "../audio/voice-loop.js";
 import { ProtocolClient, defaultSocketUrl, type CloseInfo, type ConnectionStatus, type TransportFactory } from "../protocol/client.js";
@@ -35,6 +36,11 @@ export interface SessionSnapshot {
   capabilities: Capabilities | null;
   ownerName: string | null;
   micOpen: boolean;
+  /** Replies to typed messages and voice notes are spoken. A call always speaks. */
+  speakerOn: boolean;
+  callActive: boolean;
+  callMuted: boolean;
+  recordingNote: boolean;
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
@@ -71,6 +77,8 @@ interface TurnTiming {
 }
 
 const INITIAL_LISTEN_MS = 12_000;
+const CALL_LISTEN_MS = 5 * 60_000;
+const SPEAKER_KEY = "jarvis.speaker";
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const HISTORY_PAGE = 40;
 const SESSION_EXPIRED_CLOSE_CODE = 4001;
@@ -100,6 +108,11 @@ export class Session {
   private captureTurn: string | null = null;
   private micOpen = false;
   private micStarting = false;
+  private speakerOn = readSpeakerPreference();
+  private callActive = false;
+  private callMuted = false;
+  private noteHeld = false;
+  private recordingNote = false;
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
@@ -125,7 +138,7 @@ export class Session {
       onFrame: (pcm) => this.sendFrame(pcm),
       onEnd: () => this.endUtterance(),
       onLevel: (level) => void (this.inputLevel = level),
-      onTimeout: () => this.closeMicrophone(),
+      onTimeout: () => (this.callActive ? this.voice.startWindow(CALL_LISTEN_MS) : this.closeMicrophone()),
     });
     this.snapshot = this.buildSnapshot();
   }
@@ -138,7 +151,7 @@ export class Session {
   getSnapshot = (): SessionSnapshot => this.snapshot;
 
   getLevels = (): Levels => {
-    this.levels.input = this.micOpen ? this.inputLevel : 0;
+    this.levels.input = this.micOpen || this.recordingNote ? this.inputLevel : 0;
     this.levels.output = this.engine?.outputLevel() ?? 0;
     return this.levels;
   };
@@ -167,7 +180,7 @@ export class Session {
     if (!conversationId) return this.refuse("No hay conexión: el mensaje no se envió.");
     this.interruptAssistant("superseded");
     const turnId = this.newId();
-    const replyMode = this.micOpen && this.capabilities?.tts ? "voice" : "text";
+    const replyMode = this.replyMode();
     if (!this.client.send({ type: "user.text", conversationId, turnId, text: trimmed, replyMode })) {
       return this.refuse("No hay conexión: el mensaje no se envió.");
     }
@@ -192,24 +205,105 @@ export class Session {
       this.stopAll();
       return;
     }
+    await this.openMicrophone(INITIAL_LISTEN_MS);
+  }
+
+  /** Hands-free conversation: the microphone stays open and every reply is spoken until the call ends. */
+  async startCall(): Promise<void> {
+    if (this.callActive) return;
+    this.callActive = true;
+    this.callMuted = false;
+    this.emit();
+    if (!this.micOpen) await this.openMicrophone(CALL_LISTEN_MS);
+    if (!this.micOpen) this.callActive = false;
+    this.emit();
+  }
+
+  endCall(): void {
+    if (!this.callActive) return;
+    this.callActive = false;
+    this.callMuted = false;
+    this.stopAll();
+  }
+
+  async toggleCallMute(): Promise<void> {
+    if (!this.callActive) return;
+    if (this.callMuted) {
+      this.callMuted = false;
+      await this.openMicrophone(CALL_LISTEN_MS);
+      return;
+    }
+    this.callMuted = true;
+    if (this.captureTurn) this.interruptAssistant("user_stop", this.captureTurn);
+    this.captureTurn = null;
+    this.closeMicrophone();
+  }
+
+  toggleSpeaker(): void {
+    this.speakerOn = !this.speakerOn;
+    writeSpeakerPreference(this.speakerOn);
+    if (!this.speakerOn && !this.callActive) this.silencePlayback();
+    this.emit();
+  }
+
+  /** Press-and-hold voice message: everything recorded until release is one turn, without voice detection. */
+  async startVoiceNote(): Promise<void> {
+    if (this.micOpen || this.recordingNote || this.micStarting) return;
     if (!this.capabilities?.stt) {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
       return;
     }
-    if (this.micStarting) return;
+    const conversationId = this.client.conversationId;
+    if (!conversationId || this.status !== "ready") {
+      this.refuse("No hay conexión: el audio no se envió.");
+      return;
+    }
+    this.noteHeld = true;
     this.micStarting = true;
     try {
       const engine = this.ensureEngine();
       await engine.resume();
-      await engine.startMicrophone((pcm) => this.voice.push(pcm));
-      this.micOpen = true;
-      this.voice.startWindow(INITIAL_LISTEN_MS);
+      await engine.startMicrophone((pcm) => {
+        this.inputLevel = levelFromDbfs(rmsDbfs(pcm));
+        this.sendFrame(pcm);
+      });
+      if (!this.noteHeld) {
+        engine.stopMicrophone();
+        return;
+      }
+      this.interruptAssistant("superseded");
+      const turnId = this.newId();
+      if (!this.client.send({ type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode() })) {
+        engine.stopMicrophone();
+        this.refuse("No hay conexión: el audio no se envió.");
+        return;
+      }
+      this.captureTurn = turnId;
+      this.recordingNote = true;
     } catch (error) {
       this.setNotice("warning", micMessage(error));
     } finally {
       this.micStarting = false;
       this.emit();
     }
+  }
+
+  /** Ends the voice note: sends it for transcription, or discards it. */
+  finishVoiceNote(send: boolean): void {
+    this.noteHeld = false;
+    if (!this.recordingNote) return;
+    this.recordingNote = false;
+    this.engine?.stopMicrophone();
+    this.inputLevel = 0;
+    const turnId = this.captureTurn;
+    this.captureTurn = null;
+    if (turnId && send) {
+      this.client.send({ type: "audio.end", turnId });
+      this.markTurnSent(turnId, "transcribing", this.replyMode() === "voice");
+    } else if (turnId) {
+      this.client.send({ type: "turn.cancel", turnId, reason: "user_stop" });
+    }
+    this.emit();
   }
 
   async enableAudio(): Promise<void> {
@@ -371,6 +465,8 @@ export class Session {
         this.runCommand(message);
         break;
       case "conversation.end":
+        this.callActive = false;
+        this.callMuted = false;
         this.closeMicrophone();
         break;
       case "notice":
@@ -497,9 +593,46 @@ export class Session {
   private rearm(): void {
     const idle = this.serverState === "idle" && !this.engine?.player.active && !this.captureTurn;
     if (!this.micOpen || !idle) return;
+    if (this.callActive) {
+      this.voice.startWindow(CALL_LISTEN_MS);
+      return;
+    }
     const followUp = this.capabilities?.followUpWindowMs ?? 0;
     if (followUp > 0) this.voice.startWindow(followUp);
     else this.closeMicrophone();
+  }
+
+  private replyMode(): ReplyMode {
+    return this.capabilities?.tts && (this.callActive || this.speakerOn) ? "voice" : "text";
+  }
+
+  private async openMicrophone(windowMs: number): Promise<void> {
+    if (!this.capabilities?.stt) {
+      this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
+      return;
+    }
+    if (this.micStarting) return;
+    this.micStarting = true;
+    try {
+      const engine = this.ensureEngine();
+      await engine.resume();
+      await engine.startMicrophone((pcm) => this.voice.push(pcm));
+      this.micOpen = true;
+      this.voice.startWindow(windowMs);
+    } catch (error) {
+      this.setNotice("warning", micMessage(error));
+    } finally {
+      this.micStarting = false;
+      this.emit();
+    }
+  }
+
+  private silencePlayback(): void {
+    const speaking = this.engine?.player.turnId ?? null;
+    this.engine?.player.stop();
+    if (speaking) this.client.audioGate.cancel(speaking);
+    this.voice.setPlaying(false);
+    this.audioWanted = false;
   }
 
   private closeMicrophone(): void {
@@ -528,6 +661,10 @@ export class Session {
       capabilities: this.capabilities,
       ownerName: this.ownerName,
       micOpen: this.micOpen,
+      speakerOn: this.speakerOn,
+      callActive: this.callActive,
+      callMuted: this.callMuted,
+      recordingNote: this.recordingNote,
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,
@@ -537,6 +674,22 @@ export class Session {
   private emit(): void {
     this.snapshot = this.buildSnapshot();
     for (const listener of this.listeners) listener();
+  }
+}
+
+function readSpeakerPreference(): boolean {
+  try {
+    return localStorage.getItem(SPEAKER_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writeSpeakerPreference(on: boolean): void {
+  try {
+    localStorage.setItem(SPEAKER_KEY, on ? "on" : "off");
+  } catch {
+    return;
   }
 }
 

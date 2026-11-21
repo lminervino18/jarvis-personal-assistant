@@ -8,12 +8,28 @@ export function useSnapshot(session: Session): SessionSnapshot {
 }
 
 /** Tracks the visible viewport so the layout stays above the on-screen keyboard. */
-export function useViewportHeight(): number | null {
-  const [height, setHeight] = useState<number | null>(null);
+export interface VisibleViewport {
+  height: number;
+  offsetTop: number;
+  keyboardOpen: boolean;
+}
+
+const KEYBOARD_MIN_PX = 140;
+
+/**
+ * The part of the page the user can actually see. On iOS the on-screen keyboard shrinks the
+ * visual viewport and scrolls it without resizing the layout, so the app follows it.
+ */
+export function useVisibleViewport(): VisibleViewport | null {
+  const [box, setBox] = useState<VisibleViewport | null>(null);
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!viewport) return;
-    const update = () => setHeight(Math.round(viewport.height));
+    const update = () => {
+      const height = Math.round(viewport.height);
+      const keyboardOpen = document.documentElement.clientHeight - height > KEYBOARD_MIN_PX;
+      setBox({ height, offsetTop: Math.round(viewport.offsetTop), keyboardOpen });
+    };
     update();
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
@@ -22,7 +38,7 @@ export function useViewportHeight(): number | null {
       viewport.removeEventListener("scroll", update);
     };
   }, []);
-  return height;
+  return box;
 }
 
 const NEAR_BOTTOM_PX = 120;

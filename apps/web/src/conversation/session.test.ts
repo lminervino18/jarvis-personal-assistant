@@ -338,3 +338,66 @@ describe("Session integration result", () => {
     expect(session.getSnapshot().thread.messages[0]?.cards[0]).toMatchObject({ status: "error", actionLabel: "Reintentar" });
   });
 });
+
+describe("speaker, voice notes and calls", () => {
+  it("speaks replies to typed messages unless the speaker is muted", () => {
+    const { session, socket, connect } = setup();
+    connect(true);
+    if (!session.getSnapshot().speakerOn) session.toggleSpeaker();
+    session.sendText("hola");
+    expect(socket().last("user.text")).toMatchObject({ replyMode: "voice" });
+    socket().server({ type: "state", state: "idle" });
+    session.toggleSpeaker();
+    expect(session.getSnapshot().speakerOn).toBe(false);
+    session.sendText("de nuevo");
+    expect(socket().last("user.text")).toMatchObject({ replyMode: "text" });
+    session.toggleSpeaker();
+  });
+
+  it("records a voice note while held and sends it for transcription on release", async () => {
+    const { session, socket, engine, connect } = setup();
+    connect(true);
+    await session.startVoiceNote();
+    expect(session.getSnapshot()).toMatchObject({ recordingNote: true, state: "listening" });
+    const turnId = socket().last("audio.begin")?.turnId as string;
+    engine().feed(0.1, 10);
+    expect(socket().binaryFrames().filter((frame) => frame.turnId === turnId)).toHaveLength(10);
+    session.finishVoiceNote(true);
+    expect(socket().last("audio.end")).toEqual({ type: "audio.end", turnId });
+    expect(session.getSnapshot()).toMatchObject({ recordingNote: false, state: "transcribing" });
+    expect(engine().frames).toBeNull();
+  });
+
+  it("discards a cancelled voice note and ignores a release before the microphone opened", async () => {
+    const { session, socket, connect } = setup();
+    connect(true);
+    await session.startVoiceNote();
+    const turnId = socket().last("audio.begin")?.turnId as string;
+    session.finishVoiceNote(false);
+    expect(socket().last("turn.cancel")).toMatchObject({ turnId, reason: "user_stop" });
+    expect(socket().last("audio.end")).toBeUndefined();
+
+    const pending = session.startVoiceNote();
+    session.finishVoiceNote(true);
+    await pending;
+    expect(socket().json().filter((message) => message.type === "audio.begin")).toHaveLength(1);
+    expect(session.getSnapshot().recordingNote).toBe(false);
+  });
+
+  it("keeps a call listening past the follow-up window until hang-up, and mutes on demand", async () => {
+    const { session, connect } = setup();
+    connect(true, 12_000);
+    await session.startCall();
+    expect(session.getSnapshot()).toMatchObject({ callActive: true, micOpen: true, state: "listening" });
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(session.getSnapshot().micOpen).toBe(true);
+
+    await session.toggleCallMute();
+    expect(session.getSnapshot()).toMatchObject({ callActive: true, callMuted: true, micOpen: false });
+    await session.toggleCallMute();
+    expect(session.getSnapshot()).toMatchObject({ callMuted: false, micOpen: true });
+
+    session.endCall();
+    expect(session.getSnapshot()).toMatchObject({ callActive: false, micOpen: false });
+  });
+});
