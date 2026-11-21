@@ -5,6 +5,7 @@ import {
   decodeAudioFrame,
   encodeAudioFrame,
   type AudioFormat,
+  type Card,
   type ClientKind,
   type OutgoingServerMessage,
   type ReplyMode,
@@ -26,6 +27,10 @@ const HISTORY_PAGE = 40;
 
 export type PushSubscription = Extract<ClientMessage, { type: "push.subscribe" }>["subscription"];
 export type PlayerState = Extract<ClientMessage, { type: "player.state" }>;
+export type TaskAction = Extract<ClientMessage, { type: "task.action" }>;
+
+/** What a task card tap produced: the refreshed card, or why nothing changed. */
+export type TaskActionOutcome = { ok: true; card: Card; message: string } | { ok: false; message: string };
 
 export interface ConnectionDeps {
   kind: ClientKind;
@@ -41,6 +46,7 @@ export interface ConnectionDeps {
   isStillAuthorized(): boolean;
   onPushSubscribe?(subscription: PushSubscription): Promise<void>;
   onPlayerState?(state: PlayerState): void;
+  onTaskAction?(action: TaskAction): TaskActionOutcome;
 }
 
 interface Capture {
@@ -199,10 +205,22 @@ export class ClientConnection implements Subscriber {
         }
         this.send({ type: "notice", level: "info", code: "push_subscribed", message: "Notificaciones activadas en este dispositivo." });
         return;
+      case "task.action":
+        return this.onTaskAction(message);
       case "ping":
         this.send({ type: "pong", t: message.t });
         return;
     }
+  }
+
+  private onTaskAction(message: TaskAction): void {
+    const outcome = this.deps.onTaskAction?.(message);
+    if (!outcome) {
+      this.send({ type: "notice", level: "warning", code: "tasks_unavailable", message: "Las tareas delegadas no están configuradas." });
+      return;
+    }
+    if (outcome.ok) this.send({ type: "card", card: outcome.card });
+    this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "task_updated" : "task_action_rejected", message: outcome.message });
   }
 
   private onHello(message: Extract<ClientMessage, { type: "hello" }>): void {

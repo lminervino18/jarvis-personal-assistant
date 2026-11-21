@@ -8,6 +8,7 @@ const WorkerEnv = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   REMINDER_GRACE_MINUTES: z.coerce.number().int().min(1).max(7 * 24 * 60).default(DEFAULT_GRACE_MINUTES),
   WORKER_POLL_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
+  WORK_DIR: z.string().optional().transform((value) => value || undefined),
 });
 
 export interface WorkerConfig {
@@ -16,6 +17,8 @@ export interface WorkerConfig {
   graceMinutes: number;
   pollMs: number;
   vapid?: VapidConfig;
+  /** When set, task events from the work database become chat messages and pushes. */
+  workDbPath?: string;
 }
 
 /** The worker reads only what it needs, so it starts without the owner password or any Claude credentials. */
@@ -27,5 +30,6 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     graceMinutes: parsed.REMINDER_GRACE_MINUTES,
     pollMs: parsed.WORKER_POLL_SECONDS * 1000,
     vapid: loadVapidConfig(env),
+    workDbPath: parsed.WORK_DIR ? resolve(parsed.WORK_DIR, "work.db") : undefined,
   };
 }

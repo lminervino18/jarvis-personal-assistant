@@ -26,6 +26,9 @@ const EnvSchema = z.object({
   CLAUDE_ALLOW_OVERAGE: booleanFlag,
   FOLLOW_UP_WINDOW_MS: z.coerce.number().int().min(0).max(60_000).default(12_000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
+  WORK_DIR: z.string().optional().transform((value) => value || undefined),
+  TASK_DEFAULT_BUDGET_USD: z.coerce.number().positive().max(100).default(5),
+  TASK_MAX_ATTACHMENT_MB: z.coerce.number().positive().max(50).default(10),
 });
 
 export interface AppConfig {
@@ -52,6 +55,8 @@ export interface AppConfig {
   };
   followUpWindowMs: number;
   logLevel: string;
+  /** Delegated tasks are enabled when the work volume is configured. */
+  tasks?: { workDir: string; defaultBudgetUsd: number; maxAttachmentBytes: number };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -84,5 +89,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     followUpWindowMs: parsed.FOLLOW_UP_WINDOW_MS,
     logLevel: parsed.LOG_LEVEL,
+    tasks: parsed.WORK_DIR
+      ? {
+          workDir: resolve(parsed.WORK_DIR),
+          defaultBudgetUsd: parsed.TASK_DEFAULT_BUDGET_USD,
+          maxAttachmentBytes: Math.round(parsed.TASK_MAX_ATTACHMENT_MB * 1024 * 1024),
+        }
+      : undefined,
   };
 }

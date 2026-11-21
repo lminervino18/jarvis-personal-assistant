@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -7,7 +7,7 @@ import { ConversationStore } from "./conversation/conversation-store.js";
 import { ConversationHub } from "./conversation/hub.js";
 import { ConversationOrchestrator } from "./conversation/orchestrator.js";
 import { TurnToolRegistry } from "./conversation/turn-tool-registry.js";
-import { openMigratedDatabase } from "./db/database.js";
+import { openMigratedDatabase, workMigrations } from "./db/database.js";
 import { registerDeviceRoutes } from "./devices/device-gateway.js";
 import { DeviceStore } from "./devices/device-store.js";
 import { createGmailIntegration } from "./integrations/gmail/setup.js";
@@ -22,6 +22,11 @@ import { SystemMessageFeed } from "./push/live-feed.js";
 import { AgendaStatusSource, PushStatusSource } from "./push/status.js";
 import { PushSubscriptionStore } from "./push/subscriptions.js";
 import { loadVapidConfig } from "./push/vapid.js";
+import { AgentsStatusSource } from "./tasks/agents-status.js";
+import { registerTaskRoutes } from "./tasks/task-routes.js";
+import { TaskService } from "./tasks/task-service.js";
+import { TaskStore } from "./tasks/task-store.js";
+import { WorkLayout } from "./tasks/workspace.js";
 import { allTools } from "./tools/index.js";
 import type { ToolServices } from "./tools/types.js";
 import { createVoiceServices } from "./voice/providers.js";
@@ -60,6 +65,15 @@ const services: ToolServices = {
   gmail: gmail.service,
   youtube,
 };
+
+const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;
+const workLayout = config.tasks ? new WorkLayout(config.tasks.workDir) : undefined;
+const tasks =
+  config.tasks && workDb && workLayout
+    ? new TaskService(new TaskStore(workDb), workLayout, { defaultBudgetUsd: config.tasks.defaultBudgetUsd, maxAttachmentBytes: config.tasks.maxAttachmentBytes })
+    : undefined;
+services.tasks = tasks;
+if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));
 
 const vapid = loadVapidConfig();
 const pushSubscriptions = new PushSubscriptionStore(db);
@@ -120,6 +134,7 @@ const app = await buildApp({
   assistantContext,
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
+    if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerDeviceRoutes(instance, helpers, {
       devices,
       connection: {
@@ -136,6 +151,12 @@ const app = await buildApp({
     });
   },
   onPlayerState: youtube.onPlayerState,
+  onTaskAction: tasks
+    ? (action) => {
+        const outcome = tasks.decide(action.taskId, action.action, action.approvalId, new Date());
+        return outcome.ok ? { ok: true, card: tasks.card(outcome.task), message: outcome.message } : { ok: false, message: outcome.message };
+      }
+    : undefined,
   stt: voice.stt,
   tts: voice.tts,
   pushPublicKey: vapid?.publicKey ?? null,
@@ -153,6 +174,7 @@ const shutdown = async (signal: string) => {
   systemMessageFeed.stop();
   await app.close();
   db.close();
+  workDb?.close();
   process.exit(0);
 };
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
