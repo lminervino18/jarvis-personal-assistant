@@ -59,6 +59,7 @@ StateDirectory=jarvis-agents
 NoNewPrivileges=yes
 ProtectSystem=strict
 ReadWritePaths=/srv/jarvis/work
+TemporaryFileSystem=/run/containerd:ro
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
