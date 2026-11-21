@@ -2,6 +2,7 @@ import type { ToolName } from "@jarvis/contracts";
 import { agreementsTools } from "./agreements-tools.js";
 import { calendarTools } from "./calendar-tools.js";
 import { contactsTools } from "./contacts-tools.js";
+import { displayTools } from "./display-tools.js";
 import { gmailTools } from "./gmail-tools.js";
 import { integrationsStatus } from "./integrations-tools.js";
 import { memoryTools } from "./memory-tools.js";
@@ -23,6 +24,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...whatsappTools,
   integrationsStatus,
   ...taskTools,
+  ...displayTools,
 ];
 
 export const toolsByName: ReadonlyMap<ToolName, AnyToolDefinition> = new Map(allTools.map((tool) => [tool.name, tool]));
