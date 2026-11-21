@@ -28,6 +28,12 @@ snapshot_database() {
   [ -z "$(sqlite3 "$STAGE_DIR/jarvis.db" "PRAGMA foreign_key_check")" ] || { log "snapshot failed foreign_key_check"; return 1; }
 }
 
+snapshot_work_database() {
+  [ -f "$WORK_DATA_DIR/work.db" ] || return 0
+  sqlite3 -readonly "$WORK_DATA_DIR/work.db" ".timeout 10000" ".backup '$STAGE_DIR/work.db'"
+  [ "$(sqlite3 "$STAGE_DIR/work.db" "PRAGMA integrity_check")" = "ok" ] || { log "work snapshot failed integrity_check"; return 1; }
+}
+
 ensure_repository() {
   restic cat config >/dev/null 2>&1 || restic init
 }
@@ -38,6 +44,7 @@ ensure_repository() {
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
 snapshot_database
+snapshot_work_database
 if [ -d "$DATA_DIR/memory" ]; then cp -a "$DATA_DIR/memory" "$STAGE_DIR/memory"; fi
 
 ensure_repository

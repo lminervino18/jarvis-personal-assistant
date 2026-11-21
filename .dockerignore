@@ -9,6 +9,7 @@
 docs
 assets/screenshots
 firmware
+hardware
 tools/device-sim/output
 
 # Secrets and private data must never enter an image

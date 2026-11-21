@@ -6,8 +6,8 @@ FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c
 RUN apk add --no-cache sqlite tini tzdata ca-certificates \
  && addgroup -g 10001 jarvis \
  && adduser -D -u 10001 -G jarvis -h /home/jarvis -s /sbin/nologin jarvis \
- && mkdir -p /data /cache \
- && chown jarvis:jarvis /data /cache
+ && mkdir -p /data /work /cache \
+ && chown jarvis:jarvis /data /work /cache
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 COPY common.sh /usr/local/bin/
 COPY --chmod=755 backup.sh restore.sh schedule.sh table-counts.sh healthcheck.sh /usr/local/bin/

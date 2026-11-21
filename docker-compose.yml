@@ -21,6 +21,7 @@ x-app: &app
     - path: ${JARVIS_ENV_FILE:-/etc/jarvis/jarvis.env}
   volumes:
     - jarvis-data:/data
+    - work-data:/work
   tmpfs:
     - /tmp:size=256m,mode=1777
     - /home/jarvis:size=64m,uid=10001,gid=10001,mode=0700
@@ -30,8 +31,10 @@ services:
     <<: *app
     build:
       context: .
+      target: runtime
     environment:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      WORK_DIR: /work
     networks: [default, voice]
     expose: ["8080"]
     deploy:
@@ -44,6 +47,8 @@ services:
   worker:
     <<: *app
     command: ["node", "dist/worker.js"]
+    environment:
+      WORK_DIR: /work
     healthcheck:
       test: ["CMD", "node", "-e", "const t=Number(require('fs').readFileSync('/tmp/worker-heartbeat','utf8'));process.exit(Date.now()-t<60000?0:1)"]
       interval: 30s
@@ -76,6 +81,33 @@ services:
           cpus: "0.5"
           memory: 512m
           pids: 128
+
+  agent-runner:
+    <<: *hardening
+    profiles: [agents]
+    image: jarvis-agent-runner:${JARVIS_TAG:-local}
+    pull_policy: never
+    build:
+      context: .
+      target: agent-runner
+    env_file:
+      - path: ${JARVIS_AGENTS_ENV_FILE:-/etc/jarvis/agents.env}
+    environment:
+      NODE_ENV: production
+      WORK_DIR: /work
+      AGENT_SANDBOX_WEAKER_NESTED: "true"
+    networks: [agents]
+    volumes:
+      - work-data:/work
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+      - /home/jarvis:size=256m,uid=10001,gid=10001,mode=0700
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 3g
+          pids: 1024
 
   caddy:
     <<: *hardening
@@ -116,6 +148,7 @@ services:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
     volumes:
       - jarvis-data:/data
+      - work-data:/work
       - backup-cache:/cache
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -170,9 +203,11 @@ services:
 networks:
   voice:
     internal: true
+  agents: {}
 
 volumes:
   jarvis-data:
+  work-data:
   caddy-data:
   caddy-config:
   backup-cache:

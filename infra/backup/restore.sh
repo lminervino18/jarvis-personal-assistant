@@ -24,6 +24,15 @@ move_aside "$TARGET/jarvis.db"
 move_aside "$TARGET/jarvis.db-wal"
 move_aside "$TARGET/jarvis.db-shm"
 mv "$WORK_DIR/jarvis.db" "$TARGET/jarvis.db"
+if [ -f "$WORK_DIR/work.db" ]; then
+  [ "$(sqlite3 "$WORK_DIR/work.db" "PRAGMA integrity_check")" = "ok" ] || { log "restored work database failed integrity_check"; exit 1; }
+  WORK_TARGET=${3:-$WORK_DATA_DIR}
+  mkdir -p "$WORK_TARGET"
+  move_aside "$WORK_TARGET/work.db"
+  move_aside "$WORK_TARGET/work.db-wal"
+  move_aside "$WORK_TARGET/work.db-shm"
+  mv "$WORK_DIR/work.db" "$WORK_TARGET/work.db"
+fi
 if [ -d "$WORK_DIR/memory" ]; then
   move_aside "$TARGET/memory"
   mv "$WORK_DIR/memory" "$TARGET/memory"

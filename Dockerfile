@@ -23,8 +23,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 10001 jarvis \
  && useradd --uid 10001 --gid jarvis --create-home --home-dir /home/jarvis --shell /usr/sbin/nologin jarvis \
- && mkdir -p /data \
- && chown jarvis:jarvis /data
+ && mkdir -p /data /work \
+ && chown jarvis:jarvis /data /work
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8080 \
@@ -46,3 +46,15 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s -
   CMD ["node", "-e", "fetch(`http://127.0.0.1:${process.env.PORT}/healthz`).then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/main.js"]
+
+FROM runtime AS agent-runner
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git bubblewrap socat \
+ && rm -rf /var/lib/apt/lists/*
+ENV WORK_DIR=/work \
+    AGENT_HEARTBEAT_FILE=/tmp/agent-runner-heartbeat
+USER jarvis
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "const t=Number(require('fs').readFileSync(process.env.AGENT_HEARTBEAT_FILE,'utf8'));process.exit(Date.now()-t<60000?0:1)"]
+CMD ["node", "dist/agent-runner.js"]
