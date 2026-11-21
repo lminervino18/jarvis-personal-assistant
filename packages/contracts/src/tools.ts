@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const IsoWithOffset = z.iso.datetime({ offset: true });
 const EntityId = z.string().min(1).max(64);
+const TaskRef = z.number().int().positive();
+export const ProjectSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
 
 export const MemoryCategory = z.enum(["preference", "fact", "person", "routine", "work", "other"]);
 export type MemoryCategory = z.infer<typeof MemoryCategory>;
@@ -134,6 +136,32 @@ export const toolInputs = {
   },
   youtube_pause: {},
   integrations_status: {},
+  task_create: {
+    title: z.string().min(3).max(80),
+    request: z.string().min(10).max(8000),
+    project: ProjectSlug.optional(),
+    attachmentIds: z.array(z.uuid()).max(10).optional(),
+  },
+  task_projects: {},
+  task_list: {
+    filter: z.enum(["active", "finished", "all"]).optional(),
+    limit: z.number().int().min(1).max(20).optional(),
+  },
+  task_status: {
+    ref: TaskRef,
+  },
+  task_result: {
+    ref: TaskRef,
+  },
+  task_feedback: {
+    ref: TaskRef,
+    message: z.string().min(1).max(4000),
+  },
+  task_control: {
+    ref: TaskRef,
+    action: z.enum(["pause", "resume", "cancel", "retry"]),
+    addBudgetUsd: z.number().positive().max(20).optional(),
+  },
 } as const satisfies Record<string, z.ZodRawShape>;
 
 export type ToolName = keyof typeof toolInputs;
@@ -148,6 +176,8 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "whatsapp_search",
   "whatsapp_get_messages",
   "youtube_search",
+  "task_status",
+  "task_result",
 ]);
 
 /** Built-in Claude tools the runtime may expose. They are all treated as untrusted sources. */
@@ -169,6 +199,9 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "reminders_create",
   "reminders_update",
   "reminders_cancel",
+  "task_create",
+  "task_feedback",
+  "task_control",
 ]);
 
 export const ToolErrorCode = z.enum([

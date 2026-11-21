@@ -39,6 +39,7 @@ export const providerNames: Record<Of<"integration">["provider"], string> = {
   youtube: "YouTube",
   push: "Notificaciones",
   voice: "Voz",
+  agents: "Agentes",
 };
 
 function ExternalLink({ href, children }: { href: string | undefined; children: string }) {

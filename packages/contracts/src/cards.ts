@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
 
 const IsoDateTime = z.iso.datetime({ offset: true });
 
@@ -47,7 +48,7 @@ export const ConfirmCard = z.object({
   status: z.enum(["pending", "confirmed", "rejected", "expired", "failed"]),
 });
 
-export const IntegrationProvider = z.enum(["claude", "gmail", "whatsapp", "calendar", "reminders", "youtube", "push", "voice"]);
+export const IntegrationProvider = z.enum(["claude", "gmail", "whatsapp", "calendar", "reminders", "youtube", "push", "voice", "agents"]);
 export type IntegrationProvider = z.infer<typeof IntegrationProvider>;
 
 export const IntegrationCard = z.object({
@@ -80,6 +81,27 @@ export const LinkCard = z.object({
   description: z.string().optional(),
 });
 
+/** A delegated task as the owner sees it in the chat. Built by the server from the task store. */
+export const TaskCard = z.object({
+  kind: z.literal("task"),
+  taskId: z.uuid(),
+  ref: z.number().int().positive(),
+  title: z.string(),
+  status: TaskStatus,
+  phase: TaskPhase.nullable(),
+  paused: z.boolean(),
+  iteration: z.number().int().nonnegative(),
+  summary: z.string().optional(),
+  blocker: TaskBlocker.optional(),
+  review: z
+    .object({ verdict: ReviewVerdict, passed: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
+    .optional(),
+  deliverables: z.array(z.object({ path: z.string(), description: z.string() })).max(20).optional(),
+  costUsd: z.number().nonnegative(),
+  budgetUsd: z.number().nonnegative(),
+  updatedAt: IsoDateTime,
+});
+
 export const Card = z.discriminatedUnion("kind", [
   YoutubeCard,
   SourcesCard,
@@ -90,5 +112,6 @@ export const Card = z.discriminatedUnion("kind", [
   PairingCard,
   PushPermissionCard,
   LinkCard,
+  TaskCard,
 ]);
 export type Card = z.infer<typeof Card>;

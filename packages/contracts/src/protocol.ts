@@ -2,6 +2,7 @@ import { z } from "zod";
 import { AudioFormat } from "./audio.js";
 import { Card } from "./cards.js";
 import { ReplyMode, ServerAssistantState } from "./states.js";
+import { TaskCardAction } from "./tasks.js";
 
 export const PROTOCOL_VERSION = 1;
 
@@ -89,6 +90,14 @@ export const PushSubscribeMessage = z.object({
   }),
 });
 
+/** An owner decision on a task card. It never goes through the model. */
+export const TaskActionMessage = z.object({
+  type: z.literal("task.action"),
+  taskId: Id,
+  action: TaskCardAction,
+  approvalId: Id.optional(),
+});
+
 export const PingMessage = z.object({ type: z.literal("ping"), t: z.number() });
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -103,6 +112,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ConversationNewMessage,
   HistoryFetchMessage,
   PushSubscribeMessage,
+  TaskActionMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
