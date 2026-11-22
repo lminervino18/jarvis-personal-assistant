@@ -13,6 +13,9 @@ function criteriaList(spec: TaskSpec): string {
   return spec.acceptanceCriteria.map((criterion) => `- ${criterion.id}: ${criterion.text} (verificación: ${criterion.verification})`).join("\n");
 }
 
+/** Sent when the planner resumes its own session without new answers (a retry or a replan). */
+export const plannerContinue = "Seguí donde quedaste y entregá el plan con el formato pedido.";
+
 export function plannerPrompt(task: Task): string {
   return `Sos el planificador de una tarea delegada. No modificás nada: solo leés y definís qué hay que entregar y cómo se verifica.
 
@@ -35,6 +38,7 @@ const NO_COMMANDS =
   "\n- En este entorno no podés ejecutar comandos. Verificá leyendo el código y dejá commandsRun vacío; no inventes resultados de pruebas.";
 
 export function executorPrompt(task: Task, spec: TaskSpec, guidance: string[], runsCommands = true): string {
+  const previousWork = task.iteration > 0 ? "\n\nEl trabajo de iteraciones anteriores ya está en la carpeta actual (git log y git diff lo muestran): corregí sobre eso, no empieces de cero." : "";
   const extra = guidance.length ? `\n\nIndicaciones para esta iteración (del dueño o del revisor):\n${guidance.map((line) => `- ${line}`).join("\n")}` : "";
   return `Sos el ejecutor de una tarea delegada. Trabajás solo dentro de la carpeta actual, que es un repositorio git propio de esta tarea.
 
@@ -49,9 +53,15 @@ Criterios de aceptación:
 ${criteriaList(spec)}
 
 Entregables esperados:
-${spec.deliverables.map((item) => `- ${item}`).join("\n")}${extra}
+${spec.deliverables.map((item) => `- ${item}`).join("\n")}${previousWork}${extra}
 
 Al terminar, corré las verificaciones que correspondan y devolvé el informe: qué cambiaste, qué comandos corriste con su código de salida real, qué entregables quedaron y en qué ruta (relativa a la carpeta actual), el estado de cada criterio con su evidencia, preguntas pendientes y aprobaciones que harían falta. Usá status "blocked" solo si no pudiste avanzar en nada.`;
+}
+
+function pendingChanges(task: Task): string {
+  const previous = task.review?.verdict === "changes" ? task.review.requiredChanges : [];
+  if (previous.length === 0) return "";
+  return `Cambios que pediste en la revisión anterior (comprobá primero que se hicieron):\n${previous.map((line) => `- ${line}`).join("\n")}\n\n`;
 }
 
 export function reviewerPrompt(task: Task, spec: TaskSpec, report: ExecutionReport, evidence: TaskEvidence, diff: string, runsCommands = true): string {
@@ -73,12 +83,12 @@ ${evidence.changedFiles.map((file) => `- ${file}`).join("\n") || "- ninguno"}
 
 ${evidence.diffStat}
 
-Diff completo:
+${evidence.iteration > 1 ? "Diff de lo que cambió desde la revisión anterior" : "Diff"} (sin lockfiles ni archivos generados; si está recortado, leé el resto con tus herramientas):
 \`\`\`diff
 ${diff}
 \`\`\`
 
-Lo que el ejecutor dice que hizo (son afirmaciones a comprobar):
+${pendingChanges(task)}Lo que el ejecutor dice que hizo (son afirmaciones a comprobar):
 ${JSON.stringify({ summary: report.summary, commandsRun: report.commandsRun, criteria: report.criteria, deliverables: report.deliverables }, null, 2)}
 
 Para cada criterio, comprobalo vos mismo y devolvé pass, fail o unverified con la evidencia concreta (comando y resultado, archivo y línea). Contrastá también el resultado con el pedido original: si cumple los criterios pero no lo que se pidió, es "changes".

@@ -121,13 +121,13 @@ Agents share the owner's subscription limits with the chat, so the runner keeps 
 - Each session records the most used plan window it saw (`task_runs.plan_utilization`, a fraction). It is read from the documented rate-limit fields and, when the CLI sends it, from the per-window detail. On 2026-11-21 that detail reported the 5-hour and weekly windows.
 - When that value reaches `AGENT_PLAN_MAX_UTILIZATION`, the runner stores a hold in `work.db` until that window resets. No phase starts until then, for any task, and the hold survives restarts. The owner gets one chat message and push, for example "Pausé los agentes hasta las 14:00 del viernes".
 - A refused request or the start of paid overage ends the session at once. It also sets the hold until the reported reset.
-- The check runs after each session, so at most one phase can go past the reserve, within its run budget.
+- No session starts while the hold is active, and a running session is interrupted as soon as a rate-limit event shows the reserve was crossed. The task waits for the reset without using an attempt and keeps its session. A session that is interrupted, times out or is cancelled still records the cost the SDK reports at that point.
 - `task_create` and the integrations status tell JARVIS when agents are on hold.
 - Because a weekly window can take days to reset, raise the threshold (or set it to 1) if the hold blocks work you need. To release an active hold right away, see the runbook.
 
 ## Continuity and recovery
 
-- **Sessions are a cache.** The request, spec, report, review, evidence, feedback, blocker, cost and iteration live in `work.db`. A lost executor session restarts from that state; `resume_failed` clears the session id.
+- **Sessions are a cache.** The request, spec, report, review, evidence, feedback, blocker, cost and iteration live in `work.db`. A lost planner or executor session restarts from that state; `resume_failed` clears the session id. The planner resumes its own session for the owner's answers and for retries. The executor resumes its session for retries and for the first fix round; a later fix round starts a fresh session seeded with the plan and the reviewer's findings, and a retry inside that round resumes the round's own session. The reviewer gets only the diff since the last completed review (`refs/jarvis/reviewed` in the work repo; the baseline before the first one), without lockfiles or generated files, capped at 12,000 characters.
 - **Leases.** Every run holds a 2-minute lease, renewed every 15 s. On start, the runner interrupts every run left as `running` by a previous process and puts its task back in the queue with one more attempt. Repeated interruptions end in `failed`.
 - **Duplicates.**
   - Claiming is a single `BEGIN IMMEDIATE` transaction. The partial unique index blocks a second active run for the same task.

@@ -25,6 +25,7 @@ interface TaskRow {
   blocker_json: string | null;
   pending_feedback_json: string;
   executor_session_id: string | null;
+  planner_session_id: string | null;
   cost_usd: number;
   budget_usd: number;
   created_at: string;
@@ -54,6 +55,7 @@ export interface Task {
   blocker?: TaskBlocker;
   pendingFeedback: string[];
   executorSessionId?: string;
+  plannerSessionId?: string;
   costUsd: number;
   budgetUsd: number;
   createdAt: string;
@@ -123,6 +125,7 @@ export interface TaskPatch {
   blocker?: TaskBlocker | null;
   pendingFeedback?: string[];
   executorSessionId?: string | null;
+  plannerSessionId?: string | null;
   budgetUsd?: number;
   finishedAt?: string | null;
 }
@@ -153,6 +156,7 @@ function toTask(row: TaskRow): Task {
     blocker: parse(row.blocker_json),
     pendingFeedback: JSON.parse(row.pending_feedback_json) as string[],
     executorSessionId: row.executor_session_id ?? undefined,
+    plannerSessionId: row.planner_session_id ?? undefined,
     costUsd: row.cost_usd,
     budgetUsd: row.budget_usd,
     createdAt: row.created_at,
@@ -180,6 +184,7 @@ function toColumns(patch: TaskPatch): Record<string, unknown> {
   set("blocker_json", patch.blocker === undefined ? undefined : json(patch.blocker));
   set("pending_feedback_json", patch.pendingFeedback === undefined ? undefined : JSON.stringify(patch.pendingFeedback));
   set("executor_session_id", patch.executorSessionId);
+  set("planner_session_id", patch.plannerSessionId);
   set("budget_usd", patch.budgetUsd);
   set("finished_at", patch.finishedAt);
   return columns;

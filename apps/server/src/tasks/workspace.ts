@@ -9,6 +9,20 @@ const run = promisify(execFile);
 
 const GIT_IDENTITY = ["-c", "user.name=jarvis-runner", "-c", "user.email=runner@jarvis.invalid", "-c", "commit.gpgsign=false"];
 const MAX_DIFF_STAT = 4000;
+const REVIEWED_REF = "refs/jarvis/reviewed";
+const REVIEW_DIFF_EXCLUDES = [
+  "*.lock",
+  "*.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "npm-shrinkwrap.json",
+  "go.sum",
+  "*.min.js",
+  "*.min.css",
+  "*.map",
+  "dist/**",
+  "coverage/**",
+].map((pattern) => `:(exclude,glob)**/${pattern}`);
 
 export interface ProjectInfo {
   slug: string;
@@ -37,6 +51,12 @@ export function safeFileName(name: string): string {
 function firstLine(markdown: string): string {
   const line = markdown.split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
   return line.replace(/^#+\s*/, "").trim().slice(0, 160);
+}
+
+function readCapped(path: string, maxChars: number): string {
+  if (!existsSync(path)) return "";
+  const text = readFileSync(path, "utf8");
+  return text.length > maxChars ? `${text.slice(0, maxChars)}\n[diff recortado: ${text.length} caracteres en total; leé el resto con las herramientas]` : text;
 }
 
 /**
@@ -120,13 +140,24 @@ export class WorkLayout {
   async snapshot(taskId: string, iteration: number): Promise<TaskEvidence> {
     const paths = this.paths(taskId);
     const baseline = readFileSync(join(paths.runner, "baseline"), "utf8").trim();
+    const reviewed = await git(paths.work, ["rev-parse", "--verify", "--quiet", REVIEWED_REF]).then(
+      (commit) => commit.trim(),
+      () => baseline,
+    );
     await git(paths.work, ["add", "-A"]);
     await git(paths.work, ["commit", "--quiet", "--allow-empty", "-m", `iteration ${iteration}`]);
     const changedFiles = (await git(paths.work, ["diff", "--name-only", baseline, "HEAD"])).split("\n").filter(Boolean);
     const diffStat = (await git(paths.work, ["diff", "--stat", baseline, "HEAD"])).trim().slice(0, MAX_DIFF_STAT);
     const diffPath = join(paths.runner, `iteration-${iteration}.diff`);
     writeFileSync(diffPath, await git(paths.work, ["diff", baseline, "HEAD"]));
-    return { iteration, changedFiles, diffStat, diffPath };
+    const reviewDiffPath = join(paths.runner, `iteration-${iteration}.review.diff`);
+    writeFileSync(reviewDiffPath, await git(paths.work, ["diff", reviewed, "HEAD", "--", ".", ...REVIEW_DIFF_EXCLUDES]));
+    return { iteration, changedFiles, diffStat, diffPath, reviewDiffPath };
+  }
+
+  /** Records the current work as reviewed, so the next review diff starts from here. */
+  async markReviewed(taskId: string): Promise<void> {
+    await git(this.paths(taskId).work, ["update-ref", REVIEWED_REF, "HEAD"]);
   }
 
   /** A disposable clone of the work for the reviewer, so checks can never alter the deliverable. */
@@ -138,9 +169,13 @@ export class WorkLayout {
     return target;
   }
 
+  /** The full change against the baseline, cut to `maxChars`. */
   diff(evidence: TaskEvidence, maxChars: number): string {
-    if (!existsSync(evidence.diffPath)) return "";
-    const diff = readFileSync(evidence.diffPath, "utf8");
-    return diff.length > maxChars ? `${diff.slice(0, maxChars)}\n[diff recortado: ${diff.length} caracteres en total]` : diff;
+    return readCapped(evidence.diffPath, maxChars);
+  }
+
+  /** What changed since the last review (or the baseline), without lockfiles or generated files, cut to `maxChars` for the reviewer's prompt. */
+  reviewDiff(evidence: TaskEvidence, maxChars: number): string {
+    return readCapped(evidence.reviewDiffPath ?? evidence.diffPath, maxChars);
   }
 }

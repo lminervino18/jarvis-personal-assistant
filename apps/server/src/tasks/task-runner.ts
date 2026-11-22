@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs";
 import type { TaskBlocker } from "@jarvis/contracts";
 import { retryableAgentErrors, type AgentBackend, type AgentRunRequest, type AgentRunResult } from "./agent-backend.js";
-import { executorPrompt, plannerPrompt, reviewerPrompt, reviewFeedback } from "./prompts.js";
+import { executorPrompt, plannerContinue, plannerPrompt, reviewerPrompt, reviewFeedback } from "./prompts.js";
 import { ExecutionReport, ReviewResult, TaskSpec } from "./schemas.js";
 import type { Task, TaskPatch, TaskRun, TaskStore } from "./task-store.js";
 import type { TaskPaths, WorkLayout } from "./workspace.js";
@@ -10,6 +10,8 @@ export interface TaskRunnerLimits {
   concurrency: number;
   runBudgetUsd: number;
   maxFixRounds: number;
+  /** Fix rounds up to which the executor resumes its session; later rounds start fresh from the plan and the reviewer's findings. */
+  maxResumedFixRounds: number;
   maxAttempts: number;
   /** Fraction of the subscription window agents may use before they pause until it resets; the rest stays for the chat. */
   planMaxUtilization: number;
@@ -23,12 +25,13 @@ export const defaultRunnerLimits: TaskRunnerLimits = {
   concurrency: 1,
   runBudgetUsd: 2,
   maxFixRounds: 2,
+  maxResumedFixRounds: 1,
   maxAttempts: 3,
   planMaxUtilization: 0.7,
   leaseMs: 120_000,
   heartbeatMs: 15_000,
   pollMs: 3_000,
-  diffChars: 60_000,
+  diffChars: 12_000,
 };
 
 export interface RunnerLogger {
@@ -174,13 +177,17 @@ export class TaskRunner {
     return current.budgetUsd - current.costUsd;
   }
 
-  /** Runs one agent session, or refuses it when the task has no budget left. Always closes the run. */
-  private async runAgent(task: Task, run: TaskRun, request: Omit<AgentRunRequest, "maxBudgetUsd">): Promise<AgentRunResult> {
+  private async startAgent(task: Task, request: Omit<AgentRunRequest, "maxBudgetUsd" | "planLimit">): Promise<AgentRunResult> {
+    const { store, backend, limits } = this.deps;
     const remaining = this.remainingBudget(task);
-    const result: AgentRunResult =
-      remaining < MIN_RUN_BUDGET_USD
-        ? { costUsd: 0, turns: 0, models: [], error: { code: "budget", message: "La tarea no tiene presupuesto disponible" } }
-        : await this.deps.backend.run({ ...request, maxBudgetUsd: Math.min(this.deps.limits.runBudgetUsd, remaining) });
+    if (remaining < MIN_RUN_BUDGET_USD) return { costUsd: 0, turns: 0, models: [], error: { code: "budget", message: "La tarea no tiene presupuesto disponible" } };
+    if (store.agentsHeldUntil(this.now())) return { costUsd: 0, turns: 0, models: [], error: { code: "plan_reserve", message: "Los agentes están en pausa por la reserva del plan" } };
+    return backend.run({ ...request, maxBudgetUsd: Math.min(limits.runBudgetUsd, remaining), planLimit: limits.planMaxUtilization });
+  }
+
+  /** Runs one agent session unless the budget or the plan reserve forbids it. Always closes the run with whatever cost is known. */
+  private async runAgent(task: Task, run: TaskRun, request: Omit<AgentRunRequest, "maxBudgetUsd" | "planLimit">): Promise<AgentRunResult> {
+    const result = await this.startAgent(task, request);
     this.deps.store.finishRun(
       run,
       {
@@ -234,23 +241,26 @@ export class TaskRunner {
 
   private async plan(task: Task, run: TaskRun, paths: TaskPaths, signal: AbortSignal): Promise<void> {
     const answers = task.pendingFeedback.length ? `\n\nRespuestas y aclaraciones del dueño:\n${task.pendingFeedback.map((line) => `- ${line}`).join("\n")}` : "";
+    const resumeSessionId = task.plannerSessionId ?? undefined;
     const result = await this.runAgent(task, run, {
       role: "planner",
       taskId: task.id,
-      prompt: plannerPrompt(task) + answers,
+      prompt: resumeSessionId ? answers.trimStart() || plannerContinue : plannerPrompt(task) + answers,
       dirs: this.dirs(paths),
       outputSchema: TaskSpec,
+      resumeSessionId,
       signal,
     });
     const spec = result.error ? undefined : TaskSpec.safeParse(result.output);
     if (!spec?.success) return this.handleFailure(task, run, this.invalid(result));
 
     const questions = spec.data.blockingQuestions;
+    const planned: TaskPatch = { spec: spec.data, plannerSessionId: result.sessionId ?? null };
     if (questions.length > 0) {
-      this.block(task, { spec: spec.data }, { kind: "question", message: questions.join("\n") }, "necesita una respuesta tuya");
+      this.block(task, planned, { kind: "question", message: questions.join("\n") }, "necesita una respuesta tuya");
       return;
     }
-    this.advance(task, { spec: spec.data, phase: "execute" }, "planned", "Plan listo con criterios de aceptación.");
+    this.advance(task, { ...planned, phase: "execute" }, "planned", "Plan listo con criterios de aceptación.");
   }
 
   private async executePhase(task: Task, run: TaskRun, paths: TaskPaths, signal: AbortSignal): Promise<void> {
@@ -267,7 +277,7 @@ export class TaskRunner {
       prompt: executorPrompt(task, task.spec, guidance, this.deps.backend.runsCommands),
       dirs: this.dirs(paths),
       outputSchema: ExecutionReport,
-      resumeSessionId: task.executorSessionId,
+      resumeSessionId: task.executorSessionId ?? undefined,
       signal,
     });
     const report = result.error ? undefined : ExecutionReport.safeParse(result.output);
@@ -305,13 +315,14 @@ export class TaskRunner {
       const result = await this.runAgent(task, run, {
         role: "reviewer",
         taskId: task.id,
-        prompt: reviewerPrompt(task, task.spec, task.report, task.evidence, layout.diff(task.evidence, limits.diffChars), this.deps.backend.runsCommands),
+        prompt: reviewerPrompt(task, task.spec, task.report, task.evidence, layout.reviewDiff(task.evidence, limits.diffChars), this.deps.backend.runsCommands),
         dirs: this.dirs(paths, reviewDir),
         outputSchema: ReviewResult,
         signal,
       });
       const review = result.error ? undefined : ReviewResult.safeParse(result.output);
       if (!review?.success) return this.handleFailure(task, run, this.invalid(result));
+      await layout.markReviewed(task.id);
 
       const verdict = review.data;
       const current = store.require(task.id);
@@ -322,7 +333,9 @@ export class TaskRunner {
       } else if (verdict.verdict === "blocked") {
         this.block(task, { review: verdict, phase: "execute" }, { kind: "question", message: verdict.summary }, "necesita una respuesta tuya");
       } else if (task.fixRounds < limits.maxFixRounds) {
-        this.advance(task, { review: verdict, phase: "execute", fixRounds: task.fixRounds + 1 }, "changes_requested", "El revisor pidió cambios; se corrige.");
+        const fixRounds = task.fixRounds + 1;
+        const fresh = fixRounds > limits.maxResumedFixRounds ? { executorSessionId: null } : {};
+        this.advance(task, { review: verdict, phase: "execute", fixRounds, ...fresh }, "changes_requested", "El revisor pidió cambios; se corrige.");
       } else {
         const message = `No pasó la revisión después de ${task.fixRounds} correcciones. ${verdict.summary}`;
         this.block(task, { review: verdict, phase: "execute" }, { kind: "review_limit", message }, "no pasó la revisión");
@@ -362,6 +375,13 @@ export class TaskRunner {
     }
   }
 
+  private sessionPatch(run: TaskRun, result: AgentRunResult): TaskPatch {
+    const session = result.error?.code === "resume_failed" ? null : (result.sessionId ?? undefined);
+    if (run.phase === "plan") return { plannerSessionId: session };
+    if (run.phase === "execute") return { executorSessionId: session };
+    return {};
+  }
+
   private handleFailure(task: Task, run: TaskRun, result: AgentRunResult): void {
     const { store, limits, log } = this.deps;
     const error = result.error ?? { code: "internal" as const, message: "unknown" };
@@ -369,9 +389,15 @@ export class TaskRunner {
     const current = store.get(task.id);
     if (!current || current.status !== "running") return;
 
+    const session = this.sessionPatch(run, result);
     if (error.code === "cancelled") {
-      store.update(task.id, { status: "queued" }, this.now(), ["running"]);
+      store.update(task.id, { status: "queued", ...session }, this.now(), ["running"]);
       store.addEvent(task.id, "paused", `La fase ${run.phase} se detuvo.`, false, this.now());
+      return;
+    }
+    if (error.code === "plan_reserve") {
+      store.update(task.id, { status: "queued", ...session }, this.now(), ["running"]);
+      store.addEvent(task.id, "plan_reserve_wait", `La fase ${run.phase} espera: los agentes están en pausa por la reserva del plan.`, false, this.now());
       return;
     }
     if (error.code === "budget") {
@@ -392,7 +418,7 @@ export class TaskRunner {
     if (retryableAgentErrors.has(error.code) || error.code === "invalid_output") {
       if (attempts >= limits.maxAttempts) return this.fail(current, `${error.code}: ${error.message}`);
       const notBefore = new Date(this.now().getTime() + RETRY_BASE_MS * 2 ** (attempts - 1)).toISOString();
-      const patch: TaskPatch = { status: "queued", attempts, notBefore, ...(error.code === "resume_failed" ? { executorSessionId: null } : {}) };
+      const patch: TaskPatch = { status: "queued", attempts, notBefore, ...session };
       store.update(task.id, patch, this.now(), ["running"]);
       store.addEvent(task.id, "retry", `Falló la fase ${run.phase} (${error.code}); reintento ${attempts}.`, false, this.now());
       return;

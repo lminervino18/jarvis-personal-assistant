@@ -147,7 +147,114 @@ describe("continuity and limits", () => {
     items(await env.tool("task_feedback", { ref: 1, message: "IVA 21 %" }));
     await env.makeRunner().runUntilIdle();
     expect(answers[0]).toContain("IVA 21 %");
+    expect(answers[0]).not.toContain("Sos el planificador");
+    expect(env.backend.calls[1]?.resumeSessionId).toBe(`scripted-planner-${env.service.byRef(1)!.id.slice(0, 8)}`);
     expect(env.service.byRef(1)?.status).toBe("ready");
+  });
+
+  it("starts the planner cold when resuming its session fails", async () => {
+    const base = controlledAgents();
+    const env = setup({
+      ...base,
+      planner: (request, call) => {
+        if (call === 1) return { output: { goal: "x", deliverables: [], acceptanceCriteria: [{ id: "C1", text: "x", verification: "x" }], assumptions: [], blockingQuestions: ["¿IVA?"], externalEffects: [] } };
+        if (request.resumeSessionId) return { error: { code: "resume_failed", message: "no conversation found" } };
+        return base.planner!(request, call);
+      },
+    });
+    await env.tool("task_create", CONTROLLED_TASK);
+    const runner = env.makeRunner();
+    await runner.runUntilIdle();
+    items(await env.tool("task_feedback", { ref: 1, message: "IVA 21 %" }));
+    await runner.runUntilIdle();
+    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 1, plannerSessionId: undefined });
+    env.clock.now = new Date("2026-11-20T15:01:00Z");
+    await runner.runUntilIdle();
+    expect(env.backend.calls.filter((call) => call.role === "planner").map((call) => call.resumeSessionId === undefined)).toEqual([true, false, true]);
+    expect(env.service.byRef(1)?.status).toBe("ready");
+  });
+
+  it("records the cost of a run that times out and resumes its executor session on the retry", async () => {
+    const base = controlledAgents();
+    const env = setup({
+      ...base,
+      executor: (request, call) => (call === 1 ? { costUsd: 0.4, sessionId: "timed-out-session", error: { code: "timeout", message: "tiempo" } } : base.executor!(request, call - 1)),
+    });
+    await env.tool("task_create", CONTROLLED_TASK);
+    const runner = env.makeRunner();
+    await runner.runUntilIdle();
+    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 1, executorSessionId: "timed-out-session" });
+    expect(env.service.byRef(1)!.costUsd).toBeCloseTo(0.41);
+    env.clock.now = new Date("2026-11-20T15:01:00Z");
+    await runner.runUntilIdle();
+    expect(env.backend.calls.filter((call) => call.role === "executor")[1]?.resumeSessionId).toBe("timed-out-session");
+  });
+
+  it("stops a run that crosses the plan reserve, keeps its cost and waits without using an attempt", async () => {
+    const base = controlledAgents();
+    const plan = { utilization: 0.75, resetsAt: Date.parse("2026-11-20T17:00:00Z") };
+    const env = setup({
+      ...base,
+      executor: (request, call) => (call === 1 ? { costUsd: 0.3, sessionId: "partial", plan, error: { code: "plan_reserve", message: "reserva" } } : base.executor!(request, call - 1)),
+    });
+    await env.tool("task_create", CONTROLLED_TASK);
+    const runner = env.makeRunner();
+    await runner.runUntilIdle();
+    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 0, executorSessionId: "partial" });
+    expect(env.service.byRef(1)!.costUsd).toBeCloseTo(0.31);
+    expect(env.service.agentsHeldUntil(env.clock.now)?.toISOString()).toBe("2026-11-20T17:00:00.000Z");
+    expect(env.backend.calls.every((call) => call.planLimit === 0.7)).toBe(true);
+
+    env.clock.now = new Date("2026-11-20T17:00:01Z");
+    await runner.runUntilIdle();
+    expect(env.service.byRef(1)?.status).toBe("ready");
+  });
+
+  it("does not start an agent while the reserve hold is active", async () => {
+    const env = setup();
+    await env.tool("task_create", CONTROLLED_TASK);
+    env.store.holdAgents(new Date("2026-11-20T17:00:00Z"), env.clock.now);
+    const claimed = env.store.claimNext(env.clock.now, 120_000)!;
+    const runner = env.makeRunner() as unknown as { execute(task: unknown, run: unknown, controller: AbortController): Promise<void> };
+    await runner.execute(claimed.task, claimed.run, new AbortController());
+    expect(env.backend.calls).toHaveLength(0);
+    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 0 });
+  });
+
+  it("resumes the executor only for the first fix rounds, then starts fresh with the plan and findings", async () => {
+    const env = setup(
+      {
+        ...controlledAgents(),
+        reviewer: () => ({ output: { verdict: "changes", summary: "falta", criteria: [], requiredChanges: ["arreglar X"], checksRun: [] } }),
+      },
+      { maxFixRounds: 2, maxResumedFixRounds: 1 },
+    );
+    await env.tool("task_create", CONTROLLED_TASK);
+    await env.makeRunner().runUntilIdle();
+    const executors = env.backend.calls.filter((call) => call.role === "executor");
+    expect(executors.map((call) => call.resumeSessionId === undefined)).toEqual([true, false, true]);
+    expect(executors[2]?.prompt).toContain("arreglar X");
+    expect(executors[2]?.prompt).toContain("ya está en la carpeta actual");
+  });
+
+  it("resumes a fresh fix round's own session when its run fails", async () => {
+    const base = controlledAgents();
+    const env = setup(
+      {
+        ...base,
+        executor: (request, call) => (call === 3 ? { costUsd: 0.1, sessionId: "round-two", error: { code: "timeout", message: "tiempo" } } : base.executor!(request, call)),
+        reviewer: () => ({ output: { verdict: "changes", summary: "falta", criteria: [], requiredChanges: ["arreglar X"], checksRun: [] } }),
+      },
+      { maxFixRounds: 2, maxResumedFixRounds: 1 },
+    );
+    await env.tool("task_create", CONTROLLED_TASK);
+    const runner = env.makeRunner();
+    await runner.runUntilIdle();
+    env.clock.now = new Date("2026-11-20T15:01:00Z");
+    await runner.runUntilIdle();
+    const executors = env.backend.calls.filter((call) => call.role === "executor");
+    expect(executors[2]?.resumeSessionId).toBeUndefined();
+    expect(executors[3]?.resumeSessionId).toBe("round-two");
   });
 
   it("stops at the task budget and resumes only when the owner adds budget", async () => {

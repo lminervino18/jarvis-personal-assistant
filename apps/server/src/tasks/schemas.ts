@@ -48,6 +48,7 @@ export interface TaskEvidence {
   changedFiles: string[];
   diffStat: string;
   diffPath: string;
+  reviewDiffPath?: string;
 }
 
 export function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {

@@ -5,6 +5,7 @@ import { sql as initSql } from "./migrations/001-init.js";
 import { sql as syncCursorsSql } from "./migrations/002-sync-cursors.js";
 import { sql as waOutboxSql } from "./migrations/003-wa-outbox.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
+import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 
 export type Db = Database.Database;
 
@@ -25,7 +26,10 @@ export const migrations: Migration[] = [
  * Migrations of the work database (delegated tasks). It is a separate file so the agent
  * runner never mounts the personal database.
  */
-export const workMigrations: Migration[] = [{ version: 1, name: "tasks", sql: tasksSql }];
+export const workMigrations: Migration[] = [
+  { version: 1, name: "tasks", sql: tasksSql },
+  { version: 2, name: "planner_session", sql: plannerSessionSql },
+];
 
 /**
  * Opens the SQLite database with the settings every process (server, worker, WhatsApp

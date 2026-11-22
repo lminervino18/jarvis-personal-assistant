@@ -64,6 +64,16 @@ export function planUsage(info: SDKRateLimitInfo): PlanUsage | undefined {
   return candidates.reduce<PlanUsage | undefined>((best, candidate) => (!best || candidate.utilization > best.utilization ? candidate : best), undefined);
 }
 
+const INTERRUPT_GRACE_MS = 10_000;
+
+type StopReason = "timeout" | "cancelled" | "plan_reserve";
+
+const STOP_ERRORS: Record<StopReason, { code: AgentErrorCode; message: string }> = {
+  timeout: { code: "timeout", message: "La sesión superó el tiempo máximo" },
+  cancelled: { code: "cancelled", message: "Sesión cancelada" },
+  plan_reserve: { code: "plan_reserve", message: "El plan llegó a la reserva para el chat" },
+};
+
 const EXPLORER_PROMPT =
   "Explorás código y archivos en modo solo lectura y devolvés un resumen preciso con rutas y líneas. No modificás nada y no inventás contenido.";
 
@@ -90,35 +100,39 @@ export class ClaudeAgentBackend implements AgentBackend {
 
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.config.timeoutMs);
-    const abort = () => controller.abort();
-    if (request.signal.aborted) abort();
-    request.signal.addEventListener("abort", abort, { once: true });
-
     const result: AgentRunResult = { costUsd: 0, turns: 0, models: [] };
     const stream = query({ prompt: request.prompt, options: this.options(request, controller) });
+    let stopReason: StopReason | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    const stop = (reason: StopReason) => {
+      if (stopReason) return;
+      stopReason = reason;
+      stream.interrupt().catch(() => controller.abort());
+      killTimer = setTimeout(() => controller.abort(), INTERRUPT_GRACE_MS);
+    };
+    const timer = setTimeout(() => stop("timeout"), this.config.timeoutMs);
+    const cancel = () => stop("cancelled");
+    if (request.signal.aborted) cancel();
+    request.signal.addEventListener("abort", cancel, { once: true });
+
     try {
       for await (const message of stream) {
         this.absorb(message, result);
         if (result.error?.code === "usage_limit") break;
+        if (result.plan && result.plan.utilization >= request.planLimit) stop("plan_reserve");
       }
     } catch (error) {
-      if (!result.error && !controller.signal.aborted) {
+      if (!result.error && !stopReason) {
         const detail = error instanceof Error ? error.message : String(error);
         result.error = { code: /no conversation found/i.test(detail) ? "resume_failed" : "unavailable", message: detail.slice(0, 300) };
       }
     } finally {
       clearTimeout(timer);
-      request.signal.removeEventListener("abort", abort);
+      clearTimeout(killTimer);
+      request.signal.removeEventListener("abort", cancel);
       stream.close();
     }
-    if (controller.signal.aborted && result.output === undefined) {
-      result.error = timedOut ? { code: "timeout", message: "La sesión superó el tiempo máximo" } : { code: "cancelled", message: "Sesión cancelada" };
-    }
+    if (stopReason && result.output === undefined) result.error = STOP_ERRORS[stopReason];
     const forbidden = result.models.filter((model) => !this.isAllowedModel(model));
     if (forbidden.length > 0) result.error = { code: "model_policy", message: `Se usó un modelo no permitido: ${forbidden.join(", ")}` };
     return result;
@@ -152,7 +166,7 @@ export class ClaudeAgentBackend implements AgentBackend {
       maxTurns: config.maxTurns[role],
       maxBudgetUsd: request.maxBudgetUsd,
       resume: request.resumeSessionId,
-      persistSession: role === "executor",
+      persistSession: role !== "reviewer",
       systemPrompt: { type: "preset", preset: "claude_code" },
       settingSources: [],
       settings: { disableClaudeAiConnectors: true, availableModels: [...config.allowedFamilies] },

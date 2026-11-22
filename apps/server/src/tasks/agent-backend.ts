@@ -9,6 +9,7 @@ export type AgentErrorCode =
   | "auth"
   | "unavailable"
   | "cancelled"
+  | "plan_reserve"
   | "timeout"
   | "invalid_output"
   | "model_policy"
@@ -32,6 +33,8 @@ export interface AgentRunRequest {
   outputSchema: z.ZodType;
   resumeSessionId?: string;
   maxBudgetUsd: number;
+  /** Plan utilization (0 to 1) at which the session stops so the rest of the window stays for the chat. */
+  planLimit: number;
   signal: AbortSignal;
 }
 
