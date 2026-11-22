@@ -2,6 +2,9 @@ services:
   server:
     volumes:
       - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work
+      - ${JARVIS_PUBLISH_HOST_DIR:-/srv/jarvis-publish}:/publish
+    environment:
+      PUBLISH_DIR: /publish
   worker:
     volumes:
       - ${JARVIS_WORK_HOST_DIR:-/srv/jarvis/work}:/work

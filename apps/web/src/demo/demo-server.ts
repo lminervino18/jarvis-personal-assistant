@@ -96,6 +96,30 @@ const DEMO_TASK_CARDS: Card[] = [
   },
 ];
 
+function buildTasks(now: Date): Extract<Card, { kind: "task" }>[] {
+  const base = { status: "ready" as const, phase: null, paused: false, iteration: 1, costUsd: 0.18, budgetUsd: 5, build: true, updatedAt: now.toISOString() };
+  return [
+    {
+      ...base,
+      kind: "task",
+      taskId: uuid(900),
+      ref: 14,
+      title: "Botón para repetir la última respuesta (ficticio)",
+      summary: "Agregué un botón «Repetir» en cada respuesta que vuelve a reproducir el audio, con tests.",
+      review: { verdict: "approve", passed: 4, total: 4 },
+    },
+    {
+      ...base,
+      kind: "task",
+      taskId: uuid(901),
+      ref: 12,
+      status: "accepted",
+      title: "Modo oscuro más contrastado (ficticio)",
+      publication: { status: "published", step: "deploy", commit: "a1b2c3d4e5f6" },
+    },
+  ];
+}
+
 function confirmCard(now: Date, status: "pending" | "confirmed" | "rejected"): Card {
   return {
     kind: "confirm",
@@ -173,6 +197,13 @@ export class DemoServer {
         break;
       case "action.decide":
         this.emit({ type: "card", card: confirmCard(this.now(), message.decision === "confirm" ? "confirmed" : "rejected") });
+        break;
+      case "build.list":
+        this.emit({ type: "build.tasks", tasks: buildTasks(this.now()) });
+        break;
+      case "build.request":
+      case "build.feedback":
+        this.emit({ type: "notice", level: "info", code: "build_updated", message: "Modo demo: el pedido no se envía a ningún agente." });
         break;
       case "ping":
         this.emit({ type: "pong", t: message.t });

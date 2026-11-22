@@ -44,7 +44,11 @@ export interface SessionSnapshot {
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
+  /** Build mode tasks, newest first; null until build mode is opened. */
+  buildTasks: BuildTask[] | null;
 }
+
+export type BuildTask = Extract<Card, { kind: "task" }>;
 
 export interface Levels {
   input: number;
@@ -116,6 +120,7 @@ export class Session {
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
+  private buildTasks: BuildTask[] | null = null;
   private noticeCount = 0;
   private inputLevel = 0;
   private readonly levels: Levels = { input: 0, output: 0 };
@@ -321,6 +326,26 @@ export class Session {
     }
   }
 
+  /** Asks for the build mode task list; the answer arrives as `build.tasks`. */
+  refreshBuild(): void {
+    this.client.send({ type: "build.list" });
+  }
+
+  /** A change the owner wants in JARVIS itself. Returns false when it could not be sent. */
+  requestBuild(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    if (!this.client.send({ type: "build.request", text: trimmed })) return this.refuse("No hay conexión: el pedido no se envió.");
+    return true;
+  }
+
+  buildFeedback(taskId: string, text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    if (!this.client.send({ type: "build.feedback", taskId, text: trimmed })) return this.refuse("No hay conexión: la respuesta no se envió.");
+    return true;
+  }
+
   newConversation(): void {
     this.stopAll();
     this.client.send({ type: "conversation.new" });
@@ -471,6 +496,9 @@ export class Session {
         break;
       case "notice":
         this.setNotice(message.level === "warning" ? "warning" : "info", message.message);
+        break;
+      case "build.tasks":
+        this.buildTasks = message.tasks;
         break;
       case "error":
         if (!message.turnId) this.setNotice("error", message.message);
@@ -668,6 +696,7 @@ export class Session {
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,
+      buildTasks: this.buildTasks,
     };
   }
 

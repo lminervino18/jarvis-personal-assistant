@@ -18,18 +18,26 @@ import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
 import { createLogger } from "./logger.js";
+import { PublicationSpool } from "./publisher/spool.js";
 import { SystemMessageFeed } from "./push/live-feed.js";
 import { AgendaStatusSource, PushStatusSource } from "./push/status.js";
 import { PushSubscriptionStore } from "./push/subscriptions.js";
 import { loadVapidConfig } from "./push/vapid.js";
 import { AgentsStatusSource } from "./tasks/agents-status.js";
 import { registerTaskRoutes } from "./tasks/task-routes.js";
-import { TaskService } from "./tasks/task-service.js";
+import { TaskService, type TaskOutcome } from "./tasks/task-service.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { WorkLayout } from "./tasks/workspace.js";
 import { allTools } from "./tools/index.js";
 import type { ToolServices } from "./tools/types.js";
 import { createVoiceServices } from "./voice/providers.js";
+import type { TaskActionOutcome } from "./ws/client-connection.js";
+
+const PUBLICATION_SYNC_MS = 5_000;
+
+function cardOutcome(service: TaskService, outcome: TaskOutcome): TaskActionOutcome {
+  return outcome.ok ? { ok: true, card: service.card(outcome.task), message: outcome.message } : { ok: false, message: outcome.message };
+}
 
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
@@ -70,8 +78,14 @@ const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "w
 const workLayout = config.tasks ? new WorkLayout(config.tasks.workDir) : undefined;
 const tasks =
   config.tasks && workDb && workLayout
-    ? new TaskService(new TaskStore(workDb), workLayout, { defaultBudgetUsd: config.tasks.defaultBudgetUsd, maxAttachmentBytes: config.tasks.maxAttachmentBytes })
+    ? new TaskService(
+        new TaskStore(workDb),
+        workLayout,
+        { defaultBudgetUsd: config.tasks.defaultBudgetUsd, maxAttachmentBytes: config.tasks.maxAttachmentBytes },
+        config.tasks.publish ? new PublicationSpool(config.tasks.publish.dir, config.tasks.publish.signingKey) : undefined,
+      )
     : undefined;
+if (tasks && config.tasks?.publish) setInterval(() => tasks.syncPublications(new Date()), PUBLICATION_SYNC_MS).unref();
 services.tasks = tasks;
 if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));
 
@@ -155,9 +169,13 @@ const app = await buildApp({
   },
   onPlayerState: youtube.onPlayerState,
   onTaskAction: tasks
-    ? (action) => {
-        const outcome = tasks.decide(action.taskId, action.action, action.approvalId, new Date());
-        return outcome.ok ? { ok: true, card: tasks.card(outcome.task), message: outcome.message } : { ok: false, message: outcome.message };
+    ? (action) => cardOutcome(tasks, tasks.decide(action.taskId, action.action, action.approvalId, new Date()))
+    : undefined,
+  build: tasks
+    ? {
+        list: () => tasks.buildCards(),
+        request: (text) => cardOutcome(tasks, tasks.createBuild(text, new Date())),
+        feedback: (taskId, text) => cardOutcome(tasks, tasks.buildFeedback(taskId, text, new Date())),
       }
     : undefined,
   stt: voice.stt,

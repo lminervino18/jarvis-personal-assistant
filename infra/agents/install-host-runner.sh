@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Usage: install-host-runner.sh <tag>
-# Runs the agent runner as a systemd service on the host, from the jarvis-agent-runner:<tag> image.
+# Runs the agent runner as a systemd service on the host, from the jarvis-agent-runner:<tag> image,
+# refreshes the jarvis project agents build on, and installs the build publisher.
 # Install once with: sudo install -m 755 infra/agents/install-host-runner.sh /usr/local/sbin/jarvis-agent-runner-install
 set -euo pipefail
 
@@ -11,6 +12,8 @@ tag=${1:-}
 work=/srv/jarvis/work
 dir=/opt/jarvis-agents
 image="jarvis-agent-runner:$tag"
+source_dir=${JARVIS_DIR:-/opt/jarvis}
+publish=/srv/jarvis-publish
 
 getent group jarvis-agents >/dev/null || groupadd --gid 10001 jarvis-agents
 id jarvis-agents >/dev/null 2>&1 || useradd --uid 10001 --gid 10001 --home-dir /var/lib/jarvis-agents --no-create-home --shell /usr/sbin/nologin jarvis-agents
@@ -27,7 +30,11 @@ install -d -m 755 "$dir.new/bin"
 container=$(docker create "$image")
 docker cp "$container:/app" "$dir.new/app"
 docker cp "$container:/usr/local/bin/node" "$dir.new/bin/node"
+install -d -m 755 "$dir.new/lib"
+docker cp "$container:/usr/local/lib/node_modules/pnpm" "$dir.new/lib/pnpm"
 docker rm "$container" >/dev/null
+printf '#!/bin/sh\nexec /opt/jarvis-agents/bin/node /opt/jarvis-agents/lib/pnpm/bin/pnpm.cjs "$@"\n' > "$dir.new/bin/pnpm"
+chmod 755 "$dir.new/bin/pnpm"
 chown -R root:root "$dir.new"
 chmod -R go-w "$dir.new"
 rm -rf "$dir.old"
@@ -74,7 +81,54 @@ TasksMax=1024
 WantedBy=multi-user.target
 UNIT
 
+project=$work/projects/jarvis
+install -d -m 750 -o 10001 -g 10001 "$work/projects" "$project"
+install -m 644 -o 10001 -g 10001 "$source_dir/infra/agents/projects/jarvis/CONTEXT.md" "$project/CONTEXT.md"
+install -m 755 -o 10001 -g 10001 "$source_dir/infra/agents/projects/jarvis/setup.sh" "$project/setup.sh"
+rm -rf "$project/repo.new" "$project/repo.old"
+git -c safe.directory='*' clone --quiet --no-hardlinks "$source_dir" "$project/repo.new"
+chown -R 10001:10001 "$project/repo.new"
+if [ -d "$project/repo" ]; then mv "$project/repo" "$project/repo.old"; fi
+mv "$project/repo.new" "$project/repo"
+rm -rf "$project/repo.old"
+
+install -d -m 755 -o root -g root "$publish"
+install -d -m 2770 -o 10001 -g deploy "$publish/requests"
+install -d -m 2750 -o deploy -g 10001 "$publish/results"
+install -d -m 700 -o deploy -g deploy "$publish/done" "$publish/repo"
+
+cat > /etc/systemd/system/jarvis-publisher.service <<'UNIT'
+[Unit]
+Description=J.A.R.V.IS build publisher (owner-approved changes)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/jarvis-publish
+EnvironmentFile=/etc/jarvis/publisher.env
+Environment=HOME=/home/deploy
+Environment=PATH=/opt/jarvis-agents/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/jarvis-agents/bin/node /opt/jarvis-agents/app/dist/publisher-main.js
+TimeoutStartSec=2h
+UNIT
+
+cat > /etc/systemd/system/jarvis-publisher.path <<'UNIT'
+[Unit]
+Description=Watch for owner-approved J.A.R.V.IS build publications
+
+[Path]
+PathExistsGlob=/srv/jarvis-publish/requests/*.json
+Unit=jarvis-publisher.service
+
+[Install]
+WantedBy=paths.target
+UNIT
+
 systemctl daemon-reload
 systemctl enable jarvis-agent-runner >/dev/null
 systemctl restart jarvis-agent-runner
+if [ -f /etc/jarvis/publisher.env ]; then systemctl enable --now jarvis-publisher.path >/dev/null 2>&1; fi
 echo "agent runner $tag installed"

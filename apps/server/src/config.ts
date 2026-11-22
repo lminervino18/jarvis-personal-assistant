@@ -32,6 +32,8 @@ const EnvSchema = z.object({
   WORK_DIR: z.string().optional().transform((value) => value || undefined),
   TASK_DEFAULT_BUDGET_USD: z.coerce.number().positive().max(100).default(5),
   TASK_MAX_ATTACHMENT_MB: z.coerce.number().positive().max(50).default(10),
+  PUBLISH_DIR: z.string().optional().transform((value) => value || undefined),
+  PUBLISH_SIGNING_KEY: z.string().optional().transform((value) => value || undefined),
 });
 
 export interface AppConfig {
@@ -62,7 +64,7 @@ export interface AppConfig {
   followUpWindowMs: number;
   logLevel: string;
   /** Delegated tasks are enabled when the work volume is configured. */
-  tasks?: { workDir: string; defaultBudgetUsd: number; maxAttachmentBytes: number };
+  tasks?: { workDir: string; defaultBudgetUsd: number; maxAttachmentBytes: number; publish?: { dir: string; signingKey: string } };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -103,6 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           workDir: resolve(parsed.WORK_DIR),
           defaultBudgetUsd: parsed.TASK_DEFAULT_BUDGET_USD,
           maxAttachmentBytes: Math.round(parsed.TASK_MAX_ATTACHMENT_MB * 1024 * 1024),
+          ...(parsed.PUBLISH_DIR && parsed.PUBLISH_SIGNING_KEY ? { publish: { dir: resolve(parsed.PUBLISH_DIR), signingKey: parsed.PUBLISH_SIGNING_KEY } } : {}),
         }
       : undefined,
   };

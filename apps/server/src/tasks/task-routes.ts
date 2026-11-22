@@ -51,7 +51,7 @@ export function registerTaskRoutes(app: FastifyInstance, helpers: RouteHelpers, 
     return reply
       .header("Content-Type", "text/plain; charset=utf-8")
       .header("Content-Security-Policy", "sandbox")
-      .send(layout.diff(task.evidence, MAX_PREVIEW_BYTES));
+      .send(layout.diff(task.id, task.evidence, MAX_PREVIEW_BYTES));
   });
 
   app.get("/api/tasks/:ref/files", async (request, reply) => {

@@ -1133,3 +1133,123 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+.build {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.build-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top) + 12px) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+  border-bottom: 1px solid var(--separator);
+}
+
+.build-header h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.build-header p {
+  margin: 2px 0 0;
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.build-done {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.build-list {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+}
+
+.build-empty {
+  color: var(--secondary);
+}
+
+.build-empty ol {
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.build-item {
+  margin-bottom: 16px;
+}
+
+.build-reply {
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 0 14px;
+  border: 1px solid var(--separator);
+  border-radius: 18px;
+  background: var(--fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.build-composer {
+  padding: 8px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+
+.build-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.build-target,
+.build-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 4px 8px;
+  color: var(--secondary);
+  font-size: 14px;
+}
+
+.build-notice-warning,
+.build-notice-error {
+  color: var(--orange);
+}
+
+.build-target button {
+  min-width: 32px;
+  min-height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.keyboard-open .build-header {
+  padding-top: 12px;
+}
+
+.keyboard-open .build-composer {
+  padding-bottom: 8px;
+}

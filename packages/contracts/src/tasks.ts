@@ -25,8 +25,12 @@ export const TaskBlocker = z.object({
 export type TaskBlocker = z.infer<typeof TaskBlocker>;
 
 /** What the owner can do from a task card, without going through the model. */
-export const TaskCardAction = z.enum(["pause", "resume", "cancel", "accept", "approve", "reject"]);
+export const TaskCardAction = z.enum(["pause", "resume", "cancel", "accept", "approve", "reject", "publish"]);
 export type TaskCardAction = z.infer<typeof TaskCardAction>;
+
+/** Where a build task's change is on its way to production, after the owner taps Publish. */
+export const PublicationStatus = z.enum(["queued", "running", "published", "failed"]);
+export type PublicationStatus = z.infer<typeof PublicationStatus>;
 
 export const ReviewVerdict = z.enum(["approve", "changes", "blocked"]);
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;

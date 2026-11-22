@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { TaskBlocker, TaskPhase, TaskStatus } from "@jarvis/contracts";
+import type { PublicationStatus, TaskBlocker, TaskPhase, TaskStatus } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
 import type { ExecutionReport, ReviewResult, TaskEvidence, TaskSpec } from "./schemas.js";
 
@@ -61,6 +61,52 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   finishedAt?: string;
+}
+
+/** A build task's way to production after the owner tapped Publish. */
+export interface Publication {
+  id: string;
+  taskId: string;
+  status: PublicationStatus;
+  commitTitle: string;
+  step?: string;
+  commitSha?: string;
+  message?: string;
+  requestedAt: string;
+  updatedAt: string;
+}
+
+export interface PublicationPatch {
+  status: PublicationStatus;
+  step?: string;
+  commitSha?: string;
+  message?: string;
+}
+
+interface PublicationRow {
+  id: string;
+  task_id: string;
+  status: PublicationStatus;
+  commit_title: string;
+  step: string | null;
+  commit_sha: string | null;
+  message: string | null;
+  requested_at: string;
+  updated_at: string;
+}
+
+function toPublication(row: PublicationRow): Publication {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    status: row.status,
+    commitTitle: row.commit_title,
+    ...(row.step ? { step: row.step } : {}),
+    ...(row.commit_sha ? { commitSha: row.commit_sha } : {}),
+    ...(row.message ? { message: row.message } : {}),
+    requestedAt: row.requested_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export interface TaskRun {
@@ -253,6 +299,12 @@ export class TaskStore {
     return rows.map(toTask);
   }
 
+  /** The latest tasks of one project, most recently updated first. */
+  listByProject(project: string, limit: number): Task[] {
+    const rows = this.db.prepare("SELECT * FROM tasks WHERE project = ? ORDER BY updated_at DESC LIMIT ?").all(project, limit) as TaskRow[];
+    return rows.map(toTask);
+  }
+
   /**
    * Applies a patch. With `expect`, the update only happens while the task is still in
    * one of those statuses, so concurrent owner and runner decisions never overwrite each other.
@@ -438,5 +490,49 @@ export class TaskStore {
 
   unboundAttachments(ids: readonly string[]): string[] {
     return ids.filter((id) => this.db.prepare("SELECT 1 FROM task_attachments WHERE id = ? AND task_id IS NULL").get(id));
+  }
+
+  /** Queues a publication unless another one is still queued or running. */
+  createPublication(taskId: string, commitTitle: string, now: Date): Publication | undefined {
+    const insert = this.db.transaction(() => {
+      if (this.db.prepare("SELECT 1 FROM task_publications WHERE status IN ('queued', 'running')").get()) return undefined;
+      const id = randomUUID();
+      const at = now.toISOString();
+      this.db
+        .prepare("INSERT INTO task_publications (id, task_id, status, commit_title, requested_at, updated_at) VALUES (?, ?, 'queued', ?, ?, ?)")
+        .run(id, taskId, commitTitle, at, at);
+      return id;
+    });
+    const id = insert.immediate();
+    return id ? this.publicationById(id) : undefined;
+  }
+
+  publicationById(id: string): Publication | undefined {
+    const row = this.db.prepare("SELECT * FROM task_publications WHERE id = ?").get(id) as PublicationRow | undefined;
+    return row ? toPublication(row) : undefined;
+  }
+
+  /** The latest publication of a task, if the owner ever tapped Publish. */
+  publication(taskId: string): Publication | undefined {
+    const row = this.db.prepare("SELECT * FROM task_publications WHERE task_id = ? ORDER BY requested_at DESC LIMIT 1").get(taskId) as
+      | PublicationRow
+      | undefined;
+    return row ? toPublication(row) : undefined;
+  }
+
+  activePublications(): Publication[] {
+    const rows = this.db.prepare("SELECT * FROM task_publications WHERE status IN ('queued', 'running') ORDER BY requested_at").all() as PublicationRow[];
+    return rows.map(toPublication);
+  }
+
+  /** Moves a publication forward; a finished one never changes again. */
+  updatePublication(id: string, patch: PublicationPatch, now: Date): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE task_publications SET status = ?, step = ?, commit_sha = COALESCE(?, commit_sha), message = ?, updated_at = ?
+         WHERE id = ? AND status IN ('queued', 'running')`,
+      )
+      .run(patch.status, patch.step ?? null, patch.commitSha ?? null, patch.message ?? null, now.toISOString(), id);
+    return result.changes > 0;
   }
 }

@@ -16,7 +16,7 @@ import type { Db } from "./db/database.js";
 import { allowedOrigins, applySecurityHeaders, isAllowedOrigin } from "./http/security.js";
 import type { AssistantContext } from "./runtime/system-prompt.js";
 import type { SpeechToTextService, TextToSpeechService } from "./voice/types.js";
-import { ClientConnection, type PlayerState, type PushSubscription, type TaskAction, type TaskActionOutcome } from "./ws/client-connection.js";
+import { ClientConnection, type BuildHandlers, type PlayerState, type PushSubscription, type TaskAction, type TaskActionOutcome } from "./ws/client-connection.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -32,6 +32,7 @@ export interface AppDeps {
   onPushSubscribe?(subscription: PushSubscription, userAgent: string | undefined): Promise<void>;
   onPlayerState?(state: PlayerState): void;
   onTaskAction?(action: TaskAction): TaskActionOutcome;
+  build?: BuildHandlers;
   /** Lets integration modules add their own routes (OAuth callbacks, device gateway). */
   registerRoutes?(app: FastifyInstance, helpers: RouteHelpers): Promise<void> | void;
 }
@@ -139,6 +140,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           : undefined,
         onPlayerState: deps.onPlayerState,
         onTaskAction: deps.onTaskAction,
+        build: deps.build,
       });
     },
   );

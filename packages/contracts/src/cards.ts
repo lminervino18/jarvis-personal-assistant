@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
+import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
 
 const IsoDateTime = z.iso.datetime({ offset: true });
 
@@ -99,6 +99,11 @@ export const TaskCard = z.object({
   deliverables: z.array(z.object({ path: z.string(), description: z.string() })).max(20).optional(),
   costUsd: z.number().nonnegative(),
   budgetUsd: z.number().nonnegative(),
+  /** A change to JARVIS itself, which the owner can publish. */
+  build: z.boolean().optional(),
+  publication: z
+    .object({ status: PublicationStatus, step: z.string().max(40).optional(), commit: z.string().max(40).optional(), message: z.string().max(600).optional() })
+    .optional(),
   updatedAt: IsoDateTime,
 });
 

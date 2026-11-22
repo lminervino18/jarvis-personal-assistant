@@ -315,7 +315,7 @@ export class TaskRunner {
       const result = await this.runAgent(task, run, {
         role: "reviewer",
         taskId: task.id,
-        prompt: reviewerPrompt(task, task.spec, task.report, task.evidence, layout.reviewDiff(task.evidence, limits.diffChars), this.deps.backend.runsCommands),
+        prompt: reviewerPrompt(task, task.spec, task.report, task.evidence, layout.reviewDiff(task.id, task.evidence, limits.diffChars), this.deps.backend.runsCommands),
         dirs: this.dirs(paths, reviewDir),
         outputSchema: ReviewResult,
         signal,

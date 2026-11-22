@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AudioFormat } from "./audio.js";
-import { Card } from "./cards.js";
+import { Card, TaskCard } from "./cards.js";
 import { ReplyMode, ServerAssistantState } from "./states.js";
 import { TaskCardAction } from "./tasks.js";
 
@@ -98,6 +98,15 @@ export const TaskActionMessage = z.object({
   approvalId: Id.optional(),
 });
 
+/** Opens or refreshes build mode: the server answers with `build.tasks`. */
+export const BuildListMessage = z.object({ type: z.literal("build.list") });
+
+/** A change the owner wants in JARVIS itself; it becomes a task on the jarvis project without going through the model. */
+export const BuildRequestMessage = z.object({ type: z.literal("build.request"), text: z.string().trim().min(1).max(4000) });
+
+/** An answer or a change request for a build task. */
+export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(4000) });
+
 export const PingMessage = z.object({ type: z.literal("ping"), t: z.number() });
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -113,6 +122,9 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HistoryFetchMessage,
   PushSubscribeMessage,
   TaskActionMessage,
+  BuildListMessage,
+  BuildRequestMessage,
+  BuildFeedbackMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -226,6 +238,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
   }),
+  ServerBase.extend({ type: z.literal("build.tasks"), tasks: z.array(TaskCard).max(50) }),
   ServerBase.extend({ type: z.literal("pong"), t: z.number() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

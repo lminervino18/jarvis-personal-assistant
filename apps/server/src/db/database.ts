@@ -7,6 +7,7 @@ import { sql as waOutboxSql } from "./migrations/003-wa-outbox.js";
 import { sql as turnUsageSql } from "./migrations/004-turn-usage.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
+import { sql as publicationsSql } from "./work-migrations/003-publications.js";
 
 export type Db = Database.Database;
 
@@ -31,6 +32,7 @@ export const migrations: Migration[] = [
 export const workMigrations: Migration[] = [
   { version: 1, name: "tasks", sql: tasksSql },
   { version: 2, name: "planner_session", sql: plannerSessionSql },
+  { version: 3, name: "publications", sql: publicationsSql },
 ];
 
 /**

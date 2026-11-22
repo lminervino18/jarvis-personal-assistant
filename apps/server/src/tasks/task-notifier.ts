@@ -28,7 +28,7 @@ export class TaskNotifier {
     for (const event of events) {
       const task = this.tasks.get(event.taskId);
       if (task) {
-        const chat: ChatPayload = { text: event.message, cards: [taskCard(task)] };
+        const chat: ChatPayload = { text: event.message, cards: [taskCard(task, this.tasks.publication(task.id))] };
         const push: PushNotification = { title: NOTIFICATION_TITLE, body: event.message, tag: `task:${task.id}`, url: "/" };
         this.outbox.enqueue({ kind: "chat_message", dedupeKey: `task-event:${event.id}:chat`, payload: chat }, now);
         this.outbox.enqueue({ kind: "push", dedupeKey: `task-event:${event.id}:push`, payload: push }, now);

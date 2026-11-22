@@ -29,6 +29,7 @@ export const ExecutionReport = z.object({
   criteria: z.array(z.object({ id: z.string().max(10), status: z.enum(["met", "not_met", "unsure"]), evidence: Short })).max(12),
   questions: z.array(Short).max(5),
   approvalsNeeded: z.array(z.object({ kind: z.enum(["deploy", "publish", "delete", "send", "production", "other"]), description: Short })).max(3),
+  commitTitle: z.string().max(100).optional().describe("Only when the project context asks for it: a one-line Conventional Commit title in English."),
 });
 export type ExecutionReport = z.infer<typeof ExecutionReport>;
 

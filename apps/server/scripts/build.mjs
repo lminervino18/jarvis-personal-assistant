@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { build } from "esbuild";
 
-const entryPoints = ["src/main.ts", "src/worker.ts", "src/whatsapp-bridge.ts", "src/agent-runner.ts"].filter((entry) => existsSync(entry));
+const entryPoints = ["src/main.ts", "src/worker.ts", "src/whatsapp-bridge.ts", "src/agent-runner.ts", "src/publisher-main.ts"].filter((entry) => existsSync(entry));
 
 const externalizeDependencies = {
   name: "externalize-dependencies",

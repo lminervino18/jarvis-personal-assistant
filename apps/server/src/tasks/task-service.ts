@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { finalTaskStatuses, type Card, type TaskCardAction, type TaskPhase } from "@jarvis/contracts";
-import type { Attachment, Task, TaskPatch, TaskStore } from "./task-store.js";
+import { BUILD_PROJECT, isCommitTitle, MAX_PATCH_BYTES, type PublicationSpool } from "../publisher/spool.js";
+import type { Attachment, Publication, Task, TaskPatch, TaskStore } from "./task-store.js";
 import type { ProjectInfo, WorkLayout } from "./workspace.js";
 import { safeFileName } from "./workspace.js";
 
@@ -16,12 +17,21 @@ export interface TaskServiceOptions {
 export type TaskOutcome = { ok: true; task: Task; message: string } | { ok: false; code: "not_found" | "invalid_input"; message: string };
 
 const RUNNER_STALE_MS = 2 * 60_000;
+const PUBLISH_STALE_MS = 2 * 60 * 60_000;
+const BUILD_TITLE_CHARS = 80;
+const BUILD_LIST_LIMIT = 20;
+
+function buildTitle(text: string): string {
+  const line = text.split("\n").find((candidate) => candidate.trim()) ?? text;
+  const title = line.trim().replace(/\s+/g, " ");
+  return title.length > BUILD_TITLE_CHARS ? `${title.slice(0, BUILD_TITLE_CHARS - 1).trimEnd()}…` : title;
+}
 
 const OPEN_FOR_FEEDBACK = new Set(["awaiting_owner", "ready", "accepted", "failed"]);
 const RESUMABLE_BLOCKERS = new Set(["budget", "usage_limit", "error", "review_limit"]);
 
 /** The chat card for a task, built only from stored state. */
-export function taskCard(task: Task): TaskCard {
+export function taskCard(task: Task, publication?: Publication): TaskCard {
   const review = task.review
     ? { verdict: task.review.verdict, passed: task.review.criteria.filter((c) => c.status === "pass").length, total: task.review.criteria.length }
     : undefined;
@@ -40,6 +50,17 @@ export function taskCard(task: Task): TaskCard {
     ...(task.report?.deliverables.length ? { deliverables: task.report.deliverables.slice(0, 20) } : {}),
     costUsd: Math.round(task.costUsd * 100) / 100,
     budgetUsd: task.budgetUsd,
+    ...(task.project === BUILD_PROJECT ? { build: true } : {}),
+    ...(publication
+      ? {
+          publication: {
+            status: publication.status,
+            ...(publication.step ? { step: publication.step } : {}),
+            ...(publication.commitSha ? { commit: publication.commitSha } : {}),
+            ...(publication.message ? { message: publication.message } : {}),
+          },
+        }
+      : {}),
     updatedAt: task.updatedAt,
   };
 }
@@ -53,6 +74,7 @@ export class TaskService {
     private readonly store: TaskStore,
     private readonly layout: WorkLayout,
     private readonly options: TaskServiceOptions,
+    private readonly spool?: PublicationSpool,
   ) {}
 
   /** Whether the agent runner wrote a heartbeat recently, so queued tasks will actually progress. */
@@ -155,11 +177,96 @@ export class TaskService {
       return this.done(task.id, `Aceptaste la tarea #${task.ref}.`);
     }
     if (action === "approve" || action === "reject") return this.decideApproval(task, action, approvalId, now);
+    if (action === "publish") return this.publish(task.id, now);
     return this.apply(task, action, now);
   }
 
   card(task: Task): TaskCard {
-    return taskCard(task);
+    return taskCard(task, this.store.publication(task.id));
+  }
+
+  /** A change to JARVIS itself, asked from build mode: a task on the jarvis project, without the model. */
+  createBuild(text: string, now: Date): TaskOutcome {
+    if (!this.layout.hasProject(BUILD_PROJECT)) return this.invalid("El modo construir todavía no está instalado en el servidor.");
+    const task = this.store.create({ title: buildTitle(text), request: text, project: BUILD_PROJECT, source: "build", budgetUsd: this.options.defaultBudgetUsd }, now);
+    return this.done(task.id, `Tarea #${task.ref} en cola.`);
+  }
+
+  /** An answer or change request from build mode. A task already published starts a new one instead of reopening. */
+  buildFeedback(taskId: string, text: string, now: Date): TaskOutcome {
+    const task = this.store.get(taskId);
+    if (!task || task.project !== BUILD_PROJECT) return { ok: false, code: "not_found", message: "La tarea no existe." };
+    if (task.status === "accepted" || task.status === "cancelled") return this.createBuild(text, now);
+    return this.feedback(task.ref, text, now);
+  }
+
+  buildCards(): TaskCard[] {
+    return this.store.listByProject(BUILD_PROJECT, BUILD_LIST_LIMIT).map((task) => this.card(task));
+  }
+
+  /**
+   * The owner's tap on Publish: queues a signed request with the reviewed change for the host
+   * publisher, which checks, pushes and deploys it. Only one publication runs at a time.
+   */
+  publish(taskId: string, now: Date): TaskOutcome {
+    const task = this.store.get(taskId);
+    if (!task) return { ok: false, code: "not_found", message: "La tarea no existe." };
+    if (task.project !== BUILD_PROJECT) return this.invalid("Solo se publican cambios de JARVIS.");
+    if (task.status !== "ready" || !task.evidence) return this.invalid("Se publica una entrega lista y revisada.");
+    if (!this.spool?.available()) return this.invalid("La publicación no está configurada en el servidor.");
+    const patch = this.layout.patch(task.id, task.evidence, MAX_PATCH_BYTES);
+    if (!patch?.trim()) return this.invalid("No encontré el cambio para publicar, o es demasiado grande.");
+    const proposed = task.report?.commitTitle?.trim();
+    const commitTitle = proposed && isCommitTitle(proposed) ? proposed : `feat(build): apply build task ${task.ref}`;
+    const publication = this.store.createPublication(task.id, commitTitle, now);
+    if (!publication) return this.invalid("Ya hay una publicación en curso; esperá a que termine.");
+    if (!this.store.update(task.id, { status: "accepted", blocker: null, finishedAt: now.toISOString() }, now, ["ready"])) {
+      this.store.updatePublication(publication.id, { status: "failed", step: "request", message: "La tarea cambió de estado antes de publicar." }, now);
+      return this.changed(task.ref);
+    }
+    try {
+      this.spool.submit({ id: publication.id, taskRef: task.ref, commitTitle, requestedAt: publication.requestedAt }, patch);
+    } catch {
+      this.store.updatePublication(publication.id, { status: "failed", step: "request", message: "No pude dejarle el pedido al publicador." }, now);
+      return this.invalid("No pude dejarle el pedido al publicador.");
+    }
+    this.store.addEvent(task.id, "publish_requested", "El dueño pidió publicar el cambio.", false, now);
+    return this.done(task.id, `Publicando la tarea #${task.ref}: chequeo completo, GitHub y despliegue.`);
+  }
+
+  /** Reads the publisher's results and tells the owner when a publication ends. */
+  syncPublications(now: Date): void {
+    if (!this.spool) return;
+    for (const publication of this.store.activePublications()) {
+      const result = this.spool.result(publication.id);
+      const task = this.store.get(publication.taskId);
+      if (!result) {
+        if (now.getTime() - Date.parse(publication.requestedAt) > PUBLISH_STALE_MS) {
+          this.finishPublication(publication, task, { status: "failed", step: "publisher", message: "El publicador no respondió en dos horas." }, now);
+        }
+        continue;
+      }
+      if (result.status === "running") {
+        if (publication.status !== "running" || publication.step !== result.step) this.store.updatePublication(publication.id, { status: "running", step: result.step }, now);
+        continue;
+      }
+      this.finishPublication(publication, task, { status: result.status, step: result.step, commitSha: result.commit, message: result.message }, now);
+    }
+  }
+
+  private finishPublication(
+    publication: Publication,
+    task: Task | undefined,
+    patch: { status: "published" | "failed"; step?: string; commitSha?: string; message?: string },
+    now: Date,
+  ): void {
+    if (!this.store.updatePublication(publication.id, patch, now) || !task) return;
+    const message =
+      patch.status === "published"
+        ? `La tarea #${task.ref} está publicada en producción${patch.commitSha ? ` (commit ${patch.commitSha})` : ""}.`
+        : `No se pudo publicar la tarea #${task.ref}${patch.message ? `: ${patch.message}` : "."}`;
+    this.store.addEvent(task.id, patch.status === "published" ? "published" : "publish_failed", message, true, now);
+    this.store.update(task.id, {}, now);
   }
 
   private apply(task: Task, action: "pause" | "resume" | "cancel" | "retry", now: Date, addBudgetUsd?: number): TaskOutcome {

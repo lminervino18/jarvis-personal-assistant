@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Attachment, Task } from "./task-store.js";
 import type { TaskEvidence } from "./schemas.js";
@@ -9,6 +9,8 @@ const run = promisify(execFile);
 
 const GIT_IDENTITY = ["-c", "user.name=jarvis-runner", "-c", "user.email=runner@jarvis.invalid", "-c", "commit.gpgsign=false"];
 const MAX_DIFF_STAT = 4000;
+const SETUP_TIMEOUT_MS = 15 * 60_000;
+const DEPENDENCY_DIR_DEPTH = 3;
 const REVIEWED_REF = "refs/jarvis/reviewed";
 const REVIEW_DIFF_EXCLUDES = [
   "*.lock",
@@ -51,6 +53,17 @@ export function safeFileName(name: string): string {
 function firstLine(markdown: string): string {
   const line = markdown.split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
   return line.replace(/^#+\s*/, "").trim().slice(0, 160);
+}
+
+/** Installed dependency folders of a checkout (relative paths), so a review copy can reuse them as hard links. */
+function dependencyDirs(root: string, relative = "", depth = 0): string[] {
+  if (depth > DEPENDENCY_DIR_DEPTH) return [];
+  return readdirSync(join(root, relative), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== ".git")
+    .flatMap((entry) => {
+      const path = relative ? join(relative, entry.name) : entry.name;
+      return entry.name === "node_modules" ? [path] : dependencyDirs(root, path, depth + 1);
+    });
 }
 
 function readCapped(path: string, maxChars: number): string {
@@ -132,8 +145,19 @@ export class WorkLayout {
     await git(paths.work, ["add", "-A"]);
     await git(paths.work, ["commit", "--quiet", "--allow-empty", "-m", "baseline"]);
     const baseline = (await git(paths.work, ["rev-parse", "HEAD"])).trim();
+    if (project) await this.setUp(project, paths.work);
     writeFileSync(join(paths.runner, "baseline"), baseline);
     return paths;
+  }
+
+  /**
+   * Runs the project's `setup.sh` (installing dependencies) in a fresh copy, before any agent
+   * touched it, so agents can build and test without network access.
+   */
+  private async setUp(project: string, work: string): Promise<void> {
+    const script = join(project, "setup.sh");
+    if (!existsSync(script)) return;
+    await run("sh", [script], { cwd: work, timeout: SETUP_TIMEOUT_MS, maxBuffer: 32 * 1024 * 1024 });
   }
 
   /** Commits whatever the executor left and measures the change against the baseline. */
@@ -149,7 +173,7 @@ export class WorkLayout {
     const changedFiles = (await git(paths.work, ["diff", "--name-only", baseline, "HEAD"])).split("\n").filter(Boolean);
     const diffStat = (await git(paths.work, ["diff", "--stat", baseline, "HEAD"])).trim().slice(0, MAX_DIFF_STAT);
     const diffPath = join(paths.runner, `iteration-${iteration}.diff`);
-    writeFileSync(diffPath, await git(paths.work, ["diff", baseline, "HEAD"]));
+    writeFileSync(diffPath, await git(paths.work, ["diff", "--binary", baseline, "HEAD"]));
     const reviewDiffPath = join(paths.runner, `iteration-${iteration}.review.diff`);
     writeFileSync(reviewDiffPath, await git(paths.work, ["diff", reviewed, "HEAD", "--", ".", ...REVIEW_DIFF_EXCLUDES]));
     return { iteration, changedFiles, diffStat, diffPath, reviewDiffPath };
@@ -166,16 +190,36 @@ export class WorkLayout {
     const target = resolve(paths.root, `review-${iteration}`);
     rmSync(target, { recursive: true, force: true });
     await run("git", ["clone", "--quiet", "--no-hardlinks", paths.work, target]);
+    for (const dir of dependencyDirs(paths.work)) {
+      mkdirSync(dirname(join(target, dir)), { recursive: true });
+      await run("cp", ["-al", join(paths.work, dir), join(target, dir)]);
+    }
     return target;
   }
 
+  /**
+   * Where an evidence file lives in this process's view of the work volume. The runner and the
+   * server mount it at different paths, so only the file name is taken from the stored path.
+   */
+  private evidenceFile(taskId: string, storedPath: string): string {
+    return join(this.paths(taskId).runner, basename(storedPath));
+  }
+
   /** The full change against the baseline, cut to `maxChars`. */
-  diff(evidence: TaskEvidence, maxChars: number): string {
-    return readCapped(evidence.diffPath, maxChars);
+  diff(taskId: string, evidence: TaskEvidence, maxChars: number): string {
+    return readCapped(this.evidenceFile(taskId, evidence.diffPath), maxChars);
+  }
+
+  /** The full change against the baseline as an applicable patch, or undefined when it is missing or too big. */
+  patch(taskId: string, evidence: TaskEvidence, maxBytes: number): string | undefined {
+    const path = this.evidenceFile(taskId, evidence.diffPath);
+    if (!existsSync(path)) return undefined;
+    const text = readFileSync(path, "utf8");
+    return Buffer.byteLength(text) <= maxBytes ? text : undefined;
   }
 
   /** What changed since the last review (or the baseline), without lockfiles or generated files, cut to `maxChars` for the reviewer's prompt. */
-  reviewDiff(evidence: TaskEvidence, maxChars: number): string {
-    return readCapped(evidence.reviewDiffPath ?? evidence.diffPath, maxChars);
+  reviewDiff(taskId: string, evidence: TaskEvidence, maxChars: number): string {
+    return readCapped(this.evidenceFile(taskId, evidence.reviewDiffPath ?? evidence.diffPath), maxChars);
   }
 }

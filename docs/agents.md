@@ -157,6 +157,7 @@ Inside the runner container:
 ## Approvals and external effects
 
 - A finished task never gets permission to publish, deploy or send anything. The runner has no such capability.
+- The one exception is build mode ([build-mode.md](build-mode.md)). There, a reviewed change to JARVIS itself is published only after the owner taps Publish. The publisher is deterministic and runs on the host; no agent is involved.
 - When the executor needs an external action, it reports `approvalsNeeded`. The task then waits with an `approval` blocker that names the exact action, and the card shows Approve and Reject.
 - The decision is recorded once (`task_approvals`), by a tap, never by the model. It reaches the executor as a system-written note.
 - In this version an approved action is still executed by the owner, from the instructions the agent leaves. A future connector will execute stored, approved actions deterministically, like `pending_actions` in the chat.

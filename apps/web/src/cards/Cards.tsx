@@ -236,7 +236,36 @@ const blockerLabel: Record<NonNullable<Of<"task">["blocker"]>["kind"], string> =
   error: "Error",
 };
 
+const publishStep: Record<string, string> = {
+  verify: "verificando",
+  prepare: "preparando",
+  apply: "aplicando el cambio",
+  checks: "chequeo completo",
+  commit: "creando el commit",
+  push: "subiendo a GitHub",
+  deploy: "desplegando",
+};
+
+function publicationLine(publication: NonNullable<Of<"task">["publication"]>): string {
+  switch (publication.status) {
+    case "queued":
+      return "Publicación en cola";
+    case "running":
+      return `Publicando${publication.step ? ` · ${publishStep[publication.step] ?? publication.step}` : ""}`;
+    case "published":
+      return `Publicado en producción${publication.commit ? ` · commit ${publication.commit.slice(0, 7)}` : ""}`;
+    case "failed":
+      return `No se publicó${publication.message ? `: ${publication.message}` : ""}`;
+  }
+}
+
 function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: string; primary?: boolean }[] {
+  if (card.status === "ready" && card.build) {
+    return [
+      { action: "publish", label: "Publicar", primary: true },
+      { action: "cancel", label: "Descartar" },
+    ];
+  }
   if (card.status === "ready") return [{ action: "accept", label: "Aceptar entrega", primary: true }];
   if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return [];
   if (card.blocker?.kind === "approval") {
@@ -307,7 +336,16 @@ function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions })
           </>
         )}
       </p>
-      {card.status === "ready" && <p className="card-meta">Para pedir cambios, escribilos en el chat.</p>}
+      {card.publication && (
+        <p className="card-status" data-status={card.publication.status === "failed" ? "failed" : card.publication.status === "published" ? "accepted" : "running"} role="status">
+          {publicationLine(card.publication)}
+        </p>
+      )}
+      {card.status === "ready" && (
+        <p className="card-meta">
+          {card.build ? "Publicar lo chequea entero, lo sube a GitHub y lo despliega. Para pedir cambios, respondé abajo." : "Para pedir cambios, escribilos en el chat."}
+        </p>
+      )}
       {buttons.length > 0 && !pending && (
         <div className="card-actions">
           {buttons.map((button) => (

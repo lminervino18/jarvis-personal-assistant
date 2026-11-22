@@ -148,6 +148,17 @@ describe("youtube card when playback is blocked", () => {
     expect(running).toContain("Pausar");
     expect(render({ ...base, status: "queued", phase: "execute", paused: true })).toContain("Reanudar");
     expect(render({ ...base, status: "cancelled" })).not.toContain("<button");
+
+    const build = render({ ...base, status: "ready", build: true });
+    expect(build).toContain("Publicar");
+    expect(build).not.toContain("Aceptar entrega");
+    const publishing = render({ ...base, status: "accepted", build: true, publication: { status: "running", step: "checks" } });
+    expect(publishing).toContain("Publicando · chequeo completo");
+    const published = render({ ...base, status: "accepted", build: true, publication: { status: "published", commit: "abc1234def56" } });
+    expect(published).toContain("Publicado en producción · commit abc1234");
+    expect(render({ ...base, status: "accepted", build: true, publication: { status: "failed", step: "checks", message: "No pasó los tests" } })).toContain(
+      "No se publicó: No pasó los tests",
+    );
   });
 
   it("renders a table with every column even when a row is short, and a chart container", () => {

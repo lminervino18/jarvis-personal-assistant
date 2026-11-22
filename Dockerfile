@@ -5,7 +5,7 @@ ENV PNPM_HOME=/pnpm \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     CI=true
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 make g++ \
+ && apt-get install -y --no-install-recommends python3 make g++ git \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -16,6 +16,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm install --frozen-lo
 RUN pnpm -r build \
  && mkdir -p apps/web/dist
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm --filter @jarvis/server deploy --prod --legacy /out
+
+FROM build AS check
+RUN pnpm lint && pnpm typecheck && pnpm test
 
 FROM node:24.22.1-trixie-slim@sha256:43b9ba1142b8dcf33fa8f922ca1be85714adc444e0586c7cf7726daaeabc1bea AS runtime
 RUN apt-get update \
@@ -51,7 +54,8 @@ FROM runtime AS agent-runner
 USER root
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git bubblewrap socat \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install --global --no-fund --no-audit pnpm@10.34.5
 ENV WORK_DIR=/work \
     AGENT_HEARTBEAT_FILE=/tmp/agent-runner-heartbeat
 USER jarvis

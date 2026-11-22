@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Core } from "../core/Core.js";
 import { stateLabel } from "../conversation/assistant-state.js";
 import type { Session } from "../conversation/session.js";
 import { useAssistantAnnouncement, useElementHeight, useSnapshot, useVisibleViewport } from "../hooks.js";
 import { uploadAttachment } from "../tasks/attachments.js";
+import { BuildScreen } from "./BuildScreen.js";
 import { CallScreen } from "./CallScreen.js";
 import { Composer } from "./Composer.js";
 import { SettingsSheet } from "./SettingsSheet.js";
@@ -36,6 +37,9 @@ export function Conversation({ session, onLogout, demo }: Props) {
   const composer = useRef<HTMLDivElement>(null);
   const composerHeight = useElementHeight(composer, COMPOSER_FALLBACK_PX);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
+  const refreshBuild = useCallback(() => session.refreshBuild(), [session]);
+  const closeBuild = useCallback(() => setBuildOpen(false), []);
   const label = stateLabel(snapshot.state);
   const online = snapshot.connection === "ready";
   const voice = snapshot.capabilities?.stt === true;
@@ -110,6 +114,14 @@ export function Conversation({ session, onLogout, demo }: Props) {
               <SpeakerIcon on={snapshot.speakerOn} />
             </button>
           )}
+          <button type="button" className="glass-button glass" aria-label="Construir" aria-haspopup="dialog" onClick={() => setBuildOpen(true)}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+              <path
+                fill="currentColor"
+                d="m13.8 3.2 1.4 1.4-1.1 1.1 4.2 4.2 1.1-1.1 1.4 1.4-3.5 3.5-1.4-1.4 1.1-1.1-1.4-1.4-8.5 8.5a1 1 0 0 1-1.4 0l-1.4-1.4a1 1 0 0 1 0-1.4l8.5-8.5-1.4-1.4-1.1 1.1-1.4-1.4z"
+              />
+            </svg>
+          </button>
           <button type="button" className="glass-button glass" aria-label="Ajustes" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>
             <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
               <circle cx="5" cy="12" r="2" fill="currentColor" />
@@ -165,6 +177,19 @@ export function Conversation({ session, onLogout, demo }: Props) {
           onNewConversation={() => session.newConversation()}
           onLogout={onLogout}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {buildOpen && (
+        <BuildScreen
+          tasks={snapshot.buildTasks}
+          online={online}
+          notice={notice}
+          actions={session}
+          onRefresh={refreshBuild}
+          onRequest={(text) => session.requestBuild(text)}
+          onReply={(taskId, text) => session.buildFeedback(taskId, text)}
+          onClose={closeBuild}
         />
       )}
 

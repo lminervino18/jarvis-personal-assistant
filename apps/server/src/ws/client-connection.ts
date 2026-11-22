@@ -33,6 +33,13 @@ export type TaskAction = Extract<ClientMessage, { type: "task.action" }>;
 /** What a task card tap produced: the refreshed card, or why nothing changed. */
 export type TaskActionOutcome = { ok: true; card: Card; message: string } | { ok: false; message: string };
 
+/** Build mode: requests and answers become tasks on the jarvis project without going through the model. */
+export interface BuildHandlers {
+  list(): Extract<Card, { kind: "task" }>[];
+  request(text: string): TaskActionOutcome;
+  feedback(taskId: string, text: string): TaskActionOutcome;
+}
+
 export interface ConnectionDeps {
   kind: ClientKind;
   store: ConversationStore;
@@ -48,6 +55,7 @@ export interface ConnectionDeps {
   onPushSubscribe?(subscription: PushSubscription): Promise<void>;
   onPlayerState?(state: PlayerState): void;
   onTaskAction?(action: TaskAction): TaskActionOutcome;
+  build?: BuildHandlers;
 }
 
 interface Capture {
@@ -209,6 +217,12 @@ export class ClientConnection implements Subscriber {
         return;
       case "task.action":
         return this.onTaskAction(message);
+      case "build.list":
+        return this.sendBuildTasks();
+      case "build.request":
+        return this.onBuildOutcome(this.deps.build?.request(message.text));
+      case "build.feedback":
+        return this.onBuildOutcome(this.deps.build?.feedback(message.taskId, message.text));
       case "ping":
         this.send({ type: "pong", t: message.t });
         return;
@@ -223,6 +237,20 @@ export class ClientConnection implements Subscriber {
     }
     if (outcome.ok) this.send({ type: "card", card: outcome.card });
     this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "task_updated" : "task_action_rejected", message: outcome.message });
+  }
+
+  private sendBuildTasks(): void {
+    if (!this.deps.build) {
+      this.send({ type: "notice", level: "warning", code: "build_unavailable", message: "El modo construir no está configurado." });
+      return;
+    }
+    this.send({ type: "build.tasks", tasks: this.deps.build.list() });
+  }
+
+  private onBuildOutcome(outcome: TaskActionOutcome | undefined): void {
+    if (!outcome) return this.sendBuildTasks();
+    this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "build_updated" : "build_rejected", message: outcome.message });
+    this.sendBuildTasks();
   }
 
   private onHello(message: Extract<ClientMessage, { type: "hello" }>): void {
