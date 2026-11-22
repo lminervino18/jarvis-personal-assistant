@@ -107,6 +107,9 @@ export const BuildRequestMessage = z.object({ type: z.literal("build.request"), 
 /** An answer or a change request for a build task. */
 export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(4000) });
 
+/** The owner is about to talk or type: the server can warm the model's prompt cache meanwhile. */
+export const WarmMessage = z.object({ type: z.literal("warm") });
+
 export const PingMessage = z.object({ type: z.literal("ping"), t: z.number() });
 
 export const ClientMessage = z.discriminatedUnion("type", [
@@ -125,6 +128,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   BuildListMessage,
   BuildRequestMessage,
   BuildFeedbackMessage,
+  WarmMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;

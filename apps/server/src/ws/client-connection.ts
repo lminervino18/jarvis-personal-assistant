@@ -217,6 +217,9 @@ export class ClientConnection implements Subscriber {
         return;
       case "task.action":
         return this.onTaskAction(message);
+      case "warm":
+        if (this.conversationId) this.deps.orchestrator.warm(this.conversationId);
+        return;
       case "build.list":
         return this.sendBuildTasks();
       case "build.request":

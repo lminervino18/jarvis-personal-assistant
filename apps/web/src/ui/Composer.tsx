@@ -12,6 +12,8 @@ interface Props {
   /** Starts the voice call; without it the round button only sends. */
   onCall?(): void;
   onAttach?(file: File): Promise<UploadOutcome>;
+  /** The owner started writing. */
+  onFocus?(): void;
 }
 
 const MAX_FIELD_PX = 140;
@@ -28,7 +30,7 @@ function useRecordingClock(recording: boolean): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteEnd, onStop, onCall, onAttach }: Props) {
+export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteEnd, onStop, onCall, onAttach, onFocus }: Props) {
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
@@ -135,6 +137,7 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
               autoComplete="off"
               onChange={(event) => setText(event.target.value)}
               onKeyDown={onKeyDown}
+              onFocus={onFocus}
             />
           </>
         )}

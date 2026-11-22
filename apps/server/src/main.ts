@@ -118,7 +118,7 @@ const runtime: ModelRuntime =
         configDir: config.claude.configDir,
         oauthToken: config.claude.oauthToken,
         systemPrompt: () => assistantContext().prompt,
-        toolsetFor: (input) => toolRegistry.require(input.turnId),
+        toolsetFor: (turnId) => toolRegistry.require(turnId),
       });
 
 const store = new ConversationStore(db);

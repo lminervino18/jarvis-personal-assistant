@@ -57,6 +57,49 @@ const turn = (conversationId: string, text: string) => ({
   inputEndedAt: performance.now(),
 });
 
+describe("prompt cache warm-up", () => {
+  function warmSetup(start = Date.now()) {
+    const clock = { now: start };
+    const toolRegistry = new TurnToolRegistry();
+    const scripted = new ScriptedRuntime(() => ({ text: "ok" }));
+    const warmed: string[] = [];
+    const runtime: ModelRuntime = {
+      name: "warm-fixture",
+      runTurn: (input) => scripted.runTurn(input),
+      warm: async (turnId) => {
+        expect(toolRegistry.require(turnId).allowedTools.length).toBeGreaterThan(0);
+        warmed.push(turnId);
+      },
+    };
+    const context = setup(40, { runtime, toolRegistry, now: () => new Date(clock.now) });
+    return { ...context, clock, warmed, toolRegistry };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("warms once with the same tools as a turn and releases them", async () => {
+    const { orchestrator, warmed, toolRegistry, conversationId } = warmSetup();
+    orchestrator.warm(conversationId);
+    orchestrator.warm(conversationId);
+    await settle();
+    orchestrator.warm(conversationId);
+    await settle();
+    expect(warmed).toHaveLength(1);
+    expect(() => toolRegistry.require(warmed[0] as string)).toThrow();
+  });
+
+  it("does not warm right after a real turn, only after a long pause", async () => {
+    const { orchestrator, warmed, clock, conversationId } = warmSetup();
+    await orchestrator.startTurn(turn(conversationId, "hola"));
+    orchestrator.warm(conversationId);
+    await settle();
+    expect(warmed).toHaveLength(0);
+    clock.now += 51 * 60_000;
+    orchestrator.warm(conversationId);
+    await settle();
+    expect(warmed).toHaveLength(1);
+  });
+});
+
 describe("session rotation", () => {
   const say = async (ctx: ReturnType<typeof setup>, text: string) => {
     await ctx.orchestrator.startTurn(turn(ctx.conversationId, text));

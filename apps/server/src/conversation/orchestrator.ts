@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
 import { decidePendingAction, type PendingActionOutcome } from "../tools/runner.js";
@@ -77,6 +78,8 @@ const SUMMARY_MAX_LINES = 60;
 const SEED_WAIT_MS = 6_000;
 
 const UNANSWERED_MERGE_MS = 30_000;
+const WARM_AFTER_IDLE_MS = 50 * 60_000;
+const WARM_TIMEOUT_MS = 60_000;
 const CONFIRM_BY_VOICE_MS = 2 * 60_000;
 const CONFIRM_BY_TEXT_MS = 10 * 60_000;
 
@@ -151,6 +154,8 @@ export class ConversationOrchestrator {
   private readonly notes = new Map<string, string[]>();
   /** Background summaries in flight, one per conversation. */
   private readonly summaries = new Map<string, Promise<void>>();
+  private lastModelCallAt: number | undefined;
+  private warming = false;
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -243,6 +248,38 @@ export class ConversationOrchestrator {
 
   private now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  /**
+   * Warms the prompt cache while the owner is about to talk or type. The cache is shared by every
+   * conversation, so it is skipped while a turn runs or when the model was called recently.
+   */
+  warm(conversationId: string): void {
+    const { runtime, toolRegistry, tools, builtinTools, services, log } = this.deps;
+    if (!runtime.warm || this.warming || this.active.size > 0) return;
+    const now = this.now().getTime();
+    if (this.lastModelCallAt !== undefined && now - this.lastModelCallAt < WARM_AFTER_IDLE_MS) return;
+    this.warming = true;
+    const turnId = randomUUID();
+    const security: TurnSecurityState = { tainted: false, taintSources: new Set() };
+    const ctx: ToolContext = { services, conversationId, turnId, now: () => this.now(), security, emitCard: () => {}, emitPlayerCommand: () => {} };
+    toolRegistry.register(turnId, {
+      server: createTurnToolServer(ctx, tools),
+      allowedTools: [...tools.map((tool) => qualifiedToolName(tool.name)), ...builtinTools],
+      security,
+    });
+    const started = performance.now();
+    runtime
+      .warm(turnId, AbortSignal.timeout(WARM_TIMEOUT_MS))
+      .then(() => {
+        this.lastModelCallAt = this.now().getTime();
+        log.info({ ms: Math.round(performance.now() - started) }, "prompt cache warmed");
+      })
+      .catch((error: unknown) => log.warn({ err: error instanceof Error ? error.message : "unknown" }, "prompt cache warm-up failed"))
+      .finally(() => {
+        toolRegistry.release(turnId);
+        this.warming = false;
+      });
   }
 
   /** Resolves once the background summaries started so far have finished. */
@@ -463,6 +500,7 @@ export class ConversationOrchestrator {
       }
     } finally {
       this.deps.toolRegistry.release(turnId);
+      this.lastModelCallAt = this.now().getTime();
     }
 
     const speaker = voice.speaker;

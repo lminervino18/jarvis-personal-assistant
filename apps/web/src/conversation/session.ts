@@ -258,6 +258,7 @@ export class Session {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
       return;
     }
+    this.warm();
     const conversationId = this.client.conversationId;
     if (!conversationId || this.status !== "ready") {
       this.refuse("No hay conexión: el audio no se envió.");
@@ -324,6 +325,11 @@ export class Session {
     if (!this.client.send({ type: "task.action", taskId, action, ...(approvalId ? { approvalId } : {}) })) {
       this.refuse("No hay conexión: la acción sobre la tarea no se envió.");
     }
+  }
+
+  /** The owner is about to talk or type: lets the server warm the model meanwhile. */
+  warm(): void {
+    this.client.send({ type: "warm" });
   }
 
   /** Asks for the build mode task list; the answer arrives as `build.tasks`. */
@@ -639,6 +645,7 @@ export class Session {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
       return;
     }
+    this.warm();
     if (this.micStarting) return;
     this.micStarting = true;
     try {

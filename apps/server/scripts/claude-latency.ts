@@ -37,9 +37,9 @@ const runtime = new ClaudeAgentRuntime({
   maxTurns: 4,
   allowOverage: false,
   systemPrompt: () => context.prompt,
-  toolsetFor(input) {
+  toolsetFor(turnId) {
     const security = { tainted: false, taintSources: new Set<string>() };
-    const ctx = { services, conversationId: input.conversationId, turnId: input.turnId, now: () => new Date(), security, emitCard: () => {}, emitPlayerCommand: () => {} };
+    const ctx = { services, conversationId: "latency-probe", turnId, now: () => new Date(), security, emitCard: () => {}, emitPlayerCommand: () => {} };
     return { server: createTurnToolServer(ctx, allTools), allowedTools: allTools.map((tool) => qualifiedToolName(tool.name)), security };
   },
 });

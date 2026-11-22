@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { query, type McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
+import { query, type McpSdkServerConfigWithInstance, type Options } from "@anthropic-ai/claude-agent-sdk";
 import type { ModelRuntime, RuntimeEvent, RuntimeTurnInput } from "@jarvis/contracts";
 import type { TurnSecurityState } from "../tools/types.js";
 import { temporalContext } from "../util/time.js";
@@ -28,11 +28,13 @@ export interface ClaudeRuntimeOptions {
   oauthToken?: string;
   baseEnv?: NodeJS.ProcessEnv;
   systemPrompt(): string;
-  toolsetFor(input: RuntimeTurnInput): TurnToolset;
+  toolsetFor(turnId: string): TurnToolset;
   now?: () => Date;
   onDeniedTool?: (name: string) => void;
   onStderr?: (line: string) => void;
 }
+
+const WARM_PROMPT = "[calentamiento interno del sistema, no es un pedido del dueño: respondé solamente «ok»]";
 
 /** Built-in Claude Code tools that must never be available, even if defaults change. */
 const FORBIDDEN_BUILTINS = [
@@ -136,10 +138,59 @@ export class ClaudeAgentRuntime implements ModelRuntime {
     }
   }
 
+  /** Options shared by turns and warm-ups, so both send a byte-identical prefix to the prompt cache. */
+  private conversationOptions(toolset: TurnToolset, allowed: ReadonlySet<string>, abortController: AbortController): Options {
+    const options = this.options;
+    return {
+      abortController,
+      cwd: options.workspaceDir,
+      env: buildRuntimeEnv(options.baseEnv ?? process.env, {
+        timezone: options.timezone,
+        configDir: options.configDir,
+        oauthToken: options.oauthToken,
+      }),
+      includePartialMessages: true,
+      systemPrompt: { type: "custom", prompt: options.systemPrompt(), snapshot: false },
+      settingSources: [],
+      settings: { disableClaudeAiConnectors: true, promptCacheTtl: "1h" },
+      strictMcpConfig: true,
+      mcpServers: { jarvis: toolset.server },
+      tools: toolset.allowedTools.filter((name) => !name.startsWith("mcp__")),
+      allowedTools: toolset.allowedTools,
+      disallowedTools: FORBIDDEN_BUILTINS,
+      permissionMode: "dontAsk",
+      hooks: {
+        PreToolUse: [{ hooks: [createToolPolicyHook(allowed, toolset.security, options.onDeniedTool)] }],
+      },
+      model: options.model,
+      effort: options.effort,
+      stderr: options.onStderr,
+    };
+  }
+
+  async warm(turnId: string, signal: AbortSignal): Promise<void> {
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    if (signal.aborted) abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const stream = query({
+      prompt: WARM_PROMPT,
+      options: { ...this.conversationOptions(this.options.toolsetFor(turnId), new Set(), abortController), maxTurns: 1, persistSession: false },
+    });
+    try {
+      for await (const message of untilAborted(stream, signal)) {
+        if (message.type === "result") return;
+      }
+    } finally {
+      signal.removeEventListener("abort", abort);
+      stream.close();
+    }
+  }
+
   async *runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent> {
     const options = this.options;
     const now = options.now?.() ?? new Date();
-    const toolset = options.toolsetFor(input);
+    const toolset = options.toolsetFor(input.turnId);
     const abortController = new AbortController();
     const abort = () => abortController.abort();
     if (input.signal.aborted) abort();
@@ -149,34 +200,7 @@ export class ClaudeAgentRuntime implements ModelRuntime {
     const allowed = new Set(toolset.allowedTools);
     const stream = query({
       prompt: composeTurnPrompt(input, now, options.timezone),
-      options: {
-        abortController,
-        cwd: options.workspaceDir,
-        env: buildRuntimeEnv(options.baseEnv ?? process.env, {
-          timezone: options.timezone,
-          configDir: options.configDir,
-          oauthToken: options.oauthToken,
-        }),
-        resume: input.resumeSessionId,
-        includePartialMessages: true,
-        systemPrompt: { type: "custom", prompt: options.systemPrompt(), snapshot: false },
-        settingSources: [],
-        settings: { disableClaudeAiConnectors: true },
-        strictMcpConfig: true,
-        mcpServers: { jarvis: toolset.server },
-        tools: toolset.allowedTools.filter((name) => !name.startsWith("mcp__")),
-        allowedTools: toolset.allowedTools,
-        disallowedTools: FORBIDDEN_BUILTINS,
-        permissionMode: "dontAsk",
-        hooks: {
-          PreToolUse: [{ hooks: [createToolPolicyHook(allowed, toolset.security, options.onDeniedTool)] }],
-        },
-        model: options.model,
-        effort: options.effort,
-        maxTurns: options.maxTurns,
-        persistSession: true,
-        stderr: options.onStderr,
-      },
+      options: { ...this.conversationOptions(toolset, allowed, abortController), resume: input.resumeSessionId, maxTurns: options.maxTurns, persistSession: true },
     });
 
     let finished = false;

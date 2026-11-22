@@ -54,4 +54,9 @@ export interface ModelRuntime {
   runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent>;
   /** One-shot call without tools or session, used to summarize conversations. Rejects on failure. */
   summarize?(prompt: string, signal: AbortSignal): Promise<string>;
+  /**
+   * Sends a throwaway request with exactly the prefix of a turn (system prompt and tools, from the
+   * toolset registered for `turnId`), so the next real turn reads the prompt cache instead of writing it.
+   */
+  warm?(turnId: string, signal: AbortSignal): Promise<void>;
 }

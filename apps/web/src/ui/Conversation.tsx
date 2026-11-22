@@ -163,6 +163,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
           onStop={() => session.stopAll()}
           onCall={startCall}
           onAttach={demo ? undefined : uploadAttachment}
+          onFocus={() => session.warm()}
         />
       </div>
 

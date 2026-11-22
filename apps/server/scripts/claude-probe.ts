@@ -54,12 +54,12 @@ const runtime = new ClaudeAgentRuntime({
   maxTurns: 6,
   allowOverage: false,
   systemPrompt: () => context.prompt,
-  toolsetFor(input) {
+  toolsetFor(turnId) {
     const security = { tainted: false, taintSources: new Set<string>() };
     const ctx: ToolContext = {
       services,
-      conversationId: input.conversationId,
-      turnId: input.turnId,
+      conversationId: "probe",
+      turnId,
       now: () => new Date(),
       security,
       emitCard: () => {},
