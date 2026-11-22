@@ -34,6 +34,9 @@ const EnvSchema = z.object({
   TASK_MAX_ATTACHMENT_MB: z.coerce.number().positive().max(50).default(10),
   PUBLISH_DIR: z.string().optional().transform((value) => value || undefined),
   PUBLISH_SIGNING_KEY: z.string().optional().transform((value) => value || undefined),
+  PAGES_BASE_URL: z.string().optional().transform((value) => value || undefined).pipe(z.url().optional()),
+  PAGES_PORT: z.coerce.number().int().min(1).max(65535).default(8081),
+  PAGES_MODEL: z.string().optional().transform((value) => value || undefined),
 });
 
 export interface AppConfig {
@@ -63,6 +66,8 @@ export interface AppConfig {
   };
   followUpWindowMs: number;
   logLevel: string;
+  /** Generated web pages are enabled when their public base URL is configured. */
+  pages?: { baseUrl: string; port: number; model?: string };
   /** Delegated tasks are enabled when the work volume is configured. */
   tasks?: { workDir: string; defaultBudgetUsd: number; maxAttachmentBytes: number; publish?: { dir: string; signingKey: string } };
 }
@@ -100,6 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     followUpWindowMs: parsed.FOLLOW_UP_WINDOW_MS,
     logLevel: parsed.LOG_LEVEL,
+    ...(parsed.PAGES_BASE_URL ? { pages: { baseUrl: parsed.PAGES_BASE_URL, port: parsed.PAGES_PORT, model: parsed.PAGES_MODEL } } : {}),
     tasks: parsed.WORK_DIR
       ? {
           workDir: resolve(parsed.WORK_DIR),

@@ -34,3 +34,27 @@
 		}
 	}
 }
+
+{$PAGES_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy server:8081 {
+		transport http {
+			dial_timeout 5s
+		}
+	}
+
+	header -Server
+
+	log {
+		output stdout
+		format filter {
+			fields {
+				request>uri regexp \?.*$ ""
+				request>headers>Cookie delete
+				request>remote_ip delete
+				request>client_ip delete
+			}
+		}
+	}
+}

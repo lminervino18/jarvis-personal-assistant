@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ModelRuntime, RuntimeEvent, RuntimeTurnInput, RuntimeUsage } from "@jarvis/contracts";
+import type { CompletionRequest, ModelRuntime, RuntimeEvent, RuntimeTurnInput, RuntimeUsage } from "@jarvis/contracts";
 
 export interface ScriptedReply {
   text?: string;
@@ -59,6 +59,14 @@ export class ScriptedRuntime implements ModelRuntime {
       numTurns: 1,
       usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, contextTokens: 0, ...reply.usage },
     };
+  }
+
+  readonly completions: CompletionRequest[] = [];
+  completer: (request: CompletionRequest) => string = () => "<!doctype html><html lang=\"es\"><head><title>Prueba</title></head><body><p>Hola</p></body></html>";
+
+  async complete(request: CompletionRequest): Promise<string> {
+    this.completions.push(request);
+    return this.completer(request);
   }
 
   async summarize(prompt: string): Promise<string> {

@@ -1,3 +1,4 @@
+import type { PageService } from "../pages/page-service.js";
 import type { Card, IntegrationProvider, ToolInput, ToolName, ToolResult } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
 import type { GmailService } from "../integrations/gmail/gmail-service.js";
@@ -33,6 +34,7 @@ export interface ToolServices {
   gmail?: GmailService;
   youtube?: YoutubeService;
   tasks?: TaskService;
+  pages?: PageService;
 }
 
 export interface PlayerCommand {

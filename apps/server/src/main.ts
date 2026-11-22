@@ -18,6 +18,9 @@ import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
 import { createLogger } from "./logger.js";
+import { PageService } from "./pages/page-service.js";
+import { PageStore } from "./pages/page-store.js";
+import { buildPagesServer } from "./pages/pages-server.js";
 import { PublicationSpool } from "./publisher/spool.js";
 import { SystemMessageFeed } from "./push/live-feed.js";
 import { AgendaStatusSource, PushStatusSource } from "./push/status.js";
@@ -31,6 +34,7 @@ import { WorkLayout } from "./tasks/workspace.js";
 import { allTools } from "./tools/index.js";
 import type { ToolServices } from "./tools/types.js";
 import { createVoiceServices } from "./voice/providers.js";
+import { Outbox } from "./worker/outbox.js";
 import type { TaskActionOutcome } from "./ws/client-connection.js";
 
 const PUBLICATION_SYNC_MS = 5_000;
@@ -121,6 +125,12 @@ const runtime: ModelRuntime =
         toolsetFor: (turnId) => toolRegistry.require(turnId),
       });
 
+const pages = config.pages
+  ? new PageService({ store: new PageStore(db), runtime, outbox: new Outbox(db), baseUrl: config.pages.baseUrl, model: config.pages.model, log: logger })
+  : undefined;
+services.pages = pages;
+const pagesServer = pages && config.pages ? buildPagesServer(pages, { trustProxy: config.env === "production" }) : undefined;
+
 const store = new ConversationStore(db);
 const hub = new ConversationHub();
 const systemMessageFeed = new SystemMessageFeed(db, hub, logger);
@@ -194,6 +204,7 @@ const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   systemMessageFeed.stop();
   await app.close();
+  await pagesServer?.close();
   db.close();
   workDb?.close();
   process.exit(0);
@@ -202,4 +213,5 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 await app.listen({ host: config.host, port: config.port });
+if (pagesServer && config.pages) await pagesServer.listen({ host: config.host, port: config.pages.port });
 systemMessageFeed.start();

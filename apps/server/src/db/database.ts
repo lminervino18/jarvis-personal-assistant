@@ -5,6 +5,7 @@ import { sql as initSql } from "./migrations/001-init.js";
 import { sql as syncCursorsSql } from "./migrations/002-sync-cursors.js";
 import { sql as waOutboxSql } from "./migrations/003-wa-outbox.js";
 import { sql as turnUsageSql } from "./migrations/004-turn-usage.js";
+import { sql as pagesSql } from "./migrations/005-pages.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as publicationsSql } from "./work-migrations/003-publications.js";
@@ -23,6 +24,7 @@ export const migrations: Migration[] = [
   { version: 2, name: "sync_cursors", sql: syncCursorsSql },
   { version: 3, name: "wa_outbox", sql: waOutboxSql },
   { version: 4, name: "turn_usage", sql: turnUsageSql },
+  { version: 5, name: "pages", sql: pagesSql },
 ];
 
 /**

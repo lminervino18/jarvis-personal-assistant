@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { query, type McpSdkServerConfigWithInstance, type Options } from "@anthropic-ai/claude-agent-sdk";
-import type { ModelRuntime, RuntimeEvent, RuntimeTurnInput } from "@jarvis/contracts";
+import type { CompletionRequest, ModelRuntime, RuntimeEvent, RuntimeTurnInput } from "@jarvis/contracts";
 import type { TurnSecurityState } from "../tools/types.js";
 import { temporalContext } from "../util/time.js";
 import { buildRuntimeEnv } from "./runtime-env.js";
@@ -94,13 +94,17 @@ export class ClaudeAgentRuntime implements ModelRuntime {
   }
 
   async summarize(prompt: string, signal: AbortSignal): Promise<string> {
+    return this.complete({ system: SUMMARY_SYSTEM_PROMPT, prompt, model: this.options.summaryModel ?? DEFAULT_SUMMARY_MODEL, effort: "low" }, signal);
+  }
+
+  async complete(request: CompletionRequest, signal: AbortSignal): Promise<string> {
     const options = this.options;
     const abortController = new AbortController();
     const abort = () => abortController.abort();
     if (signal.aborted) abort();
     signal.addEventListener("abort", abort, { once: true });
     const stream = query({
-      prompt,
+      prompt: request.prompt,
       options: {
         abortController,
         cwd: options.workspaceDir,
@@ -109,7 +113,7 @@ export class ClaudeAgentRuntime implements ModelRuntime {
           configDir: options.configDir,
           oauthToken: options.oauthToken,
         }),
-        systemPrompt: { type: "custom", prompt: SUMMARY_SYSTEM_PROMPT, snapshot: false },
+        systemPrompt: { type: "custom", prompt: request.system, snapshot: false },
         settingSources: [],
         settings: { disableClaudeAiConnectors: true },
         strictMcpConfig: true,
@@ -117,8 +121,8 @@ export class ClaudeAgentRuntime implements ModelRuntime {
         allowedTools: [],
         disallowedTools: FORBIDDEN_BUILTINS,
         permissionMode: "dontAsk",
-        model: options.summaryModel ?? DEFAULT_SUMMARY_MODEL,
-        effort: "low",
+        model: request.model ?? options.model,
+        effort: request.effort ?? "low",
         maxTurns: 1,
         persistSession: false,
         stderr: options.onStderr,
@@ -127,11 +131,11 @@ export class ClaudeAgentRuntime implements ModelRuntime {
     try {
       for await (const message of untilAborted(stream, signal)) {
         if (message.type === "result") {
-          if (message.subtype !== "success") throw new Error(`summary failed: ${message.subtype}`);
+          if (message.subtype !== "success") throw new Error(`completion failed: ${message.subtype}`);
           return message.result;
         }
       }
-      throw new Error(signal.aborted ? "summary cancelled" : "summary ended without a result");
+      throw new Error(signal.aborted ? "completion cancelled" : "completion ended without a result");
     } finally {
       signal.removeEventListener("abort", abort);
       stream.close();

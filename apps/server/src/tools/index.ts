@@ -6,6 +6,7 @@ import { displayTools } from "./display-tools.js";
 import { gmailTools } from "./gmail-tools.js";
 import { integrationsStatus } from "./integrations-tools.js";
 import { memoryTools } from "./memory-tools.js";
+import { pageTools } from "./page-tools.js";
 import { remindersTools } from "./reminders-tools.js";
 import { taskTools } from "./task-tools.js";
 import { whatsappTools } from "./whatsapp-tools.js";
@@ -25,6 +26,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   integrationsStatus,
   ...taskTools,
   ...displayTools,
+  ...pageTools,
 ];
 
 export const toolsByName: ReadonlyMap<ToolName, AnyToolDefinition> = new Map(allTools.map((tool) => [tool.name, tool]));

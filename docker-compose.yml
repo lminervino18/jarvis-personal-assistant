@@ -35,8 +35,9 @@ services:
     environment:
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       WORK_DIR: /work
+      PAGES_BASE_URL: ${PAGES_BASE_URL:-}
     networks: [default, voice]
-    expose: ["8080"]
+    expose: ["8080", "8081"]
     deploy:
       resources:
         limits:
@@ -119,6 +120,7 @@ services:
       - "${HTTPS_PORT:-443}:443/udp"
     environment:
       JARVIS_DOMAIN: ${JARVIS_DOMAIN:?set JARVIS_DOMAIN}
+      PAGES_DOMAIN: ${PAGES_DOMAIN:-pages.invalid}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -49,11 +49,20 @@ export type RuntimeEvent =
     }
   | { type: "error"; code: RuntimeErrorCode; message: string; sessionId?: string; retryAfterMs?: number };
 
+export interface CompletionRequest {
+  system: string;
+  prompt: string;
+  model?: string;
+  effort?: "low" | "medium" | "high";
+}
+
 export interface ModelRuntime {
   readonly name: string;
   runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent>;
   /** One-shot call without tools or session, used to summarize conversations. Rejects on failure. */
   summarize?(prompt: string, signal: AbortSignal): Promise<string>;
+  /** One-shot text completion with its own system prompt, no tools and no session (used to write web pages). Rejects on failure. */
+  complete?(request: CompletionRequest, signal: AbortSignal): Promise<string>;
   /**
    * Sends a throwaway request with exactly the prefix of a turn (system prompt and tools, from the
    * toolset registered for `turnId`), so the next real turn reads the prompt cache instead of writing it.

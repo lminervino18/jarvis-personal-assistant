@@ -9,6 +9,7 @@ const IsoWithOffset = z
 const EntityId = z.string().min(1).max(64);
 const TaskRef = z.number().int().positive();
 export const ProjectSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
+export const PageSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{2,60}$/);
 
 export const MemoryCategory = z.enum(["preference", "fact", "person", "routine", "work", "other"]);
 export type MemoryCategory = z.infer<typeof MemoryCategory>;
@@ -176,6 +177,19 @@ export const toolInputs = {
     action: z.enum(["pause", "resume", "cancel", "retry"]),
     addBudgetUsd: z.number().positive().max(20).optional(),
   },
+  page_create: {
+    title: z.string().trim().min(1).max(80),
+    brief: z.string().trim().min(1).max(4000),
+  },
+  page_update: {
+    slug: PageSlug,
+    change: z.string().trim().min(1).max(4000),
+  },
+  page_list: {},
+  page_responses: {
+    slug: PageSlug,
+    limit: z.number().int().min(1).max(100).optional(),
+  },
 } as const satisfies Record<string, z.ZodRawShape>;
 
 export type ToolName = keyof typeof toolInputs;
@@ -192,6 +206,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "youtube_search",
   "task_status",
   "task_result",
+  "page_responses",
 ]);
 
 /** Built-in Claude tools the runtime may expose. They are all treated as untrusted sources. */
@@ -217,6 +232,8 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "task_feedback",
   "task_control",
   "whatsapp_send",
+  "page_create",
+  "page_update",
 ]);
 
 /** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */
