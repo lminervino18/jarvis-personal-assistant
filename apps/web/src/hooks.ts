@@ -1,3 +1,4 @@
+import type { ViewportReport } from "@jarvis/contracts";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { ThreadMessage } from "./conversation/thread.js";
 import type { Session, SessionSnapshot } from "./conversation/session.js";
@@ -12,23 +13,15 @@ export interface VisibleViewport {
   height: number;
   offsetTop: number;
   keyboardOpen: boolean;
-  /** Screen height of the installed iOS app, or null in a browser tab. */
-  screenHeight: number | null;
 }
 
 const KEYBOARD_MIN_PX = 140;
-
-function installedIosScreenHeight(): number | null {
-  if ((navigator as Navigator & { standalone?: boolean }).standalone !== true) return null;
-  const portrait = window.innerHeight >= window.innerWidth;
-  return portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-}
+const SHRUNK_PX = 4;
+const SETTLE_MS = 150;
 
 /**
  * The part of the page the user can actually see. On iOS the on-screen keyboard shrinks the
- * visual viewport and scrolls it without resizing the layout, so the app follows it. The
- * installed app also reports a viewport shorter than the screen (100dvh and innerHeight drop
- * after the keyboard closes), so it gets the screen height instead.
+ * visual viewport and scrolls it without resizing the layout, so the app follows it.
  */
 export function useVisibleViewport(): VisibleViewport | null {
   const [box, setBox] = useState<VisibleViewport | null>(null);
@@ -37,9 +30,8 @@ export function useVisibleViewport(): VisibleViewport | null {
     if (!viewport) return;
     const update = () => {
       const height = Math.round(viewport.height);
-      const screenHeight = installedIosScreenHeight();
-      const keyboardOpen = (screenHeight ?? document.documentElement.clientHeight) - height > KEYBOARD_MIN_PX;
-      setBox({ height, offsetTop: Math.round(viewport.offsetTop), keyboardOpen, screenHeight });
+      const keyboardOpen = document.documentElement.clientHeight - height > KEYBOARD_MIN_PX;
+      setBox({ height, offsetTop: Math.round(viewport.offsetTop), keyboardOpen });
     };
     update();
     viewport.addEventListener("resize", update);
@@ -50,6 +42,63 @@ export function useVisibleViewport(): VisibleViewport | null {
     };
   }, []);
   return box;
+}
+
+/**
+ * After the keyboard closes, iOS web apps can keep a viewport shorter than the screen, which
+ * leaves a band at the bottom. Scrolling back and forcing one layout of the app restores it;
+ * the thread keeps its scroll position. `onSettled` runs once the layout is back.
+ */
+export function useViewportRecovery(app: RefObject<HTMLElement | null>, keyboardOpen: boolean, onSettled?: () => void): void {
+  const tallest = useRef({ width: 0, height: 0 });
+  useEffect(() => {
+    const track = () => {
+      const width = window.innerWidth;
+      if (width !== tallest.current.width) tallest.current = { width, height: 0 };
+      tallest.current.height = Math.max(tallest.current.height, window.innerHeight);
+    };
+    track();
+    window.addEventListener("resize", track);
+    return () => window.removeEventListener("resize", track);
+  }, []);
+  useEffect(() => {
+    if (keyboardOpen) return;
+    const timer = setTimeout(() => {
+      window.scrollTo(0, 0);
+      const element = app.current;
+      if (element && tallest.current.height - window.innerHeight > SHRUNK_PX) {
+        const thread = element.querySelector<HTMLElement>(".thread");
+        const top = thread?.scrollTop ?? 0;
+        element.style.display = "none";
+        void element.offsetHeight;
+        element.style.display = "";
+        if (thread) thread.scrollTop = top;
+      }
+      onSettled?.();
+    }, SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [app, keyboardOpen, onSettled]);
+}
+
+/** What the device reports about the screen and the app's box, to diagnose layout gaps. */
+export function measureViewport(app: HTMLElement): ViewportReport {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;top:0;left:0;visibility:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)";
+  document.body.appendChild(probe);
+  const style = getComputedStyle(probe);
+  const px = (value: number) => Math.max(0, Math.round(value) || 0);
+  const report = {
+    standalone: (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.("(display-mode: standalone)").matches === true,
+    inner: px(window.innerHeight),
+    client: px(document.documentElement.clientHeight),
+    visual: px(window.visualViewport?.height ?? window.innerHeight),
+    screen: px(Math.max(screen.width, screen.height)),
+    app: px(app.getBoundingClientRect().height),
+    safeTop: px(parseFloat(style.paddingTop)),
+    safeBottom: px(parseFloat(style.paddingBottom)),
+  };
+  probe.remove();
+  return report;
 }
 
 const NEAR_BOTTOM_PX = 120;

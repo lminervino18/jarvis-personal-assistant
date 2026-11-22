@@ -138,10 +138,7 @@ button {
 
 .app {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100dvh;
+  inset: 0;
   max-width: 760px;
   margin: 0 auto;
   overflow: hidden;

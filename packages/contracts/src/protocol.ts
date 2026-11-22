@@ -107,6 +107,22 @@ export const BuildRequestMessage = z.object({ type: z.literal("build.request"), 
 /** An answer or a change request for a build task. */
 export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(4000) });
 
+const Pixels = z.number().int().min(0).max(10_000);
+
+/** Layout measurements from the device, logged to diagnose how the app fills the screen. No personal data. */
+export const ClientViewportMessage = z.object({
+  type: z.literal("client.viewport"),
+  standalone: z.boolean(),
+  inner: Pixels,
+  client: Pixels,
+  visual: Pixels,
+  screen: Pixels,
+  app: Pixels,
+  safeTop: Pixels,
+  safeBottom: Pixels,
+});
+export type ViewportReport = Omit<z.infer<typeof ClientViewportMessage>, "type">;
+
 /** The owner is about to talk or type: the server can warm the model's prompt cache meanwhile. */
 export const WarmMessage = z.object({ type: z.literal("warm") });
 
@@ -128,6 +144,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   BuildListMessage,
   BuildRequestMessage,
   BuildFeedbackMessage,
+  ClientViewportMessage,
   WarmMessage,
   PingMessage,
 ]);

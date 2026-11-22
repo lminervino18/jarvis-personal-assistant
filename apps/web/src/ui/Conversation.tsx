@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Core } from "../core/Core.js";
 import { stateLabel } from "../conversation/assistant-state.js";
 import type { Session } from "../conversation/session.js";
-import { useAssistantAnnouncement, useElementHeight, useSnapshot, useVisibleViewport } from "../hooks.js";
+import { measureViewport, useAssistantAnnouncement, useElementHeight, useSnapshot, useViewportRecovery, useVisibleViewport } from "../hooks.js";
 import { uploadAttachment } from "../tasks/attachments.js";
 import { BuildScreen } from "./BuildScreen.js";
 import { CallScreen } from "./CallScreen.js";
@@ -66,20 +66,17 @@ export function Conversation({ session, onLogout, demo }: Props) {
 
   const keyboardOpen = viewport?.keyboardOpen === true;
 
-  useEffect(() => {
-    if (!keyboardOpen) window.scrollTo(0, 0);
-  }, [keyboardOpen]);
+  const app = useRef<HTMLDivElement>(null);
+  const reportViewport = useCallback(() => {
+    if (app.current) session.reportViewport(measureViewport(app.current));
+  }, [session]);
+  useViewportRecovery(app, keyboardOpen, online ? reportViewport : undefined);
 
-  const size: CSSProperties =
-    viewport && keyboardOpen
-      ? { height: viewport.height, transform: `translateY(${viewport.offsetTop}px)` }
-      : viewport?.screenHeight
-        ? { height: viewport.screenHeight }
-        : {};
+  const size: CSSProperties = viewport && keyboardOpen ? { height: viewport.height, transform: `translateY(${viewport.offsetTop}px)` } : {};
   const frame = { "--composer-h": `${composerHeight}px`, ...size } as CSSProperties;
 
   return (
-    <div className={`app${keyboardOpen ? " keyboard-open" : ""}`} style={frame}>
+    <div ref={app} className={`app${keyboardOpen ? " keyboard-open" : ""}`} style={frame}>
       <Thread thread={snapshot.thread} actions={session} onLoadOlder={() => session.loadOlder()} />
 
       {empty && (

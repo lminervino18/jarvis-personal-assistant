@@ -8,6 +8,7 @@ import {
   type ServerAssistantState,
   type ServerMessage,
   type TaskCardAction,
+  type ViewportReport,
 } from "@jarvis/contracts";
 import { MicError, type AudioEngine } from "../audio/engine.js";
 import { levelFromDbfs, pcm16ToBytes, rmsDbfs } from "../audio/pcm.js";
@@ -80,6 +81,7 @@ interface TurnTiming {
   ended: boolean;
 }
 
+const MAX_VIEWPORT_REPORTS = 6;
 const INITIAL_LISTEN_MS = 12_000;
 const CALL_LISTEN_MS = 5 * 60_000;
 const SPEAKER_KEY = "jarvis.speaker";
@@ -121,6 +123,7 @@ export class Session {
   private needsLogin = false;
   private notice: Notice | null = null;
   private buildTasks: BuildTask[] | null = null;
+  private viewportReports = 0;
   private noticeCount = 0;
   private inputLevel = 0;
   private readonly levels: Levels = { input: 0, output: 0 };
@@ -325,6 +328,12 @@ export class Session {
     if (!this.client.send({ type: "task.action", taskId, action, ...(approvalId ? { approvalId } : {}) })) {
       this.refuse("No hay conexión: la acción sobre la tarea no se envió.");
     }
+  }
+
+  /** Sends layout measurements for diagnosis, a few times per page load at most. */
+  reportViewport(report: ViewportReport): void {
+    if (this.viewportReports >= MAX_VIEWPORT_REPORTS) return;
+    if (this.client.send({ type: "client.viewport", ...report })) this.viewportReports += 1;
   }
 
   /** The owner is about to talk or type: lets the server warm the model meanwhile. */
