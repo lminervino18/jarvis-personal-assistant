@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, TurnStatus } from "@jarvis/contracts";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
-import { decidePendingAction } from "../tools/runner.js";
+import { decidePendingAction, type PendingActionOutcome } from "../tools/runner.js";
 import type { AnyToolDefinition, ToolContext, ToolServices, TurnSecurityState } from "../tools/types.js";
 import type { ReplySpeaker } from "../voice/types.js";
 import type { ConversationStore } from "./conversation-store.js";
 import type { ConversationHub } from "./hub.js";
+import { confirmQuestion, spokenDecision, type ConfirmCardView, type SpokenDecision } from "./spoken-decision.js";
 import type { TurnToolRegistry } from "./turn-tool-registry.js";
 
 export interface Logger {
@@ -62,6 +63,30 @@ interface TurnOutcome {
 const SUMMARY_PROMPT =
   "Resumí esta conversación para continuarla en una sesión nueva: temas, decisiones, acuerdos (indicando si están propuestos o confirmados), pendientes y lo que el dueño pidió recordar. Indicá de dónde salió cada dato (dicho por el dueño, correo, WhatsApp, web). Máximo 12 líneas, sin agregar nada que no esté en la conversación.";
 
+const UNANSWERED_MERGE_MS = 30_000;
+const VOICE_CONFIRM_MS = 2 * 60_000;
+
+const spokenOutcome: Record<PendingActionOutcome["status"], string> = {
+  executed: "Listo, hecho.",
+  rejected: "Listo, lo descarto.",
+  expired: "Esa confirmación ya venció. Pedímelo de nuevo.",
+  failed: "No se pudo completar. Te dejé el detalle en el chat.",
+  not_found: "Eso ya estaba resuelto.",
+};
+
+const outcomeNote: Record<PendingActionOutcome["status"], string> = {
+  executed: "hecho",
+  rejected: "descartado",
+  expired: "vencido",
+  failed: "falló",
+  not_found: "ya estaba resuelto",
+};
+
+interface OwnerInput {
+  said: string;
+  notes: string[];
+}
+
 const FAREWELL =/\b(gracias,?\s+jarvis|terminamos|eso es todo|nada m[aá]s,?\s+gracias)\b/i;
 
 const runtimeErrorToProtocol: Record<RuntimeErrorCode, ErrorCode> = {
@@ -96,6 +121,12 @@ export class ConversationOrchestrator {
   private readonly active = new Map<string, ActiveTurn>();
   private readonly byTurn = new Map<string, ActiveTurn>();
   private readonly chains = new Map<string, Promise<void>>();
+  /** Voice input whose turn was cut before any reply; it is prepended to the next voice turn. */
+  private readonly unanswered = new Map<string, OwnerInput & { at: number }>();
+  /** The confirmation card the last spoken reply asked about. */
+  private readonly voiceConfirms = new Map<string, { actionId: string; at: number }>();
+  /** Facts the next model turn must know (e.g. a decision taken by voice without the model). */
+  private readonly notes = new Map<string, string[]>();
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
@@ -141,14 +172,14 @@ export class ConversationOrchestrator {
     return true;
   }
 
-  async decideAction(actionId: string, decision: "confirm" | "reject"): Promise<void> {
+  async decideAction(actionId: string, decision: "confirm" | "reject"): Promise<PendingActionOutcome | undefined> {
     const { services, tools, store, hub } = this.deps;
     const conversationId = (
       services.db.prepare("SELECT conversation_id FROM pending_actions WHERE id = ?").get(actionId) as
         | { conversation_id: string }
         | undefined
     )?.conversation_id;
-    if (!conversationId) return;
+    if (!conversationId) return undefined;
     const emitCard = (card: Card) => hub.emit(conversationId, { type: "card", card });
     const outcome = await decidePendingAction(
       { services, now: () => this.now(), emitCard, emitPlayerCommand: () => {} },
@@ -156,7 +187,7 @@ export class ConversationOrchestrator {
       actionId,
       decision,
     );
-    if (!outcome.card) return;
+    if (!outcome.card) return outcome;
     emitCard(outcome.card);
     const text =
       outcome.status === "executed"
@@ -168,6 +199,7 @@ export class ConversationOrchestrator {
             : `No se pudo completar: ${outcome.card.title}.`;
     const item = store.appendMessage({ conversationId, turnId: null, role: "system", content: text, cards: [outcome.card] });
     hub.emit(conversationId, { type: "history", conversationId, items: [item], hasMore: false });
+    return outcome;
   }
 
   /** A client retrying a turn id it already sent gets the stored outcome instead of a second run. */
@@ -222,11 +254,79 @@ export class ConversationOrchestrator {
     };
   }
 
+  private takeVoiceDecision(input: StartTurnInput): { actionId: string; decision: SpokenDecision } | undefined {
+    if (!input.text.trim()) return undefined;
+    const pending = this.voiceConfirms.get(input.conversationId);
+    this.voiceConfirms.delete(input.conversationId);
+    if (!pending || input.inputMode !== "voice" || this.now().getTime() - pending.at > VOICE_CONFIRM_MS) return undefined;
+    const decision = spokenDecision(input.text);
+    return decision && { actionId: pending.actionId, decision };
+  }
+
+  private takeOwnerInput(input: StartTurnInput): OwnerInput {
+    const { conversationId } = input;
+    const earlier = this.unanswered.get(conversationId);
+    const notes = [...(earlier?.notes ?? []), ...(this.notes.get(conversationId) ?? [])];
+    this.unanswered.delete(conversationId);
+    this.notes.delete(conversationId);
+    const resumes = earlier && input.inputMode === "voice" && this.now().getTime() - earlier.at <= UNANSWERED_MERGE_MS;
+    return { said: [resumes ? earlier.said : "", input.text.trim()].filter(Boolean).join(" "), notes };
+  }
+
+  private askVoiceConfirmation(conversationId: string, cards: Card[]): string | undefined {
+    const card = cards.findLast((candidate): candidate is ConfirmCardView => candidate.kind === "confirm" && candidate.status === "pending");
+    if (!card) return undefined;
+    this.voiceConfirms.set(conversationId, { actionId: card.actionId, at: this.now().getTime() });
+    return confirmQuestion(card);
+  }
+
+  /** A spoken yes or no to the card the last reply asked about: decided here, without the model. */
+  private async answerVoiceDecision(input: StartTurnInput, actionId: string, decision: SpokenDecision, signal: AbortSignal): Promise<void> {
+    const { store, hub } = this.deps;
+    const { conversationId, turnId } = input;
+    const emit = (message: OutgoingServerMessage) => hub.emit(conversationId, message);
+    store.startTurn({ id: turnId, conversationId, inputMode: input.inputMode, replyMode: input.replyMode, sttMs: input.sttMs });
+    emit({ type: "history", conversationId, items: [store.appendMessage({ conversationId, turnId, role: "user", content: input.text })], hasMore: false });
+
+    const outcome = await this.decideAction(actionId, decision);
+    const status = outcome?.status ?? "not_found";
+    if (outcome?.card) {
+      const verb = decision === "confirm" ? "confirmó" : "rechazó";
+      const note = `[nota del sistema: el dueño ${verb} por voz «${outcome.card.title}: ${outcome.card.summary}»; resultado: ${outcomeNote[status]}]`;
+      this.notes.set(conversationId, [...(this.notes.get(conversationId) ?? []), note]);
+    }
+
+    const reply = spokenOutcome[status];
+    const speaker = input.createSpeaker?.(signal);
+    emit({ type: "assistant.delta", turnId, text: reply });
+    speaker?.textDelta(reply);
+    const item = store.appendMessage({ conversationId, turnId, role: "assistant", content: reply });
+    emit({ type: "assistant.done", turnId, messageId: item.id, text: reply, interrupted: false });
+    try {
+      await speaker?.finish();
+    } catch (error) {
+      this.deps.log.warn({ turnId, err: error instanceof Error ? error.message : "unknown" }, "speech synthesis failed");
+    }
+    const firstAudioMs = speaker?.firstAudioAt !== undefined ? Math.round(speaker.firstAudioAt - input.inputEndedAt) : undefined;
+    store.finishTurn(turnId, { status: "completed", tainted: false, usedTools: false }, { firstAudioMs });
+    emit({ type: "turn.end", turnId, status: "completed" });
+    emit({ type: "state", state: "idle" });
+  }
+
   private async executeTurn(input: StartTurnInput, active: ActiveTurn): Promise<void> {
     const { store, hub, sessionMaxTurns, ownerName } = this.deps;
     const { conversationId, turnId } = input;
     const emit = (message: OutgoingServerMessage) => hub.emit(conversationId, message);
     const signal = active.controller.signal;
+
+    const voiceDecision = this.takeVoiceDecision(input);
+    if (voiceDecision) return this.answerVoiceDecision(input, voiceDecision.actionId, voiceDecision.decision, signal);
+    const owner = this.takeOwnerInput(input);
+    if (!owner.said) {
+      emit({ type: "state", state: "idle" });
+      return;
+    }
+    const turnInput = { ...input, text: owner.notes.length ? `${owner.notes.join("\n")}\n\n${owner.said}` : owner.said };
 
     let conversation = store.get(conversationId);
     if (!conversation) throw new Error("conversation not found");
@@ -239,9 +339,11 @@ export class ConversationOrchestrator {
     let seedContext = resumeSessionId ? undefined : store.seedContext(conversationId, ownerName);
 
     store.startTurn({ id: turnId, conversationId, inputMode: input.inputMode, replyMode: input.replyMode, sttMs: input.sttMs });
-    const userItem = store.appendMessage({ conversationId, turnId, role: "user", content: input.text });
-    store.setTitleIfEmpty(conversationId, input.text);
-    emit({ type: "history", conversationId, items: [userItem], hasMore: false });
+    if (input.text.trim()) {
+      const userItem = store.appendMessage({ conversationId, turnId, role: "user", content: input.text });
+      store.setTitleIfEmpty(conversationId, input.text);
+      emit({ type: "history", conversationId, items: [userItem], hasMore: false });
+    }
 
     const security: TurnSecurityState = { tainted: false, taintSources: new Set() };
     const cards: Card[] = [];
@@ -280,12 +382,12 @@ export class ConversationOrchestrator {
 
     let outcome: TurnOutcome;
     try {
-      outcome = await this.consume(input, resumeSessionId, seedContext, signal, emit, voice, keepSensitiveAsText);
+      outcome = await this.consume(turnInput, resumeSessionId, seedContext, signal, emit, voice, keepSensitiveAsText);
       if (outcome.errorCode === "resume_failed" && !outcome.text && !signal.aborted) {
         this.deps.log.warn({ turnId }, "claude session could not be resumed; starting a seeded session");
         resumeSessionId = undefined;
         seedContext = store.seedContext(conversationId, ownerName);
-        outcome = await this.consume(input, undefined, seedContext, signal, emit, voice, keepSensitiveAsText);
+        outcome = await this.consume(turnInput, undefined, seedContext, signal, emit, voice, keepSensitiveAsText);
       }
     } finally {
       this.deps.toolRegistry.release(turnId);
@@ -302,6 +404,9 @@ export class ConversationOrchestrator {
     if (cancelled) {
       status = "cancelled";
       speaker?.cancel();
+      if (input.inputMode === "voice" && !outcome.text.trim() && active.reason !== "user_stop") {
+        this.unanswered.set(conversationId, { ...owner, at: this.now().getTime() });
+      }
       const item = store.appendMessage({ conversationId, turnId, role: "assistant", content: outcome.text, cards, interrupted: true });
       emit({ type: "assistant.done", turnId, messageId: item.id, text: outcome.text, interrupted: true });
       emit({ type: "state", state: "interrupted", turnId });
@@ -320,8 +425,14 @@ export class ConversationOrchestrator {
       });
     } else {
       status = "completed";
-      const item = store.appendMessage({ conversationId, turnId, role: "assistant", content: outcome.text, cards });
-      emit({ type: "assistant.done", turnId, messageId: item.id, text: outcome.text, interrupted: false });
+      const question = speaker ? this.askVoiceConfirmation(conversationId, cards) : undefined;
+      if (question) {
+        emit({ type: "assistant.delta", turnId, text: ` ${question}` });
+        speaker?.textDelta(` ${question}`);
+      }
+      const text = question ? `${outcome.text.trimEnd()} ${question}`.trim() : outcome.text;
+      const item = store.appendMessage({ conversationId, turnId, role: "assistant", content: text, cards });
+      emit({ type: "assistant.done", turnId, messageId: item.id, text, interrupted: false });
       if (speaker) {
         try {
           await speaker.finish();

@@ -21,6 +21,15 @@ Code lives in `apps/server/src/voice/`:
 | `openai-stt.ts`, `elevenlabs-tts.ts`, `piper-tts.ts`, `fixture-providers.ts` | Providers |
 | `providers.ts` | Environment-driven selection; anything unconfigured stays `unavailableStt` / `unavailableTts` and the app is text-only |
 
+### Conversation flow
+
+The client ends a turn after 700 ms of silence and stops the assistant as soon as the owner starts speaking (a stricter detector runs while the reply plays, so its echo does not count). Two orchestrator rules keep that fast endpointing from losing words:
+
+- A voice turn cancelled by the owner's speech before any reply text is not lost: its transcript is prepended to the next voice turn within 30 s. A pause in the middle of a sentence becomes one request.
+- If the speech that cut it transcribes to nothing (a cough, background noise), the cut question is run again under the new turn id instead of being dropped. A turn the owner stopped on purpose (`user_stop`) is never resumed.
+
+Spoken confirmations: when a spoken reply leaves a pending confirmation card, the server appends a question built from the card itself (title, summary, details, "¿Confirmo?"), not from the model's words. The next voice turn within 2 minutes is checked by `spokenDecision`: a whole utterance of yes words ("sí", "dale", "mandalo", up to five words) confirms through the same `decidePendingAction` path as a tap, and a whole utterance of no words rejects. The answer ("Listo, hecho.") is spoken without calling Claude, and a `[nota del sistema: ...]` line tells the next model turn what happened. Typed text, a longer or mixed sentence, or any other turn in between leave the card for a tap. Turns whose voice was switched to text because they read a text-only source never ask aloud.
+
 Only assistant text deltas reach the speaker. Tool payloads, JSON and reasoning never do. When the orchestrator marks a reply sensitive it keeps it as text; that flag is not in the speaker contract yet (see "Requested changes" in the role report).
 
 ## Configuration
@@ -87,6 +96,8 @@ Measured on this development machine (Intel i7-1165G7, 8 threads, Docker CPU, no
 | Fixture providers | below 1 ms; they only prove the plumbing, not any real latency | fixture only |
 
 Advertised, not verified: ElevenLabs lists "~75ms" for Flash on its pricing page. That is model latency before network and before the first sentence exists; it is not time to first audible sound in the app. Groq's models page does not list a speed factor.
+
+Production, Lightsail São Paulo, Groq STT, Sonnet 5.5 at low effort, ElevenLabs Flash (2026-11-21, 7 completed voice turns): STT 285 to 706 ms; first audio heard on the phone 2.3 to 2.7 s after the end of speech without tools and 3.5 to 4.0 s with one tool, plus the end-of-turn silence (900 ms then, 700 ms now). 6 of 13 voice turns had been cancelled before replying by a pause or background noise, which motivated the conversation-flow rules above.
 
 Quality finding from the same run: `small` int8 misheard a clean Piper sentence ("Lesto, Lauren ... citotradas 3 de la tarde"), `large-v3-turbo` got it right but took 6.3 to 6.8 s for 4.9 s of audio, slower than real time and about 4 times slower than `small`. A CPU-only STT sidecar is therefore either inaccurate or slow; a hosted STT is the practical choice.
 

@@ -1,4 +1,6 @@
-import type { ModelRuntime } from "@jarvis/contracts";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { ModelRuntime, OutgoingServerMessage, RuntimeTurnInput } from "@jarvis/contracts";
 import { describe, expect, it } from "vitest";
 import { openMigratedDatabase } from "../db/database.js";
 import { ScriptedRuntime } from "../runtime/scripted-runtime.js";
@@ -33,7 +35,7 @@ function setup(
     sessionMaxTurns,
     log: silent,
   });
-  return { store, hub, runtime: scripted, orchestrator, conversationId: store.create().id };
+  return { db, store, hub, runtime: scripted, orchestrator, conversationId: store.create().id };
 }
 
 const turn = (conversationId: string, text: string) => ({
@@ -143,3 +145,145 @@ describe("turn retries and interrupted speech", () => {
   });
 });
 
+const voiceTurn = (conversationId: string, text: string) => ({ ...turn(conversationId, text), inputMode: "voice" as const, replyMode: "voice" as const });
+
+function recordingSpeaker() {
+  const spoken: string[] = [];
+  return {
+    spoken,
+    createSpeaker: () => ({
+      firstAudioAt: undefined,
+      textDelta: (text: string) => void spoken.push(text),
+      toolStarted: () => {},
+      finish: async () => {},
+      cancel: () => {},
+    }),
+  };
+}
+
+describe("voice turns cut before a reply", () => {
+  function slowSetup() {
+    const runtime: ModelRuntime & { calls: RuntimeTurnInput[] } = {
+      name: "slow-fixture",
+      calls: [],
+      async *runTurn(input) {
+        runtime.calls.push(input);
+        yield { type: "session", sessionId: "s1", model: "fixture", tools: [], mcpServers: [], authSource: "fixture" };
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        if (input.signal.aborted) {
+          yield { type: "error", code: "cancelled", message: "Turn cancelled", sessionId: "s1" };
+          return;
+        }
+        yield { type: "text_delta", text: "ok" };
+        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } };
+      },
+    };
+    return { ...setup(40, { runtime }), runtime };
+  }
+
+  const said = (input: RuntimeTurnInput) => input.text.split("\n\n").at(-1);
+
+  it("joins what the owner said before a pause with what came after", async () => {
+    const { orchestrator, runtime, conversationId } = slowSetup();
+    const first = voiceTurn(conversationId, "mandale a Ana");
+    const running = orchestrator.startTurn(first);
+    orchestrator.cancel(first.turnId, "barge_in");
+    await running;
+    await orchestrator.startTurn(voiceTurn(conversationId, "que llego en diez"));
+
+    expect(runtime.calls.map(said)).toEqual(["mandale a Ana", "mandale a Ana que llego en diez"]);
+  });
+
+  it("answers the cut question when the interruption was only noise", async () => {
+    const { orchestrator, runtime, store, conversationId } = slowSetup();
+    const first = voiceTurn(conversationId, "qué hora es");
+    const running = orchestrator.startTurn(first);
+    orchestrator.cancel(first.turnId, "barge_in");
+    await running;
+    const noise = voiceTurn(conversationId, "");
+    await orchestrator.startTurn(noise);
+
+    expect(runtime.calls.map(said)).toEqual(["qué hora es", "qué hora es"]);
+    expect(store.turnMessages(noise.turnId).map((item) => item.role)).toEqual(["assistant"]);
+  });
+
+  it("does not resume a turn the owner stopped on purpose", async () => {
+    const { orchestrator, runtime, conversationId } = slowSetup();
+    const first = voiceTurn(conversationId, "contame un cuento");
+    const running = orchestrator.startTurn(first);
+    orchestrator.cancel(first.turnId, "user_stop");
+    await running;
+    await orchestrator.startTurn(voiceTurn(conversationId, ""));
+
+    expect(runtime.calls).toHaveLength(1);
+  });
+});
+
+describe("spoken confirmations", () => {
+  function sendingSetup() {
+    const toolRegistry = new TurnToolRegistry();
+    const runtime: ModelRuntime & { calls: RuntimeTurnInput[] } = {
+      name: "whatsapp-fixture",
+      calls: [],
+      async *runTurn(input) {
+        runtime.calls.push(input);
+        yield { type: "session", sessionId: "s1", model: "fixture", tools: [], mcpServers: [], authSource: "fixture" };
+        if (input.text.endsWith("mandale a Ana que llego en diez")) {
+          const server = toolRegistry.require(input.turnId).server;
+          const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
+          const client = new Client({ name: "test", version: "0.0.0" });
+          await Promise.all([server.instance.connect(serverTransport), client.connect(clientTransport)]);
+          await client.callTool({ name: "whatsapp_send", arguments: { chatId: "Ana Vivo", text: "llego en 10" } });
+          await client.close();
+          yield { type: "text_delta", text: "Te lo preparo." };
+        } else {
+          yield { type: "text_delta", text: "ok" };
+        }
+        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } };
+      },
+    };
+    const context = setup(40, { runtime, toolRegistry });
+    const { db } = context;
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO wa_chats (jid, name, is_group, updated_at) VALUES ('5490000000001@s.whatsapp.net', 'Ana Vivo', 0, ?)").run(now);
+    db.prepare("INSERT INTO wa_sync_state (source, status, last_event_at) VALUES ('baileys', 'connected', ?)").run(now);
+    const outbox = () => db.prepare("SELECT text FROM wa_outbox").all();
+    return { ...context, runtime, outbox };
+  }
+
+  it("reads the card aloud, and a spoken yes sends it without the model", async () => {
+    const { orchestrator, runtime, outbox, conversationId } = sendingSetup();
+    const asked = recordingSpeaker();
+    await orchestrator.startTurn({ ...voiceTurn(conversationId, "mandale a Ana que llego en diez"), createSpeaker: asked.createSpeaker });
+    expect(asked.spoken.join("")).toBe("Te lo preparo. Enviar WhatsApp. Para Ana Vivo. Mensaje: llego en 10. ¿Confirmo?");
+    expect(outbox()).toEqual([]);
+
+    const answered = recordingSpeaker();
+    await orchestrator.startTurn({ ...voiceTurn(conversationId, "Sí, mandalo."), createSpeaker: answered.createSpeaker });
+    expect(answered.spoken).toEqual(["Listo, hecho."]);
+    expect(outbox()).toEqual([{ text: "llego en 10" }]);
+    expect(runtime.calls).toHaveLength(1);
+
+    await orchestrator.startTurn(voiceTurn(conversationId, "gracias"));
+    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por voz «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho]");
+  });
+
+  it("only listens for the answer right after the question, and never from typed text", async () => {
+    const { orchestrator, outbox, conversationId } = sendingSetup();
+    await orchestrator.startTurn({ ...voiceTurn(conversationId, "mandale a Ana que llego en diez"), createSpeaker: recordingSpeaker().createSpeaker });
+    await orchestrator.startTurn(turn(conversationId, "sí"));
+    await orchestrator.startTurn(voiceTurn(conversationId, "sí"));
+
+    expect(outbox()).toEqual([]);
+  });
+
+  it("does not ask aloud when the reply is text", async () => {
+    const { orchestrator, hub, conversationId } = sendingSetup();
+    const seen: OutgoingServerMessage[] = [];
+    hub.subscribe(conversationId, { send: (message) => seen.push(message) });
+    await orchestrator.startTurn({ ...turn(conversationId, "mandale a Ana que llego en diez") });
+
+    const done = seen.find((message) => message.type === "assistant.done");
+    expect(done).toMatchObject({ text: "Te lo preparo." });
+  });
+});

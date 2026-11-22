@@ -175,7 +175,8 @@ export class ClientConnection implements Subscriber {
         return;
       }
       case "action.decide":
-        return this.deps.orchestrator.decideAction(message.actionId, message.decision);
+        await this.deps.orchestrator.decideAction(message.actionId, message.decision);
+        return;
       case "player.state":
         this.deps.onPlayerState?.(message);
         return;
@@ -356,10 +357,6 @@ export class ClientConnection implements Subscriber {
     if (capture.controller.signal.aborted) return;
     const text = transcript.text.trim();
     this.send({ type: "transcript", turnId, text, final: true });
-    if (!text) {
-      this.send({ type: "state", state: "idle" });
-      return;
-    }
     void this.deps.orchestrator.startTurn({
       conversationId: this.conversationId,
       turnId,

@@ -25,7 +25,7 @@ export const defaultVadOptions: VadOptions = {
   minStartDbfs: -52,
   minSpeechMs: 160,
   candidateGapMs: 120,
-  endSilenceMs: 900,
+  endSilenceMs: 700,
   maxUtteranceMs: 30_000,
   initialFloorDbfs: -65,
   warmupMs: 300,
