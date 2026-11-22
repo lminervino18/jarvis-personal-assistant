@@ -12,13 +12,23 @@ export interface VisibleViewport {
   height: number;
   offsetTop: number;
   keyboardOpen: boolean;
+  /** Screen height of the installed iOS app, or null in a browser tab. */
+  screenHeight: number | null;
 }
 
 const KEYBOARD_MIN_PX = 140;
 
+function installedIosScreenHeight(): number | null {
+  if ((navigator as Navigator & { standalone?: boolean }).standalone !== true) return null;
+  const portrait = window.innerHeight >= window.innerWidth;
+  return portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+}
+
 /**
  * The part of the page the user can actually see. On iOS the on-screen keyboard shrinks the
- * visual viewport and scrolls it without resizing the layout, so the app follows it.
+ * visual viewport and scrolls it without resizing the layout, so the app follows it. The
+ * installed app also reports a viewport shorter than the screen (100dvh and innerHeight drop
+ * after the keyboard closes), so it gets the screen height instead.
  */
 export function useVisibleViewport(): VisibleViewport | null {
   const [box, setBox] = useState<VisibleViewport | null>(null);
@@ -27,8 +37,9 @@ export function useVisibleViewport(): VisibleViewport | null {
     if (!viewport) return;
     const update = () => {
       const height = Math.round(viewport.height);
-      const keyboardOpen = document.documentElement.clientHeight - height > KEYBOARD_MIN_PX;
-      setBox({ height, offsetTop: Math.round(viewport.offsetTop), keyboardOpen });
+      const screenHeight = installedIosScreenHeight();
+      const keyboardOpen = (screenHeight ?? document.documentElement.clientHeight) - height > KEYBOARD_MIN_PX;
+      setBox({ height, offsetTop: Math.round(viewport.offsetTop), keyboardOpen, screenHeight });
     };
     update();
     viewport.addEventListener("resize", update);

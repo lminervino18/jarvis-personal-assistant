@@ -61,10 +61,18 @@ export function Conversation({ session, onLogout, demo }: Props) {
   }, [notice, session]);
 
   const keyboardOpen = viewport?.keyboardOpen === true;
-  const frame = {
-    "--composer-h": `${composerHeight}px`,
-    ...(viewport && keyboardOpen ? { height: viewport.height, transform: `translateY(${viewport.offsetTop}px)` } : {}),
-  } as CSSProperties;
+
+  useEffect(() => {
+    if (!keyboardOpen) window.scrollTo(0, 0);
+  }, [keyboardOpen]);
+
+  const size: CSSProperties =
+    viewport && keyboardOpen
+      ? { height: viewport.height, transform: `translateY(${viewport.offsetTop}px)` }
+      : viewport?.screenHeight
+        ? { height: viewport.screenHeight }
+        : {};
+  const frame = { "--composer-h": `${composerHeight}px`, ...size } as CSSProperties;
 
   return (
     <div className={`app${keyboardOpen ? " keyboard-open" : ""}`} style={frame}>
