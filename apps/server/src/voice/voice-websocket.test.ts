@@ -81,7 +81,7 @@ async function startServer(
     await app.close();
     db.close();
   });
-  return { db, engine, port: typeof address === "object" && address ? address.port : 0 };
+  return { db, engine, hub, port: typeof address === "object" && address ? address.port : 0 };
 }
 
 async function login(port: number): Promise<string> {
@@ -222,6 +222,22 @@ describe("voice over the WebSocket with fixture providers", () => {
     expect(await client.waitFor("turn.end", (m) => m.turnId === asked)).toMatchObject({ status: "completed" });
     expect(client.messages.some((m) => m.type === "state" && m.state === "interrupted")).toBe(false);
     expect(scripted.calls.map((call) => call.text.split("\n\n").at(-1))).toEqual(["qué tengo mañana"]);
+  });
+
+  it("says background news aloud only while the owner is in a call", async () => {
+    const { hub, engine, port } = await startServer();
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    hub.announce(conversationId, "Ya está la página «Cena»: https://p.example.test/cena-1a2b3");
+    await new Promise((resolveTick) => setTimeout(resolveTick, 50));
+    expect(client.messages.some((m) => m.type === "audio.begin")).toBe(false);
+
+    client.send({ type: "call.state", active: true });
+    await new Promise((resolveTick) => setTimeout(resolveTick, 20));
+    hub.announce(conversationId, "Ya está la página «Cena»: https://p.example.test/cena-1a2b3");
+    await client.waitFor("audio.end");
+    expect(engine.spoken.join(" ")).toContain("Ya está la página «Cena»: te dejé el link en el chat");
+    expect(engine.spoken.join(" ")).not.toContain("https://");
   });
 
   it("keeps the written answer and reports tts_failed when synthesis breaks", async () => {

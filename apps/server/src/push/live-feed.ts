@@ -64,6 +64,7 @@ export class SystemMessageFeed {
     }
     for (const [conversationId, items] of byConversation) {
       this.hub.emit(conversationId, { type: "history", conversationId, items, hasMore: false });
+      this.hub.announce(conversationId, items.map((item) => item.text).join(" "));
     }
     return rows.length;
   }

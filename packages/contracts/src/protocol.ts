@@ -123,6 +123,9 @@ export const ClientViewportMessage = z.object({
 });
 export type ViewportReport = Omit<z.infer<typeof ClientViewportMessage>, "type">;
 
+/** Whether this client is in a voice call, so the server can say background news aloud. */
+export const CallStateMessage = z.object({ type: z.literal("call.state"), active: z.boolean() });
+
 /** The owner is about to talk or type: the server can warm the model's prompt cache meanwhile. */
 export const WarmMessage = z.object({ type: z.literal("warm") });
 
@@ -146,6 +149,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   BuildFeedbackMessage,
   ClientViewportMessage,
   WarmMessage,
+  CallStateMessage,
   PingMessage,
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;

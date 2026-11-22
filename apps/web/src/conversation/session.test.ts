@@ -429,6 +429,15 @@ describe("speaker, voice notes and calls", () => {
     expect(session.getSnapshot().recordingNote).toBe(false);
   });
 
+  it("tells the server when a call starts and ends, so it can speak background news", async () => {
+    const { session, socket, connect } = setup();
+    connect(true);
+    await session.startCall();
+    expect(socket().last("call.state")).toEqual({ type: "call.state", active: true });
+    session.endCall();
+    expect(socket().last("call.state")).toEqual({ type: "call.state", active: false });
+  });
+
   it("keeps a call listening past the follow-up window until hang-up, and mutes on demand", async () => {
     const { session, connect } = setup();
     connect(true, 12_000);

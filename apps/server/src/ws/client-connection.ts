@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   BinaryFrameKind,
   ClientMessage,
@@ -73,6 +74,7 @@ export class ClientConnection implements Subscriber {
   private unsubscribe?: () => void;
   private outputFormat: AudioFormat | null = null;
   private sendHistory = true;
+  private inCall = false;
   private readonly captures = new Map<string, Capture>();
   private readonly helloTimer: NodeJS.Timeout;
   private readonly reauthTimer: NodeJS.Timeout;
@@ -217,6 +219,9 @@ export class ClientConnection implements Subscriber {
         return;
       case "task.action":
         return this.onTaskAction(message);
+      case "call.state":
+        this.inCall = message.active;
+        return;
       case "warm":
         if (this.conversationId) this.deps.orchestrator.warm(this.conversationId);
         return;
@@ -245,6 +250,20 @@ export class ClientConnection implements Subscriber {
     }
     if (outcome.ok) this.send({ type: "card", card: outcome.card });
     this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "task_updated" : "task_action_rejected", message: outcome.message });
+  }
+
+  /**
+   * Says background news aloud while the owner is in a call and nothing else is talking or
+   * listening; otherwise the chat message and the push are enough.
+   */
+  announce(text: string): void {
+    const conversationId = this.conversationId;
+    if (!this.inCall || !conversationId || this.captures.size > 0 || this.deps.orchestrator.runningTurn(conversationId)) return;
+    const spoken = text.replace(/https?:\/\/\S+/g, "te dejé el link en el chat").trim();
+    const speaker = spoken ? this.speakerFactory(randomUUID(), "voice")?.(new AbortController().signal) : undefined;
+    if (!speaker) return;
+    speaker.textDelta(spoken);
+    speaker.finish().catch((error: unknown) => this.deps.log.warn({ err: error instanceof Error ? error.message : "unknown" }, "announcement failed"));
   }
 
   private sendBuildTasks(): void {

@@ -224,6 +224,7 @@ export class Session {
     this.emit();
     if (!this.micOpen) await this.openMicrophone(CALL_LISTEN_MS);
     if (!this.micOpen) this.callActive = false;
+    this.client.send({ type: "call.state", active: this.callActive });
     this.emit();
   }
 
@@ -231,6 +232,7 @@ export class Session {
     if (!this.callActive) return;
     this.callActive = false;
     this.callMuted = false;
+    this.client.send({ type: "call.state", active: false });
     this.stopAll();
   }
 
@@ -480,6 +482,7 @@ export class Session {
         this.capabilities = message.capabilities;
         this.ownerName = message.owner.displayName;
         this.thread = reduceThread(this.thread, message, this.isoNow());
+        if (this.callActive) this.client.send({ type: "call.state", active: true });
         this.rearm();
         break;
       case "state":
@@ -505,6 +508,7 @@ export class Session {
         this.runCommand(message);
         break;
       case "conversation.end":
+        if (this.callActive) this.client.send({ type: "call.state", active: false });
         this.callActive = false;
         this.callMuted = false;
         this.closeMicrophone();

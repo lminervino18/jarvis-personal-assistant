@@ -2,6 +2,8 @@ import type { OutgoingServerMessage } from "@jarvis/contracts";
 
 export interface Subscriber {
   send(message: OutgoingServerMessage): void;
+  /** News that arrived in the background (a reminder, a finished task or page), for clients that can say it aloud. */
+  announce?(text: string): void;
 }
 
 /** Fans out conversation events to every connected client watching that conversation. */
@@ -23,6 +25,10 @@ export class ConversationHub {
 
   emit(conversationId: string, message: OutgoingServerMessage): void {
     for (const subscriber of this.subscribers.get(conversationId) ?? []) subscriber.send(message);
+  }
+
+  announce(conversationId: string, text: string): void {
+    for (const subscriber of this.subscribers.get(conversationId) ?? []) subscriber.announce?.(text);
   }
 
   /** Sends to every connected client, regardless of conversation (e.g. fired reminders). */
