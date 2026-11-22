@@ -89,6 +89,7 @@ export const whatsappSend = defineTool({
     if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", NOT_CONNECTED) };
     return { input: { ...input, chatId: chat.jid } };
   },
+  replaces: (pending, next) => pending.chatId === next.chatId,
   describe(ctx, input) {
     const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(input.chatId, { liveOnly: true });
     return { title: "Enviar WhatsApp", summary: `Para ${chat.name?.trim() || chat.jid}`, details: [{ label: "Mensaje", value: input.text }] };

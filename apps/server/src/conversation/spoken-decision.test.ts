@@ -3,15 +3,19 @@ import { confirmQuestion, spokenDecision } from "./spoken-decision.js";
 
 describe("spokenDecision", () => {
   it("accepts short yes answers in rioplatense", () => {
-    for (const text of ["Sí.", "dale", "Sí, mandalo", "de una, Jarvis", "ok confirmo", "Dale, por favor!"]) expect(spokenDecision(text)).toBe("confirm");
+    for (const text of ["Sí.", "dale", "Sí, mandalo", "de una, Jarvis", "ok confirmo", "Dale, por favor!", "Confirmar.", "Mandáselo", "listo, mandalo", "sí, está bien", "metele nomás"]) {
+      expect(spokenDecision(text), text).toBe("confirm");
+    }
   });
 
   it("accepts short no answers", () => {
-    for (const text of ["No.", "no, mejor no", "cancelalo", "no gracias"]) expect(spokenDecision(text)).toBe("reject");
+    for (const text of ["No.", "no, mejor no", "cancelalo", "no gracias", "no lo mandes", "no, todavía no", "Cancelar"]) expect(spokenDecision(text), text).toBe("reject");
   });
 
   it("treats anything longer or mixed as a normal turn", () => {
-    for (const text of ["", "sí pero cambiá el texto", "gracias", "mejor", "dale y después decime el clima", "sí no sé"]) expect(spokenDecision(text)).toBeUndefined();
+    for (const text of ["", "sí pero cambiá el texto", "gracias", "mejor", "listo", "está bien", "dale y después decime el clima", "sí no sé", "no no no mejor ponele jajaja"]) {
+      expect(spokenDecision(text), text).toBeUndefined();
+    }
   });
 });
 

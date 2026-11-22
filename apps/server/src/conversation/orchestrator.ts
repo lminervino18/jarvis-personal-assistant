@@ -77,6 +77,8 @@ const SUMMARY_TIMEOUT_MS = 90_000;
 const SUMMARY_MAX_LINES = 60;
 const SEED_WAIT_MS = 6_000;
 
+type ReplyDecision = { kind: "decide"; actionId: string; decision: SpokenDecision } | { kind: "ask"; card: ConfirmCardView };
+
 const UNANSWERED_MERGE_MS = 30_000;
 const WARM_AFTER_IDLE_MS = 50 * 60_000;
 const WARM_TIMEOUT_MS = 60_000;
@@ -356,14 +358,27 @@ export class ConversationOrchestrator {
     }
   }
 
-  private takeReplyDecision(input: StartTurnInput): { actionId: string; decision: SpokenDecision } | undefined {
+  private takeReplyDecision(input: StartTurnInput): ReplyDecision | undefined {
     if (!input.text.trim()) return undefined;
     const pending = this.awaitingConfirm.get(input.conversationId);
     this.awaitingConfirm.delete(input.conversationId);
     const window = input.inputMode === "voice" ? CONFIRM_BY_VOICE_MS : CONFIRM_BY_TEXT_MS;
-    if (!pending || this.now().getTime() - pending.at > window) return undefined;
     const decision = spokenDecision(input.text);
-    return decision && { actionId: pending.actionId, decision };
+    if (pending && this.now().getTime() - pending.at <= window) return decision && { kind: "decide", actionId: pending.actionId, decision };
+    if (decision !== "confirm" || this.deps.store.lastAssistantText(input.conversationId)?.trimEnd().endsWith("?")) return undefined;
+    const card = this.onlyPendingCard(input.conversationId);
+    return card && { kind: "ask", card };
+  }
+
+  /** The conversation's single pending confirmation, when there is exactly one. */
+  private onlyPendingCard(conversationId: string): ConfirmCardView | undefined {
+    const rows = this.deps.services.db
+      .prepare("SELECT id, title, summary, details_json, expires_at FROM pending_actions WHERE conversation_id = ? AND status = 'pending' AND expires_at > ?")
+      .all(conversationId, this.now().toISOString()) as { id: string; title: string; summary: string; details_json: string; expires_at: string }[];
+    const row = rows.length === 1 ? rows[0] : undefined;
+    if (!row) return undefined;
+    const details = JSON.parse(row.details_json) as ConfirmCardView["details"];
+    return { kind: "confirm", actionId: row.id, title: row.title, summary: row.summary, details, expiresAt: row.expires_at, status: "pending" };
   }
 
   private takeOwnerInput(input: StartTurnInput): OwnerInput {
@@ -386,12 +401,8 @@ export class ConversationOrchestrator {
 
   /** A short yes or no, spoken or written, to the card the last reply asked about: decided here, without the model. */
   private async answerDecision(input: StartTurnInput, actionId: string, decision: SpokenDecision, signal: AbortSignal): Promise<void> {
-    const { store, hub } = this.deps;
-    const { conversationId, turnId } = input;
-    const emit = (message: OutgoingServerMessage) => hub.emit(conversationId, message);
-    store.startTurn({ id: turnId, conversationId, inputMode: input.inputMode, replyMode: input.replyMode, sttMs: input.sttMs });
-    emit({ type: "history", conversationId, items: [store.appendMessage({ conversationId, turnId, role: "user", content: input.text })], hasMore: false });
-
+    const { conversationId } = input;
+    this.startModellessTurn(input);
     const outcome = await this.decideAction(actionId, decision);
     const status = outcome?.status ?? "not_found";
     if (outcome?.card) {
@@ -400,8 +411,27 @@ export class ConversationOrchestrator {
       const note = `[nota del sistema: el dueño ${verb} ${channel} «${outcome.card.title}: ${outcome.card.summary}»; resultado: ${outcomeNote[status]}]`;
       this.notes.set(conversationId, [...(this.notes.get(conversationId) ?? []), note]);
     }
+    await this.replyWithoutModel(input, spokenOutcome[status], signal);
+  }
 
-    const reply = spokenOutcome[status];
+  /** A yes said after the question was lost: asks about the only pending card again, so the next yes sends it. */
+  private async askAgain(input: StartTurnInput, card: ConfirmCardView, signal: AbortSignal): Promise<void> {
+    this.startModellessTurn(input);
+    this.awaitingConfirm.set(input.conversationId, { actionId: card.actionId, at: this.now().getTime() });
+    await this.replyWithoutModel(input, input.replyMode === "voice" ? confirmQuestion(card) : `¿Confirmo «${card.title}: ${card.summary}»?`, signal);
+  }
+
+  private startModellessTurn(input: StartTurnInput): void {
+    const { store, hub } = this.deps;
+    const { conversationId, turnId } = input;
+    store.startTurn({ id: turnId, conversationId, inputMode: input.inputMode, replyMode: input.replyMode, sttMs: input.sttMs });
+    hub.emit(conversationId, { type: "history", conversationId, items: [store.appendMessage({ conversationId, turnId, role: "user", content: input.text })], hasMore: false });
+  }
+
+  private async replyWithoutModel(input: StartTurnInput, reply: string, signal: AbortSignal): Promise<void> {
+    const { store, hub } = this.deps;
+    const { conversationId, turnId } = input;
+    const emit = (message: OutgoingServerMessage) => hub.emit(conversationId, message);
     const speaker = input.createSpeaker?.(signal);
     emit({ type: "assistant.delta", turnId, text: reply });
     speaker?.textDelta(reply);
@@ -428,7 +458,8 @@ export class ConversationOrchestrator {
     const signal = active.controller.signal;
 
     const replyDecision = this.takeReplyDecision(input);
-    if (replyDecision) return this.answerDecision(input, replyDecision.actionId, replyDecision.decision, signal);
+    if (replyDecision?.kind === "decide") return this.answerDecision(input, replyDecision.actionId, replyDecision.decision, signal);
+    if (replyDecision?.kind === "ask") return this.askAgain(input, replyDecision.card, signal);
     const owner = this.takeOwnerInput(input);
     if (!owner.said) {
       emit({ type: "state", state: "idle" });
@@ -466,6 +497,7 @@ export class ConversationOrchestrator {
         cards.push(card);
         emit({ type: "card", turnId, card });
       },
+      updateCard: (card) => emit({ type: "card", card }),
       emitPlayerCommand: (command) => emit({ type: "player.command", ...command }),
     };
     this.deps.toolRegistry.register(turnId, {

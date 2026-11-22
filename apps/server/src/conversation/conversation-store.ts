@@ -101,6 +101,13 @@ export class ConversationStore {
     return row.at ? new Date(row.at) : undefined;
   }
 
+  lastAssistantText(conversationId: string): string | undefined {
+    const row = this.db
+      .prepare("SELECT content FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY rid DESC LIMIT 1")
+      .get(conversationId) as { content: string } | undefined;
+    return row?.content;
+  }
+
   /** Owner and assistant messages not yet covered by the conversation summary, oldest first. */
   unsummarized(conversationId: string, excludeTurnId?: string): PendingMessage[] {
     const rows = this.db

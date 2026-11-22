@@ -48,6 +48,8 @@ export interface ToolContext {
   now(): Date;
   security: TurnSecurityState;
   emitCard(card: Card): void;
+  /** Updates a card already shown, wherever it is in the thread. */
+  updateCard?(card: Card): void;
   emitPlayerCommand(command: PlayerCommand): void;
 }
 
@@ -68,6 +70,8 @@ export interface ToolDefinition<N extends ToolName> {
    * recipient) or returns the input to use, so a card holds exactly what will run.
    */
   prepare?(ctx: ToolContext, input: ToolInput<N>): PreparedInput<ToolInput<N>>;
+  /** True when a new call replaces a still pending confirmation of the same tool (for example, a corrected message to the same chat). */
+  replaces?(pending: ToolInput<N>, next: ToolInput<N>): boolean;
 }
 
 export type PreparedInput<I> = { input: I } | { refused: ToolResult<unknown> };

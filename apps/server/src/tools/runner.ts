@@ -52,11 +52,30 @@ async function executeOnce(ctx: ToolContext, definition: AnyToolDefinition, inpu
   return result;
 }
 
+/** Rejects pending confirmations that the new call replaces, so the owner only sees the latest version. */
+function supersedePending(ctx: ToolContext, definition: AnyToolDefinition, input: unknown, now: Date): void {
+  const replaces = definition.replaces as ((pending: unknown, next: unknown) => boolean) | undefined;
+  if (!replaces) return;
+  const rows = ctx.services.db
+    .prepare("SELECT id, input_json, title, summary, details_json, expires_at FROM pending_actions WHERE conversation_id = ? AND tool = ? AND status = 'pending'")
+    .all(ctx.conversationId, definition.name) as { id: string; input_json: string; title: string; summary: string; details_json: string; expires_at: string }[];
+  for (const row of rows) {
+    if (!replaces(JSON.parse(row.input_json), input)) continue;
+    const changed = ctx.services.db
+      .prepare("UPDATE pending_actions SET status = 'rejected', decided_at = ? WHERE id = ? AND status = 'pending'")
+      .run(now.toISOString(), row.id).changes;
+    if (changed === 0) continue;
+    const details = JSON.parse(row.details_json) as ConfirmCardValue["details"];
+    ctx.updateCard?.({ kind: "confirm", actionId: row.id, title: row.title, summary: row.summary, details, expiresAt: row.expires_at, status: "rejected" });
+  }
+}
+
 function requestConfirmation(ctx: ToolContext, definition: AnyToolDefinition, input: unknown, tainted: boolean): ToolResult<unknown> {
   const describe = definition.describe as ((c: ToolContext, i: unknown) => ConfirmCardValue | undefined) | undefined;
   const summary = describe?.(ctx, input) ?? { title: definition.name, summary: "Acción pendiente", details: [] };
   const id = randomUUID();
   const now = ctx.now();
+  supersedePending(ctx, definition, input, now);
   const expiresAt = new Date(now.getTime() + PENDING_ACTION_TTL_MS).toISOString();
   ctx.services.db
     .prepare(

@@ -432,6 +432,21 @@ describe("confirmations by reply", () => {
     expect(runtime.calls).toHaveLength(2);
   });
 
+  it("asks again about the only pending card when a yes comes after the question was lost", async () => {
+    const { orchestrator, hub, runtime, outbox, conversationId } = sendingSetup();
+    const seen: OutgoingServerMessage[] = [];
+    hub.subscribe(conversationId, { send: (message) => seen.push(message) });
+    await orchestrator.startTurn(turn(conversationId, "mandale a Ana que llego en diez"));
+    await orchestrator.startTurn(turn(conversationId, "contame algo"));
+    await orchestrator.startTurn(turn(conversationId, "Confirmar."));
+    expect(outbox()).toEqual([]);
+    expect(seen.filter((message) => message.type === "assistant.done").at(-1)).toMatchObject({ text: "¿Confirmo «Enviar WhatsApp: Para Ana Vivo»?" });
+
+    await orchestrator.startTurn(turn(conversationId, "sí"));
+    expect(outbox()).toEqual([{ text: "llego en 10" }]);
+    expect(runtime.calls).toHaveLength(2);
+  });
+
   it("a typed no discards the card", async () => {
     const { orchestrator, outbox, db, conversationId } = sendingSetup();
     await orchestrator.startTurn(turn(conversationId, "mandale a Ana que llego en diez"));
