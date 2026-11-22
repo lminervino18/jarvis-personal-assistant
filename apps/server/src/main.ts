@@ -18,6 +18,8 @@ import { ClaudeAgentRuntime, type Effort } from "./runtime/claude-runtime.js";
 import { ScriptedRuntime } from "./runtime/scripted-runtime.js";
 import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prompt.js";
 import { createLogger } from "./logger.js";
+import { AttachmentStore } from "./attachments/attachment-store.js";
+import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
 import { PageService } from "./pages/page-service.js";
 import { PageStore } from "./pages/page-store.js";
 import { buildPagesServer } from "./pages/pages-server.js";
@@ -91,6 +93,8 @@ const tasks =
     : undefined;
 if (tasks && config.tasks?.publish) setInterval(() => tasks.syncPublications(new Date()), PUBLICATION_SYNC_MS).unref();
 services.tasks = tasks;
+const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
+services.attachments = attachments;
 if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));
 
 const vapid = loadVapidConfig();
@@ -126,7 +130,7 @@ const runtime: ModelRuntime =
       });
 
 const pages = config.pages
-  ? new PageService({ store: new PageStore(db), runtime, outbox: new Outbox(db), baseUrl: config.pages.baseUrl, model: config.pages.model, log: logger })
+  ? new PageService({ store: new PageStore(db), attachments, runtime, outbox: new Outbox(db), baseUrl: config.pages.baseUrl, model: config.pages.model, log: logger })
   : undefined;
 services.pages = pages;
 const pagesServer = pages && config.pages ? buildPagesServer(pages, { trustProxy: config.env === "production" }) : undefined;
@@ -162,6 +166,7 @@ const app = await buildApp({
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
+    registerAttachmentRoutes(instance, helpers, attachments);
     registerDeviceRoutes(instance, helpers, {
       devices,
       connection: {

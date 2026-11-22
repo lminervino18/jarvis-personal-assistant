@@ -181,18 +181,20 @@ export class Session {
     void this.engine?.resume().catch(() => undefined);
   }
 
-  sendText(text: string): boolean {
+  /** Sends a typed message, optionally with attachments already uploaded with `POST /api/attachments`. */
+  sendText(text: string, attachments: readonly Extract<Card, { kind: "attachment" }>[] = []): boolean {
     const trimmed = text.trim();
-    if (!trimmed) return false;
+    if (!trimmed && attachments.length === 0) return false;
     const conversationId = this.client.conversationId;
     if (!conversationId) return this.refuse("No hay conexión: el mensaje no se envió.");
     this.interruptAssistant("superseded");
     const turnId = this.newId();
     const replyMode = this.replyMode();
-    if (!this.client.send({ type: "user.text", conversationId, turnId, text: trimmed, replyMode })) {
+    const ids = attachments.map((card) => card.attachmentId);
+    if (!this.client.send({ type: "user.text", conversationId, turnId, text: trimmed, replyMode, ...(ids.length ? { attachments: ids } : {}) })) {
       return this.refuse("No hay conexión: el mensaje no se envió.");
     }
-    this.thread = reduceThread(this.thread, { type: "local.user", turnId, text: trimmed }, this.isoNow());
+    this.thread = reduceThread(this.thread, { type: "local.user", turnId, text: trimmed, cards: [...attachments] }, this.isoNow());
     this.markTurnSent(turnId, "thinking", replyMode === "voice");
     this.emit();
     return true;

@@ -24,13 +24,17 @@ export const HelloMessage = z.object({
   history: z.boolean().optional(),
 });
 
-export const UserTextMessage = z.object({
-  type: z.literal("user.text"),
-  conversationId: Id,
-  turnId: Id,
-  text: z.string().trim().min(1).max(4000),
-  replyMode: ReplyMode,
-});
+export const UserTextMessage = z
+  .object({
+    type: z.literal("user.text"),
+    conversationId: Id,
+    turnId: Id,
+    text: z.string().trim().max(4000),
+    replyMode: ReplyMode,
+    /** Files the owner uploaded with `POST /api/attachments` for this message. */
+    attachments: z.array(Id).max(4).optional(),
+  })
+  .refine((message) => message.text.length > 0 || (message.attachments?.length ?? 0) > 0, "empty message");
 
 export const AudioBeginMessage = z.object({
   type: z.literal("audio.begin"),

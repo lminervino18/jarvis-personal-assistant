@@ -70,6 +70,7 @@ export const toolInputs = {
   whatsapp_send: {
     chatId: z.string().min(1).max(128),
     text: z.string().trim().min(1).max(2000),
+    attachmentId: z.uuid().optional(),
   },
   calendar_list: {
     from: IsoWithOffset,
@@ -183,17 +184,21 @@ export const toolInputs = {
     cc: z.array(z.email().max(254)).max(10).optional(),
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20000),
+    attachmentIds: z.array(z.uuid()).max(5).optional(),
   },
   whatsapp_to_me: {
     text: z.string().trim().min(1).max(2000),
+    attachmentId: z.uuid().optional(),
   },
   page_create: {
     title: z.string().trim().min(1).max(80),
     brief: z.string().trim().min(1).max(4000),
+    attachmentIds: z.array(z.uuid()).max(6).optional(),
   },
   page_update: {
     slug: PageSlug,
     change: z.string().trim().min(1).max(4000),
+    attachmentIds: z.array(z.uuid()).max(6).optional(),
   },
   page_list: {},
   page_responses: {

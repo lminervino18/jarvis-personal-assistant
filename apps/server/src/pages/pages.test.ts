@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openMigratedDatabase } from "../db/database.js";
 import { ScriptedRuntime } from "../runtime/scripted-runtime.js";
@@ -7,6 +10,7 @@ import { extractHtml, pageProblems, withRuntime } from "./page-html.js";
 import { cleanResponse, PageService } from "./page-service.js";
 import { PageStore } from "./page-store.js";
 import { buildPagesServer } from "./pages-server.js";
+import { AttachmentStore } from "../attachments/attachment-store.js";
 import { toolsByName } from "../tools/index.js";
 import { runTool } from "../tools/runner.js";
 import type { AnyToolDefinition, ToolContext } from "../tools/types.js";
@@ -23,11 +27,14 @@ function setup(reply: () => string = () => page("<h1>Cena</h1>")) {
   const db = openMigratedDatabase(":memory:");
   const runtime = new ScriptedRuntime();
   runtime.completer = reply;
-  const service = new PageService({ store: new PageStore(db), runtime, outbox: new Outbox(db), baseUrl: "https://p.example.test/", log: silent });
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-pages-"));
+  closers.push(async () => rmSync(dir, { recursive: true, force: true }));
+  const attachments = new AttachmentStore(db, dir);
+  const service = new PageService({ store: new PageStore(db), attachments, runtime, outbox: new Outbox(db), baseUrl: "https://p.example.test/", log: silent });
   const outbox = () => db.prepare("SELECT kind, payload_json FROM outbox ORDER BY created_at, rowid").all() as { kind: string; payload_json: string }[];
   const server = buildPagesServer(service, { trustProxy: false });
   closers.push(() => server.close());
-  return { db, runtime, service, outbox, server };
+  return { db, runtime, service, outbox, server, attachments };
 }
 
 describe("page html", () => {
@@ -81,6 +88,21 @@ describe("pages", () => {
     expect(ready.body).toContain("window.jarvis");
     expect(outbox().map((row) => row.kind)).toEqual(["chat_message", "push"]);
     expect(JSON.parse(outbox()[0]!.payload_json)).toMatchObject({ text: expect.stringContaining(service.url(created)), cards: [{ kind: "link" }] });
+  });
+
+  it("puts the owner's photos in the page and serves them only from that page", async () => {
+    const { service, runtime, server, attachments } = setup();
+    const photo = attachments.save({ name: "quincho.jpg", mediaType: "image/jpeg", data: Buffer.from("jpeg") }, new Date())!;
+    const pdf = attachments.save({ name: "menu.pdf", mediaType: "application/pdf", data: Buffer.from("pdf") }, new Date())!;
+    expect(service.unusableImages([photo.id, pdf.id])).toEqual([pdf.id]);
+    const created = service.create({ title: "Asado", brief: "Invitación con la foto del quincho", attachmentIds: [photo.id] });
+    const other = service.create({ title: "Otra", brief: "Sin fotos" });
+    await service.settled();
+    expect(runtime.completions[0]?.prompt).toContain(`/${created.slug}/f/${photo.id}`);
+    const image = await server.inject({ method: "GET", url: `/${created.slug}/f/${photo.id}` });
+    expect(image.statusCode).toBe(200);
+    expect(image.headers["content-type"]).toBe("image/jpeg");
+    expect((await server.inject({ method: "GET", url: `/${other.slug}/f/${photo.id}` })).statusCode).toBe(404);
   });
 
   it("retries once naming what was wrong, then gives up without publishing", async () => {

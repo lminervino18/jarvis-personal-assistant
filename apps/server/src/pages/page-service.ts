@@ -3,6 +3,7 @@ import type { Card, ModelRuntime } from "@jarvis/contracts";
 import { NOTIFICATION_TITLE, type PushNotification } from "../push/notification.js";
 import type { ChatPayload } from "../worker/chat-messages.js";
 import type { Outbox } from "../worker/outbox.js";
+import { IMAGE_TYPES, type AttachmentStore } from "../attachments/attachment-store.js";
 import { PAGE_SYSTEM_PROMPT } from "./design-guide.js";
 import { extractHtml, pageProblems } from "./page-html.js";
 import type { Page, PageStore } from "./page-store.js";
@@ -17,6 +18,7 @@ const SUMMARY_CHARS = 300;
 
 export interface PageServiceDeps {
   store: PageStore;
+  attachments?: AttachmentStore;
   runtime: ModelRuntime;
   outbox: Outbox;
   baseUrl: string;
@@ -88,19 +90,42 @@ export class PageService {
     return this.deps.store.responses(page.id, limit);
   }
 
+  /** Attachment ids a page cannot use (missing, or not an image). */
+  unusableImages(attachmentIds: readonly string[]): string[] {
+    return attachmentIds.filter((id) => {
+      const attachment = this.deps.attachments?.get(id);
+      return !attachment || !IMAGE_TYPES.has(attachment.mediaType);
+    });
+  }
+
   /** Starts writing a new page in the background and returns it right away, still generating. */
-  create(input: { title: string; brief: string }): Page {
+  create(input: { title: string; brief: string; attachmentIds?: string[] }): Page {
     const page = this.deps.store.create({ slug: slugify(input.title), title: input.title, brief: input.brief }, this.now());
-    this.run(page, `Título: ${input.title}\n\nPedido del dueño:\n${input.brief}`);
+    this.run(page, `Título: ${input.title}\n\nPedido del dueño:\n${input.brief}${this.images(page, input.attachmentIds)}`);
     return page;
   }
 
   /** Rewrites a published page with a change, in the background. The current version stays online meanwhile. */
-  update(page: Page, change: string): Page {
+  update(page: Page, change: string, attachmentIds?: string[]): Page {
     this.deps.store.markGenerating(page.id, this.now());
     const current = page.html ? `Página actual:\n${page.html}\n\n` : `Pedido original:\n${page.brief}\n\n`;
-    this.run(page, `${current}Cambio pedido por el dueño:\n${change}`);
+    this.run(page, `${current}Cambio pedido por el dueño:\n${change}${this.images(page, attachmentIds)}`);
     return this.deps.store.require(page.slug);
+  }
+
+  /** The image a page may show, with its type, when it belongs to that page. */
+  asset(slug: string, attachmentId: string): { mediaType: string; data: Buffer } | undefined {
+    const page = this.deps.store.get(slug);
+    if (!page || !this.deps.store.hasAsset(page.id, attachmentId)) return undefined;
+    const stored = this.deps.attachments?.read(attachmentId);
+    return stored && IMAGE_TYPES.has(stored.attachment.mediaType) ? { mediaType: stored.attachment.mediaType, data: stored.data } : undefined;
+  }
+
+  private images(page: Page, attachmentIds: readonly string[] = []): string {
+    if (attachmentIds.length === 0) return "";
+    this.deps.store.addAssets(page.id, attachmentIds);
+    const lines = attachmentIds.map((id) => `- /${page.slug}/f/${id} («${this.deps.attachments?.get(id)?.name ?? "foto"}»)`);
+    return `\n\nFotos del dueño para usar en la página (con <img src="…">, en estas rutas relativas exactas, con alt descriptivo, object-fit: cover y loading="lazy" salvo la primera):\n${lines.join("\n")}`;
   }
 
   /** Stores an answer sent from a page and tells the owner. */

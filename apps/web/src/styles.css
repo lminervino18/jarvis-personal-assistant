@@ -370,6 +370,10 @@ button {
 }
 
 .message-user article {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   max-width: 80%;
 }
 
@@ -1249,4 +1253,105 @@ button {
 
 .keyboard-open .build-composer {
   padding-bottom: 8px;
+}
+
+.composer {
+  flex-wrap: wrap;
+}
+
+.composer-attachments {
+  flex: 1 0 100%;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 2px;
+  padding: 0 0 0 52px;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.composer-attachment {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.composer-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-attachment[data-uploading="true"] img,
+.composer-attachment[data-uploading="true"] .composer-file {
+  opacity: 0.45;
+}
+
+.composer-attachment[data-uploading="true"]::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: var(--label);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.composer-file {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--secondary);
+}
+
+.composer-attachment button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  cursor: pointer;
+}
+
+.card-attachment {
+  display: block;
+  max-width: min(260px, 70vw);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.card-attachment img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: cover;
+}
+
+.card-attachment.file {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--fill);
+  color: var(--label);
+  text-decoration: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
+import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
+import type { Attachment } from "../attachments/attachment-store.js";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
 import { decidePendingAction, type PendingActionOutcome } from "../tools/runner.js";
 import type { AnyToolDefinition, ToolContext, ToolServices, TurnSecurityState } from "../tools/types.js";
@@ -44,6 +45,10 @@ export interface StartTurnInput {
   /** performance.now() when the owner's input ended (end of speech or text sent). */
   inputEndedAt: number;
   sttMs?: number;
+  /** Ids of chat attachments the owner sent with this message. */
+  attachments?: string[];
+  /** Images and PDFs for the model, filled from the attachments when the turn runs. */
+  files?: RuntimeFile[];
   createSpeaker?: (signal: AbortSignal) => ReplySpeaker | undefined;
 }
 
@@ -130,6 +135,13 @@ function failureMessage(outcome: TurnOutcome, timezone: string): string {
     default:
       return "No pude completar la respuesta por un problema con Claude. Probá de nuevo en un momento.";
   }
+}
+
+/** Tells the model which attachments came with the message and their ids, so tools can reuse them. */
+function attachmentNote(attachments: Attachment[]): string {
+  if (attachments.length === 0) return "";
+  const listed = attachments.map((attachment) => `${attachment.id} «${attachment.name}» (${attachment.mediaType}, ${Math.max(1, Math.round(attachment.size / 1024))} KB)`);
+  return `[adjuntos del dueño: ${listed.join("; ")}. Para reenviarlos o usarlos en una página o un mail, pasá su id a la herramienta.]`;
 }
 
 function summaryLine(message: PendingMessage, ownerName: string, limit: number): string {
@@ -359,7 +371,7 @@ export class ConversationOrchestrator {
   }
 
   private takeReplyDecision(input: StartTurnInput): ReplyDecision | undefined {
-    if (!input.text.trim()) return undefined;
+    if (!input.text.trim() || input.attachments?.length) return undefined;
     const pending = this.awaitingConfirm.get(input.conversationId);
     this.awaitingConfirm.delete(input.conversationId);
     const window = input.inputMode === "voice" ? CONFIRM_BY_VOICE_MS : CONFIRM_BY_TEXT_MS;
@@ -368,6 +380,11 @@ export class ConversationOrchestrator {
     if (decision !== "confirm" || this.deps.store.lastAssistantText(input.conversationId)?.trimEnd().endsWith("?")) return undefined;
     const card = this.onlyPendingCard(input.conversationId);
     return card && { kind: "ask", card };
+  }
+
+  private attachmentsOf(input: StartTurnInput): Attachment[] {
+    const store = this.deps.services.attachments;
+    return store ? (input.attachments ?? []).flatMap((id) => store.get(id) ?? []) : [];
   }
 
   /** The conversation's single pending confirmation, when there is exactly one. */
@@ -461,11 +478,14 @@ export class ConversationOrchestrator {
     if (replyDecision?.kind === "decide") return this.answerDecision(input, replyDecision.actionId, replyDecision.decision, signal);
     if (replyDecision?.kind === "ask") return this.askAgain(input, replyDecision.card, signal);
     const owner = this.takeOwnerInput(input);
-    if (!owner.said) {
+    const attached = this.attachmentsOf(input);
+    if (!owner.said && attached.length === 0) {
       emit({ type: "state", state: "idle" });
       return;
     }
-    const turnInput = { ...input, text: owner.notes.length ? `${owner.notes.join("\n")}\n\n${owner.said}` : owner.said };
+    const said = [owner.said, attachmentNote(attached)].filter(Boolean).join("\n\n");
+    const files = attached.flatMap((attachment) => this.deps.services.attachments?.modelFile(attachment) ?? []);
+    const turnInput = { ...input, files, text: owner.notes.length ? `${owner.notes.join("\n")}\n\n${said}` : said };
 
     let conversation = store.get(conversationId);
     if (!conversation) throw new Error("conversation not found");
@@ -479,8 +499,9 @@ export class ConversationOrchestrator {
     let seedContext = resumeSessionId ? undefined : store.seedContext(conversationId, ownerName);
 
     store.startTurn({ id: turnId, conversationId, inputMode: input.inputMode, replyMode: input.replyMode, sttMs: input.sttMs });
-    if (input.text.trim()) {
-      const userItem = store.appendMessage({ conversationId, turnId, role: "user", content: input.text });
+    if (input.text.trim() || attached.length > 0) {
+      const cards = attached.flatMap((attachment) => this.deps.services.attachments?.card(attachment) ?? []);
+      const userItem = store.appendMessage({ conversationId, turnId, role: "user", content: input.text, cards });
       store.setTitleIfEmpty(conversationId, input.text);
       emit({ type: "history", conversationId, items: [userItem], hasMore: false });
     }
@@ -632,6 +653,7 @@ export class ConversationOrchestrator {
       conversationId: input.conversationId,
       turnId: input.turnId,
       text: input.text,
+      ...(input.files?.length ? { files: input.files } : {}),
       replyMode: input.replyMode,
       resumeSessionId,
       seedContext,

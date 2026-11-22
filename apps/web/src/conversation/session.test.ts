@@ -160,6 +160,15 @@ describe("Session text turns", () => {
     expect(socket().last("client.metrics")).toEqual({ type: "client.metrics", turnId, firstTextMs: 850 });
   });
 
+  it("sends attachments with or without text and shows them in the owner's bubble", () => {
+    const { session, socket, connect } = setup();
+    connect();
+    const photo = { kind: "attachment" as const, attachmentId: "5b0f8c3e-7a4b-4c1d-9e2f-0a1b2c3d4e5f", name: "foto.jpg", mediaType: "image/jpeg", size: 2048 };
+    expect(session.sendText("  ", [photo])).toBe(true);
+    expect(socket().last("user.text")).toMatchObject({ text: "", attachments: [photo.attachmentId] });
+    expect(session.getSnapshot().thread.messages[0]).toMatchObject({ role: "user", text: "", cards: [photo] });
+  });
+
   it("refuses to send while offline and keeps the notice", () => {
     const { session } = setup();
     expect(session.sendText("hola")).toBe(false);

@@ -4,35 +4,37 @@ export interface OutboxMessage {
   id: string;
   chatJid: string;
   text: string;
+  /** A chat attachment sent as a photo or document, with `text` as its caption. */
+  attachmentId?: string;
 }
+
+/** Outbox destination meaning the owner's own chat ("message yourself"); the bridge resolves it to the paired number. */
+export const OWN_CHAT = "me";
 
 /**
  * Messages the owner confirmed for sending. Delivery is at most once: a message is claimed
  * (`sending`) before the socket call, and a claim interrupted by a crash becomes `unknown`
  * instead of being retried, because WhatsApp may already have delivered it.
  */
-/** Outbox destination meaning the owner's own chat ("message yourself"); the bridge resolves it to the paired number. */
-export const OWN_CHAT = "me";
-
 export class WhatsAppOutbox {
   constructor(private readonly db: Db) {}
 
   enqueue(message: OutboxMessage, now: Date): void {
     const at = now.toISOString();
     this.db
-      .prepare("INSERT OR IGNORE INTO wa_outbox (id, chat_jid, text, status, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)")
-      .run(message.id, message.chatJid, message.text, at, at);
+      .prepare("INSERT OR IGNORE INTO wa_outbox (id, chat_jid, text, attachment_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
+      .run(message.id, message.chatJid, message.text, message.attachmentId ?? null, at, at);
   }
 
   claimNext(now: Date): OutboxMessage | undefined {
     return this.db
       .transaction(() => {
-        const row = this.db.prepare("SELECT id, chat_jid, text FROM wa_outbox WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as
-          | { id: string; chat_jid: string; text: string }
+        const row = this.db.prepare("SELECT id, chat_jid, text, attachment_id FROM wa_outbox WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as
+          | { id: string; chat_jid: string; text: string; attachment_id: string | null }
           | undefined;
         if (!row) return undefined;
         this.db.prepare("UPDATE wa_outbox SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'pending'").run(now.toISOString(), row.id);
-        return { id: row.id, chatJid: row.chat_jid, text: row.text };
+        return { id: row.id, chatJid: row.chat_jid, text: row.text, ...(row.attachment_id ? { attachmentId: row.attachment_id } : {}) };
       })
       .immediate();
   }

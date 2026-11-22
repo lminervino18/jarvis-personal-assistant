@@ -1,3 +1,4 @@
+import type { AttachmentStore } from "../attachments/attachment-store.js";
 import type { PageService } from "../pages/page-service.js";
 import type { Card, IntegrationProvider, ToolInput, ToolName, ToolResult } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
@@ -35,6 +36,7 @@ export interface ToolServices {
   youtube?: YoutubeService;
   tasks?: TaskService;
   pages?: PageService;
+  attachments?: AttachmentStore;
 }
 
 export interface PlayerCommand {

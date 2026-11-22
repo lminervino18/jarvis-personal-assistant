@@ -81,6 +81,15 @@ export const LinkCard = z.object({
   description: z.string().optional(),
 });
 
+/** A file the owner attached to a message (a photo, a PDF), shown in their bubble. */
+export const AttachmentCard = z.object({
+  kind: z.literal("attachment"),
+  attachmentId: z.uuid(),
+  name: z.string().max(200),
+  mediaType: z.string().max(100),
+  size: z.number().int().nonnegative(),
+});
+
 /** A delegated task as the owner sees it in the chat. Built by the server from the task store. */
 export const TaskCard = z.object({
   kind: z.literal("task"),
@@ -148,5 +157,6 @@ export const Card = z.discriminatedUnion("kind", [
   TaskCard,
   ChartCard,
   TableCard,
+  AttachmentCard,
 ]);
 export type Card = z.infer<typeof Card>;

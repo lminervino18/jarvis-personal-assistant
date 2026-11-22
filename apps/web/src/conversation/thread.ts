@@ -37,7 +37,7 @@ type ServerEvent<T extends ServerMessage["type"]> = Extract<ServerMessage, { typ
 
 export type ThreadEvent =
   | ServerEvent<"ready" | "history" | "assistant.delta" | "assistant.done" | "card" | "transcript" | "error" | "turn.end">
-  | { type: "local.user"; turnId: string; text: string }
+  | { type: "local.user"; turnId: string; text: string; cards?: Card[] }
   | { type: "local.card"; card: Card }
   | { type: "local.older" };
 
@@ -67,7 +67,7 @@ export function reduceThread(state: ThreadState, event: ThreadEvent, receivedAt:
     case "turn.end":
       return settleTurn(state, event.turnId);
     case "local.user":
-      return { ...upsertLocal(state, localMessage("user", event.turnId, event.text, receivedAt)), transcript: null };
+      return { ...upsertLocal(state, { ...localMessage("user", event.turnId, event.text, receivedAt), cards: event.cards ?? [] }), transcript: null };
     case "local.card":
       return onStandaloneCard(state, event.card, receivedAt);
     case "local.older":

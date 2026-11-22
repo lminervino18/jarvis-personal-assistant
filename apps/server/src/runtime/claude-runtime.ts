@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
-import { query, type McpSdkServerConfigWithInstance, type Options } from "@anthropic-ai/claude-agent-sdk";
-import type { CompletionRequest, ModelRuntime, RuntimeEvent, RuntimeTurnInput } from "@jarvis/contracts";
+import { query, type McpSdkServerConfigWithInstance, type Options, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { CompletionRequest, ModelRuntime, RuntimeEvent, RuntimeFile, RuntimeTurnInput } from "@jarvis/contracts";
 import type { TurnSecurityState } from "../tools/types.js";
 import { temporalContext } from "../util/time.js";
 import { buildRuntimeEnv } from "./runtime-env.js";
@@ -70,6 +70,16 @@ async function* untilAborted<T>(source: AsyncIterable<T>, signal: AbortSignal): 
     if (next.done) return;
     yield next.value;
   }
+}
+
+/** A single user message carrying the owner's images and PDFs before the text, for the SDK's streaming input. */
+async function* withFiles(text: string, files: readonly RuntimeFile[]): AsyncIterable<SDKUserMessage> {
+  const blocks = files.map((file) =>
+    file.mediaType === "application/pdf"
+      ? { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: file.data } }
+      : { type: "image" as const, source: { type: "base64" as const, media_type: file.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: file.data } },
+  );
+  yield { type: "user", message: { role: "user", content: [...blocks, { type: "text", text }] }, parent_tool_use_id: null };
 }
 
 export function composeTurnPrompt(input: RuntimeTurnInput, now: Date, timezone: string): string {
@@ -202,8 +212,9 @@ export class ClaudeAgentRuntime implements ModelRuntime {
 
     const state = createMapperState(options.allowOverage);
     const allowed = new Set(toolset.allowedTools);
+    const text = composeTurnPrompt(input, now, options.timezone);
     const stream = query({
-      prompt: composeTurnPrompt(input, now, options.timezone),
+      prompt: input.files?.length ? withFiles(text, input.files) : text,
       options: { ...this.conversationOptions(toolset, allowed, abortController), resume: input.resumeSessionId, maxTurns: options.maxTurns, persistSession: true },
     });
 

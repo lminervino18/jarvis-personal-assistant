@@ -77,6 +77,13 @@ export function buildPagesServer(pages: PageService, options: { trustProxy: bool
     return reply.send(withRuntime(page.html, page.slug));
   });
 
+  app.get<{ Params: { slug: string; id: string } }>("/:slug/f/:id", async (request, reply) => {
+    const asset = pages.asset(request.params.slug, request.params.id);
+    reply.headers({ "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" });
+    if (!asset) return reply.code(404).send();
+    return reply.header("cache-control", "public, max-age=31536000, immutable").type(asset.mediaType).send(asset.data);
+  });
+
   app.post<{ Params: { slug: string } }>("/r/:slug", async (request, reply) => {
     reply.headers(SECURITY_HEADERS);
     if (!limiter.allow(`${request.ip}:${request.params.slug}`, Date.now())) return reply.code(429).send({ ok: false });

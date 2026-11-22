@@ -359,6 +359,26 @@ function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions })
   );
 }
 
+function AttachmentView({ card }: { card: Of<"attachment"> }) {
+  const url = `/api/attachments/${card.attachmentId}`;
+  if (card.mediaType.startsWith("image/")) {
+    return (
+      <a className="card-attachment" href={url} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${card.name}`}>
+        <img src={url} alt={card.name} loading="lazy" />
+      </a>
+    );
+  }
+  return (
+    <a className="card-attachment file" href={url} target="_blank" rel="noopener noreferrer">
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+        <path fill="currentColor" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Zm7 1.5V9h5.5L13 3.5Z" />
+      </svg>
+      <span>{card.name}</span>
+      <span className="card-meta">{Math.max(1, Math.round(card.size / 1024))} KB</span>
+    </a>
+  );
+}
+
 function LinkCard({ card }: { card: Of<"link"> }) {
   const href = safeHref(card.url);
   return (
@@ -427,5 +447,7 @@ export function CardView({ card, actions }: { card: Card; actions: CardActions }
       return <ChartCard card={card} />;
     case "table":
       return <TableCard card={card} />;
+    case "attachment":
+      return <AttachmentView card={card} />;
   }
 }

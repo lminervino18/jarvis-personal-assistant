@@ -96,6 +96,15 @@ export class PageStore {
       .run(error.slice(0, 500), now.toISOString(), id);
   }
 
+  addAssets(pageId: string, attachmentIds: readonly string[]): void {
+    const insert = this.db.prepare("INSERT OR IGNORE INTO page_assets (page_id, attachment_id) VALUES (?, ?)");
+    for (const id of attachmentIds) insert.run(pageId, id);
+  }
+
+  hasAsset(pageId: string, attachmentId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM page_assets WHERE page_id = ? AND attachment_id = ?").get(pageId, attachmentId));
+  }
+
   addResponse(pageId: string, data: Record<string, unknown>, now: Date): { id: number; total: number } {
     const id = Number(
       this.db.prepare("INSERT INTO page_responses (page_id, data_json, created_at) VALUES (?, ?, ?)").run(pageId, JSON.stringify(data), now.toISOString()).lastInsertRowid,

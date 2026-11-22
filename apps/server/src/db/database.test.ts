@@ -40,7 +40,7 @@ describe("database", () => {
     try {
       const server = openDatabase(join(dir, "jarvis.db"));
       const worker = openDatabase(join(dir, "jarvis.db"));
-      expect(migrate(server)).toEqual([1, 2, 3, 4, 5]);
+      expect(migrate(server)).toEqual([1, 2, 3, 4, 5, 6]);
       expect(migrate(worker)).toEqual([]);
       server.close();
       worker.close();

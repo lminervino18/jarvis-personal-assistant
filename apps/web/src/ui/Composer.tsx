@@ -1,23 +1,35 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
-import { attachmentLine, type UploadOutcome } from "../tasks/attachments.js";
+import type { AttachmentCard, ChatUpload } from "../attachments/upload.js";
 
 interface Props {
   online: boolean;
   busy: boolean;
   recording: boolean;
-  onSend(text: string): boolean;
+  onSend(text: string, attachments: AttachmentCard[]): boolean;
   onNoteStart(): void;
   onNoteEnd(send: boolean): void;
   onStop(): void;
   /** Starts the voice call; without it the round button only sends. */
   onCall?(): void;
-  onAttach?(file: File): Promise<UploadOutcome>;
+  onAttach?(file: File): Promise<ChatUpload>;
   /** The owner started writing. */
   onFocus?(): void;
 }
 
 const MAX_FIELD_PX = 140;
 const MIN_NOTE_MS = 400;
+const MAX_ATTACHMENTS = 4;
+
+interface Pending {
+  key: string;
+  name: string;
+  preview?: string;
+  card?: AttachmentCard;
+}
+
+function revoke(items: readonly Pending[]): void {
+  for (const item of items) if (item.preview) URL.revokeObjectURL(item.preview);
+}
 
 function useRecordingClock(recording: boolean): string {
   const [seconds, setSeconds] = useState(0);
@@ -32,7 +44,8 @@ function useRecordingClock(recording: boolean): string {
 
 export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteEnd, onStop, onCall, onAttach, onFocus }: Props) {
   const [text, setText] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [attachments, setAttachments] = useState<Pending[]>([]);
+  const uploading = attachments.some((item) => !item.card);
   const [hint, setHint] = useState<string | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -52,10 +65,22 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
     return () => clearTimeout(timer);
   }, [hint]);
 
+  const ready = attachments.flatMap((item) => item.card ?? []);
+
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
-    if (!text.trim()) return;
-    if (onSend(text)) setText("");
+    if ((!text.trim() && ready.length === 0) || uploading) return;
+    if (!onSend(text, ready)) return;
+    setText("");
+    revoke(attachments);
+    setAttachments([]);
+  };
+
+  const remove = (key: string) => {
+    setAttachments((current) => {
+      revoke(current.filter((item) => item.key === key));
+      return current.filter((item) => item.key !== key);
+    });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -66,19 +91,23 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
   };
 
   const onFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = [...(event.target.files ?? [])];
+    const files = [...(event.target.files ?? [])].slice(0, MAX_ATTACHMENTS - attachments.length);
     event.target.value = "";
     if (!onAttach || files.length === 0) return;
-    setUploading(true);
-    for (const file of files) {
-      const outcome = await onAttach(file);
-      if (!outcome.ok) {
+    const added = files.map((file) => ({ key: crypto.randomUUID(), name: file.name, ...(file.type.startsWith("image/") ? { preview: URL.createObjectURL(file) } : {}) }));
+    setAttachments((current) => [...current, ...added]);
+    await Promise.all(
+      files.map(async (file, index) => {
+        const key = added[index]?.key;
+        const outcome = await onAttach(file);
+        if (outcome.ok) {
+          setAttachments((current) => current.map((item) => (item.key === key ? { ...item, card: outcome.card } : item)));
+          return;
+        }
         setHint(outcome.message);
-        break;
-      }
-      setText((current) => `${current}${current && !current.endsWith("\n") ? "\n" : ""}${attachmentLine(outcome.id, outcome.name)}\n`);
-    }
-    setUploading(false);
+        if (key) remove(key);
+      }),
+    );
   };
 
   const onPressNote = (event: PointerEvent<HTMLButtonElement>) => {
@@ -97,10 +126,25 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
     onNoteEnd(held >= MIN_NOTE_MS && inside);
   };
 
-  const hasText = text.trim().length > 0;
+  const hasText = text.trim().length > 0 || ready.length > 0;
 
   return (
     <form className="composer" data-recording={recording} onSubmit={submit}>
+      {attachments.length > 0 && !recording && (
+        <ul className="composer-attachments" aria-label="Adjuntos">
+          {attachments.map((item) => (
+            <li key={item.key} className="composer-attachment glass" data-uploading={!item.card}>
+              {item.preview ? <img src={item.preview} alt="" /> : <span className="composer-file">{item.name.split(".").pop()?.toUpperCase().slice(0, 4) ?? "DOC"}</span>}
+              <span className="sr-only">{item.card ? item.name : `Subiendo ${item.name}`}</span>
+              <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => remove(item.key)}>
+                <svg viewBox="0 0 24 24" aria-hidden="true" width="14" height="14">
+                  <path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {hint && (
         <p className="composer-hint glass" role="status">
           {hint}
@@ -108,8 +152,14 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
       )}
       {onAttach && !recording && (
         <>
-          <input ref={picker} type="file" multiple hidden onChange={(event) => void onFiles(event)} />
-          <button type="button" className="glass-button glass" aria-label={uploading ? "Subiendo archivo" : "Adjuntar archivo o captura"} disabled={!online || uploading} onClick={() => picker.current?.click()}>
+          <input ref={picker} type="file" multiple hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" onChange={(event) => void onFiles(event)} />
+          <button
+            type="button"
+            className="glass-button glass"
+            aria-label="Adjuntar foto o archivo"
+            disabled={!online || attachments.length >= MAX_ATTACHMENTS}
+            onClick={() => picker.current?.click()}
+          >
             <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
               <path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
             </svg>
@@ -166,7 +216,7 @@ export function Composer({ online, busy, recording, onSend, onNoteStart, onNoteE
           </svg>
         </button>
       ) : hasText ? (
-        <button type="submit" className="round-button" aria-label="Enviar" disabled={!online}>
+        <button type="submit" className="round-button" aria-label="Enviar" disabled={!online || uploading}>
           <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
             <path fill="currentColor" d="M11 20V7.83l-5.59 5.59L4 12l8-8 8 8-1.41 1.41L13 7.83V20h-2Z" />
           </svg>

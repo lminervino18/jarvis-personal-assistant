@@ -7,6 +7,12 @@ import { OWN_CHAT, type WhatsAppOutbox } from "./outbox.js";
 import type { PairingStore } from "./pairing-store.js";
 import type { CloseDecision, ReconnectPolicy } from "./reconnect-policy.js";
 
+/** What the bridge sends: plain text, or a chat attachment as a photo or a document with a caption. */
+export type OutgoingContent =
+  | { text: string }
+  | { image: Buffer; caption: string; mimetype: string }
+  | { document: Buffer; mimetype: string; fileName: string; caption: string };
+
 /** The owner's own chat id from the paired device id ("5491100000000:12@s.whatsapp.net" → "5491100000000@s.whatsapp.net"). */
 export function ownChat(deviceId: string | undefined): string | undefined {
   const user = deviceId?.split("@")[0]?.split(":")[0];
@@ -22,7 +28,7 @@ const OUTBOX_POLL_MS = 3_000;
 export interface BridgeSocket {
   ev: { on<E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void): void };
   end(error: Error | undefined): void;
-  sendMessage(jid: string, content: { text: string }): Promise<{ key?: { id?: string | null } } | undefined>;
+  sendMessage(jid: string, content: OutgoingContent): Promise<{ key?: { id?: string | null } } | undefined>;
 }
 
 export interface BridgeOptions {
@@ -31,6 +37,8 @@ export interface BridgeOptions {
   pairing: Pick<PairingStore, "publish" | "clear">;
   /** Messages the owner confirmed. Without it the bridge never sends anything. */
   outbox?: Pick<WhatsAppOutbox, "claimNext" | "markSent" | "markFailed" | "abandonInterrupted">;
+  /** Reads chat attachments for outgoing photos and documents. */
+  files?: { read(id: string): { attachment: { name: string; mediaType: string }; data: Buffer } | undefined };
   connect(auth: AuthenticationState): BridgeSocket;
   policy: ReconnectPolicy;
   log: Pick<Logger, "info" | "warn" | "error">;
@@ -155,7 +163,7 @@ export class WhatsAppBridge {
     try {
       const target = message.chatJid === OWN_CHAT ? ownChat(this.options.auth.state.creds.me?.id) : message.chatJid;
       if (!target) throw new Error("own number unknown");
-      const sent = await socket.sendMessage(target, { text: message.text });
+      const sent = await socket.sendMessage(target, this.content(message));
       outbox.markSent(message.id, sent?.key?.id ?? undefined, this.now());
       this.options.log.info("whatsapp message sent");
     } catch (error) {
@@ -164,6 +172,16 @@ export class WhatsAppBridge {
     } finally {
       this.sending = false;
     }
+  }
+
+  private content(message: { text: string; attachmentId?: string }): OutgoingContent {
+    if (!message.attachmentId) return { text: message.text };
+    const file = this.options.files?.read(message.attachmentId);
+    if (!file) throw new Error("attachment missing");
+    const { mediaType, name } = file.attachment;
+    return mediaType.startsWith("image/")
+      ? { image: file.data, caption: message.text, mimetype: mediaType }
+      : { document: file.data, mimetype: mediaType, fileName: name, caption: message.text };
   }
 
   private handleClose(socket: BridgeSocket, error: unknown): void {

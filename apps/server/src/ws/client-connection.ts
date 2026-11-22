@@ -166,6 +166,7 @@ export class ClientConnection implements Subscriber {
           inputMode: "text",
           replyMode: message.replyMode,
           inputEndedAt: performance.now(),
+          ...(message.attachments?.length ? { attachments: message.attachments } : {}),
           createSpeaker: this.speakerFactory(message.turnId, message.replyMode),
         });
         return;

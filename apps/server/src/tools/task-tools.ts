@@ -47,7 +47,13 @@ export const taskCreate = defineTool({
   async execute(ctx, input) {
     const tasks = ctx.services.tasks;
     if (!tasks) return fail("disabled", DISABLED);
-    return respond(ctx, tasks.create(input, ctx.now()));
+    const attachmentIds = (input.attachmentIds ?? []).map((id) => {
+      const personal = ctx.services.attachments?.read(id);
+      if (!personal) return id;
+      const copy = tasks.saveAttachment({ name: personal.attachment.name, mediaType: personal.attachment.mediaType, data: personal.data }, ctx.now());
+      return copy?.id ?? id;
+    });
+    return respond(ctx, tasks.create({ ...input, ...(attachmentIds.length ? { attachmentIds } : {}) }, ctx.now()));
   },
 });
 

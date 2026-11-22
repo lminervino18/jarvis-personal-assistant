@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TokenCipher } from "../../crypto/token-cipher.js";
 import { openMigratedDatabase } from "../../db/database.js";
 import { useDbAuthState } from "./auth-state.js";
-import { ownChat, WhatsAppBridge, type BridgeSocket } from "./bridge.js";
+import { ownChat, WhatsAppBridge, type BridgeSocket, type OutgoingContent } from "./bridge.js";
 import { InstanceLockError, acquireInstanceLock } from "./instance-lock.js";
 import { WhatsAppStore } from "./message-store.js";
 import { PairingStore } from "./pairing-store.js";
@@ -28,16 +28,18 @@ class FakeSocket implements BridgeSocket {
     on: <E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void) => void this.emitter.on(event, listener),
   };
   readonly sent: { jid: string; text: string }[] = [];
+  readonly contents: OutgoingContent[] = [];
   failNext = false;
   end() {
     this.ended += 1;
   }
-  async sendMessage(jid: string, content: { text: string }) {
+  async sendMessage(jid: string, content: OutgoingContent) {
     if (this.failNext) {
       this.failNext = false;
       throw new Error("send failed");
     }
-    this.sent.push({ jid, text: content.text });
+    this.contents.push(content);
+    this.sent.push({ jid, text: "text" in content ? content.text : content.caption });
     return { key: { id: `sent-${this.sent.length}` } };
   }
   emit<E extends keyof BaileysEventMap>(event: E, data: BaileysEventMap[E]) {
@@ -63,7 +65,7 @@ function setupOptions(db: ReturnType<typeof openMigratedDatabase>, log: { info: 
   };
 }
 
-function setup(options: { paired?: boolean; random?: number; maxAttempts?: number } = {}) {
+function setup(options: { paired?: boolean; random?: number; maxAttempts?: number; files?: Map<string, { attachment: { name: string; mediaType: string }; data: Buffer }> } = {}) {
   const db = openMigratedDatabase(":memory:");
   const cipher = new TokenCipher(randomBytes(32));
   const store = new WhatsAppStore(db);
@@ -79,6 +81,7 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
     auth,
     pairing,
     outbox,
+    ...(options.files ? { files: { read: (id: string) => options.files?.get(id) } } : {}),
     policy,
     log,
     now: () => new Date(),
@@ -428,6 +431,27 @@ describe("conservative configuration", () => {
     expect(sockets[0]?.sent).toEqual([{ jid: "5490000000099@s.whatsapp.net", text: "instagram.com/ejemplo" }]);
     expect(ownChat("5490000000099:12@s.whatsapp.net")).toBe("5490000000099@s.whatsapp.net");
     expect(ownChat(undefined)).toBeUndefined();
+  });
+
+  it("sends an attached photo with its caption, and a document with its name", async () => {
+    const files = new Map([
+      ["photo-1", { attachment: { name: "cena.jpg", mediaType: "image/jpeg" }, data: Buffer.from("jpeg") }],
+      ["doc-1", { attachment: { name: "menu.pdf", mediaType: "application/pdf" }, data: Buffer.from("pdf") }],
+    ]);
+    const { db, outbox, bridge, sockets } = setup({ files });
+    for (const [id, file] of files) {
+      db.prepare("INSERT INTO attachments (id, name, media_type, size, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, file.attachment.name, file.attachment.mediaType, 4, "x", START.toISOString());
+    }
+    bridge.start();
+    sockets[0]?.open();
+    outbox.enqueue({ id: "w1", chatJid: OWN_CHAT, text: "mirá", attachmentId: "photo-1" }, new Date());
+    outbox.enqueue({ id: "w2", chatJid: OWN_CHAT, text: "el menú", attachmentId: "doc-1" }, new Date(Date.now() + 1));
+    await bridge.sendNextConfirmed();
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.contents).toEqual([
+      { image: Buffer.from("jpeg"), caption: "mirá", mimetype: "image/jpeg" },
+      { document: Buffer.from("pdf"), mimetype: "application/pdf", fileName: "menu.pdf", caption: "el menú" },
+    ]);
   });
 
   it("sends only from the confirmed outbox and never marks as read or announces presence", () => {

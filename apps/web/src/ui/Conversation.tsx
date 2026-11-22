@@ -3,7 +3,7 @@ import { Core } from "../core/Core.js";
 import { stateLabel } from "../conversation/assistant-state.js";
 import type { Session } from "../conversation/session.js";
 import { measureViewport, useAssistantAnnouncement, useElementHeight, useSnapshot, useViewportRecovery, useVisibleViewport } from "../hooks.js";
-import { uploadAttachment } from "../tasks/attachments.js";
+import { uploadChatAttachment } from "../attachments/upload.js";
 import { BuildScreen } from "./BuildScreen.js";
 import { CallScreen } from "./CallScreen.js";
 import { Composer } from "./Composer.js";
@@ -154,12 +154,12 @@ export function Conversation({ session, onLogout, demo }: Props) {
           online={online}
           busy={snapshot.busy}
           recording={snapshot.recordingNote}
-          onSend={(text) => session.sendText(text)}
+          onSend={(text, attachments) => session.sendText(text, attachments)}
           onNoteStart={() => void session.startVoiceNote()}
           onNoteEnd={(send) => session.finishVoiceNote(send)}
           onStop={() => session.stopAll()}
           onCall={startCall}
-          onAttach={demo ? undefined : uploadAttachment}
+          onAttach={demo ? undefined : uploadChatAttachment}
           onFocus={() => session.warm()}
         />
       </div>

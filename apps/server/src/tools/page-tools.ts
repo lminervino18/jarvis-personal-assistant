@@ -13,14 +13,17 @@ function service(ctx: ToolContext): PageService | undefined {
 }
 
 const unavailable = () => fail("disabled", "Las páginas web no están configuradas en el servidor.");
+const NOT_IMAGES = "Solo se pueden poner fotos (JPG, PNG, WebP o GIF) de los adjuntos del chat.";
 
 export const pageCreate = defineTool({
   name: "page_create",
   description:
-    "Crea una página web pública (invitación, encuesta, formulario, landing) con el estilo del dueño, optimizada para celular, en p.lminervino18.com. Se arma en segundo plano: devuelve el link al instante y el dueño recibe aviso cuando está lista. Si la página pide respuestas, cada respuesta le llega al dueño como notificación. En 'brief' poné todo lo que el dueño pidió: qué es, para quién, qué preguntar, fechas, lugares y tono.",
+    "Crea una página web pública (invitación, encuesta, formulario, landing) con el estilo del dueño, optimizada para celular, en p.lminervino18.com. Se arma en segundo plano: devuelve el link al instante y el dueño recibe aviso cuando está lista. Si la página pide respuestas, cada respuesta le llega al dueño como notificación. En 'brief' poné todo lo que el dueño pidió: qué es, para quién, qué preguntar, fechas, lugares y tono. Si mandó fotos en el chat, pasá sus ids en 'attachmentIds' para usarlas en la página.",
   async execute(ctx, input) {
     const pages = service(ctx);
     if (!pages) return unavailable();
+    const unusable = pages.unusableImages(input.attachmentIds ?? []);
+    if (unusable.length > 0) return fail("invalid_input", NOT_IMAGES);
     const page = pages.create(input);
     return ok(SOURCE, [{ slug: page.slug, url: pages.url(page), status: page.status }], { note: IN_BACKGROUND });
   },
@@ -34,7 +37,8 @@ export const pageUpdate = defineTool({
     if (!pages) return unavailable();
     const page = pages.get(input.slug);
     if (!page) return fail("not_found", "No existe una página con ese slug. Usá page_list para ver las que hay.");
-    const updated = pages.update(page, input.change);
+    if (pages.unusableImages(input.attachmentIds ?? []).length > 0) return fail("invalid_input", NOT_IMAGES);
+    const updated = pages.update(page, input.change, input.attachmentIds);
     return ok(SOURCE, [{ slug: updated.slug, url: pages.url(updated), status: updated.status }], { note: IN_BACKGROUND });
   },
 });

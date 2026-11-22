@@ -13,7 +13,14 @@ export interface RuntimeTurnInput {
   resumeSessionId?: string;
   /** Extra context for a fresh session (recent history summary) when not resuming. */
   seedContext?: string;
+  /** Images and PDFs the owner attached to this message, base64-encoded. */
+  files?: RuntimeFile[];
   signal: AbortSignal;
+}
+
+export interface RuntimeFile {
+  mediaType: string;
+  data: string;
 }
 
 export type RuntimeErrorCode =
