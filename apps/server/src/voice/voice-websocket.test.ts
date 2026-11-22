@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { BinaryFrameKind, builtinTools, decodeAudioFrame, encodeAudioFrame, type AudioFormat, type ServerMessage } from "@jarvis/contracts";
+import { BinaryFrameKind, builtinTools, decodeAudioFrame, encodeAudioFrame, type AudioFormat, type ModelRuntime, type ServerMessage } from "@jarvis/contracts";
 import { pino } from "pino";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -19,6 +19,7 @@ import { allTools } from "../tools/index.js";
 import { EngineTextToSpeech } from "./engine-tts.js";
 import { FixtureSpeechEngine, FixtureStt, type FixtureEngineOptions } from "./fixture-providers.js";
 import { toBytes } from "./pcm.js";
+import type { SpeechToTextService } from "./types.js";
 
 const PASSWORD = "correct horse battery staple";
 const passwordHash = await hashPassword(PASSWORD);
@@ -31,7 +32,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function startServer(engineOptions: FixtureEngineOptions = {}, reply = "Son las diez de la noche. Algo más en lo que te ayude?") {
+async function startServer(
+  engineOptions: FixtureEngineOptions = {},
+  reply = "Son las diez de la noche. Algo más en lo que te ayude?",
+  overrides: { stt?: SpeechToTextService; runtime?: ModelRuntime } = {},
+) {
   const dataDir = mkdtempSync(join(tmpdir(), "jarvis-voice-test-"));
   cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
   const config = loadConfig({ NODE_ENV: "test", DATA_DIR: dataDir, PORT: "8080", PUBLIC_ORIGIN: "http://localhost:5173", OWNER_PASSWORD_HASH: passwordHash, LOG_LEVEL: "fatal" });
@@ -55,12 +60,12 @@ async function startServer(engineOptions: FixtureEngineOptions = {}, reply = "So
         ownerDisplayName: "Alex",
         timezone: config.timezone,
       }),
-    stt: new FixtureStt({ transcript: "¿Qué hora es?", partials: ["¿Qué"] }),
+    stt: overrides.stt ?? new FixtureStt({ transcript: "¿Qué hora es?", partials: ["¿Qué"] }),
     tts: new EngineTextToSpeech({ provider: "fixture", engine, effectIntensity: 0.15 }),
     orchestrator: new ConversationOrchestrator({
       store,
       hub,
-      runtime: new ScriptedRuntime(() => ({ text: reply })),
+      runtime: overrides.runtime ?? new ScriptedRuntime(() => ({ text: reply })),
       toolRegistry: new TurnToolRegistry(),
       services: { db, timezone: config.timezone, backupRetentionDays: 30, statusSources: [] },
       tools: allTools,
@@ -187,6 +192,36 @@ describe("voice over the WebSocket with fixture providers", () => {
     await new Promise((resolveTick) => setTimeout(resolveTick, 150));
     expect(client.frames.length).toBeLessThanOrEqual(framesAtCancel + 1);
     expect(client.messages.filter((m) => m.type === "audio.end")).toHaveLength(1);
+  });
+
+  it("keeps thinking when the owner only makes noise before the reply", async () => {
+    const transcripts = ["qué tengo mañana", "mmm"];
+    const stt: SpeechToTextService = {
+      provider: "fixture",
+      available: () => true,
+      startCapture: (options) => new FixtureStt({ transcript: transcripts.shift() ?? "" }).startCapture(options),
+    };
+    const scripted = new ScriptedRuntime(() => ({ text: "Mañana tenés dentista." }));
+    const runtime: ModelRuntime = {
+      name: "slow",
+      async *runTurn(input) {
+        await new Promise((resolveTick) => setTimeout(resolveTick, 300));
+        yield* scripted.runTurn(input);
+      },
+    };
+    const { port } = await startServer({}, undefined, { stt, runtime });
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const asked = crypto.randomUUID();
+    client.speak(conversationId, asked);
+    await client.waitFor("state", (m) => m.state === "thinking" && m.turnId === asked);
+    const noise = crypto.randomUUID();
+    client.speak(conversationId, noise);
+
+    expect(await client.waitFor("turn.end", (m) => m.turnId === noise)).toMatchObject({ status: "cancelled" });
+    expect(await client.waitFor("turn.end", (m) => m.turnId === asked)).toMatchObject({ status: "completed" });
+    expect(client.messages.some((m) => m.type === "state" && m.state === "interrupted")).toBe(false);
+    expect(scripted.calls.map((call) => call.text.split("\n\n").at(-1))).toEqual(["qué tengo mañana"]);
   });
 
   it("keeps the written answer and reports tts_failed when synthesis breaks", async () => {

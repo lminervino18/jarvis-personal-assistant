@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ModelRuntime, RuntimeEvent, RuntimeTurnInput } from "@jarvis/contracts";
+import type { ModelRuntime, RuntimeEvent, RuntimeTurnInput, RuntimeUsage } from "@jarvis/contracts";
 
 export interface ScriptedReply {
   text?: string;
   error?: Extract<RuntimeEvent, { type: "error" }>;
   chunkDelayMs?: number;
+  usage?: Partial<RuntimeUsage>;
 }
 
 /**
@@ -14,6 +15,8 @@ export interface ScriptedReply {
 export class ScriptedRuntime implements ModelRuntime {
   readonly name = "scripted";
   readonly calls: RuntimeTurnInput[] = [];
+  readonly summaryPrompts: string[] = [];
+  summarizer: (prompt: string) => string = () => "Resumen de prueba";
   private readonly sessions = new Set<string>();
 
   constructor(private readonly reply: (input: RuntimeTurnInput) => ScriptedReply = (input) => ({ text: `Recibido: ${input.text}` })) {}
@@ -54,8 +57,13 @@ export class ScriptedRuntime implements ModelRuntime {
       text,
       durationMs: 0,
       numTurns: 1,
-      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 },
+      usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, contextTokens: 0, ...reply.usage },
     };
+  }
+
+  async summarize(prompt: string): Promise<string> {
+    this.summaryPrompts.push(prompt);
+    return this.summarizer(prompt);
   }
 
   forgetSession(sessionId: string): void {

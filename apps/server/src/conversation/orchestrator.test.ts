@@ -3,24 +3,31 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ModelRuntime, OutgoingServerMessage, RuntimeTurnInput } from "@jarvis/contracts";
 import { describe, expect, it } from "vitest";
 import { openMigratedDatabase } from "../db/database.js";
-import { ScriptedRuntime } from "../runtime/scripted-runtime.js";
+import { ScriptedRuntime, type ScriptedReply } from "../runtime/scripted-runtime.js";
 import { allTools } from "../tools/index.js";
 import { ConversationStore } from "./conversation-store.js";
 import { ConversationHub } from "./hub.js";
 import { ConversationOrchestrator } from "./orchestrator.js";
 import { TurnToolRegistry } from "./turn-tool-registry.js";
 
+const noUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, contextTokens: 0 };
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
 
 function setup(
   sessionMaxTurns: number,
-  overrides: { runtime?: ModelRuntime; toolRegistry?: TurnToolRegistry; textOnlySources?: Set<string> } = {},
+  overrides: {
+    runtime?: ModelRuntime;
+    toolRegistry?: TurnToolRegistry;
+    textOnlySources?: Set<string>;
+    sessionMaxContextTokens?: number;
+    sessionIdleMs?: number;
+    now?: () => Date;
+    reply?: (input: RuntimeTurnInput) => ScriptedReply;
+  } = {},
 ) {
   const db = openMigratedDatabase(":memory:");
   const store = new ConversationStore(db);
-  const scripted = new ScriptedRuntime((input) => ({
-    text: input.text.startsWith("Resumí") ? "Acordaron jugar el viernes (propuesto, dicho por el dueño)." : `ok: ${input.text}`,
-  }));
+  const scripted = new ScriptedRuntime(overrides.reply ?? ((input) => ({ text: `ok: ${input.text}` })));
   const hub = new ConversationHub();
   const orchestrator = new ConversationOrchestrator({
     store,
@@ -33,6 +40,9 @@ function setup(
     builtinTools: [],
     ownerName: "Alex",
     sessionMaxTurns,
+    sessionMaxContextTokens: overrides.sessionMaxContextTokens,
+    sessionIdleMs: overrides.sessionIdleMs,
+    now: overrides.now,
     log: silent,
   });
   return { db, store, hub, runtime: scripted, orchestrator, conversationId: store.create().id };
@@ -48,29 +58,106 @@ const turn = (conversationId: string, text: string) => ({
 });
 
 describe("session rotation", () => {
-  it("summarizes the old session and seeds a fresh one with the summary and recent messages", async () => {
-    const { store, runtime, orchestrator, conversationId } = setup(2);
-    await orchestrator.startTurn(turn(conversationId, "podríamos jugar el viernes"));
-    await orchestrator.startTurn(turn(conversationId, "a las 20"));
-    const oldSession = store.get(conversationId)?.claude_session_id;
-    expect(store.get(conversationId)?.session_turns).toBe(2);
+  const say = async (ctx: ReturnType<typeof setup>, text: string) => {
+    await ctx.orchestrator.startTurn(turn(ctx.conversationId, text));
+    await ctx.orchestrator.settled();
+  };
 
-    await orchestrator.startTurn(turn(conversationId, "¿qué quedó pendiente?"));
+  it("rotates by turn count, summarizes from the database in the background and carries only uncovered messages", async () => {
+    const ctx = setup(3);
+    ctx.runtime.summarizer = () => "Acordaron jugar el viernes (propuesto, dicho por el dueño).";
+    for (const text of ["uno", "dos", "tres"]) await say(ctx, text);
+    const oldSession = ctx.store.get(ctx.conversationId)?.claude_session_id;
+    expect(oldSession).toBeNull();
+    expect(ctx.runtime.summaryPrompts).toHaveLength(1);
+    expect(ctx.runtime.summaryPrompts[0]).toContain("Alex: uno");
+    expect(ctx.runtime.summaryPrompts[0]).not.toContain("Alex: tres");
 
-    const [summaryCall, freshCall] = runtime.calls.slice(2);
-    expect(summaryCall?.text).toMatch(/^Resumí/);
-    expect(summaryCall?.resumeSessionId).toBe(oldSession);
-    expect(freshCall?.resumeSessionId).toBeUndefined();
-    expect(freshCall?.seedContext).toContain("Resumen previo: Acordaron jugar el viernes");
-    expect(freshCall?.seedContext).toContain("Alex: a las 20");
+    await say(ctx, "cuatro");
 
-    const conversation = store.get(conversationId);
-    expect(conversation?.claude_session_id).not.toBe(oldSession);
-    expect(conversation?.session_turns).toBe(1);
-    expect(store.history(conversationId, 50).items.some((item) => item.text.startsWith("Resumí"))).toBe(false);
+    const fresh = ctx.runtime.calls.at(-1);
+    expect(fresh?.resumeSessionId).toBeUndefined();
+    expect(fresh?.seedContext).toContain("Resumen previo: Acordaron jugar el viernes");
+    expect(fresh?.seedContext).toContain("Alex: tres");
+    expect(fresh?.seedContext).not.toContain("Alex: uno");
+    expect(ctx.runtime.calls.every((call) => !call.text.startsWith("Resumí"))).toBe(true);
+  });
+
+  it("rotates when the last call sent too much context", async () => {
+    const ctx = setup(100, { sessionMaxContextTokens: 40_000, reply: () => ({ text: "ok", usage: { contextTokens: 50_000 } }) });
+    await say(ctx, "uno");
+    expect(ctx.store.get(ctx.conversationId)?.claude_session_id).toBeNull();
+    await say(ctx, "dos");
+    expect(ctx.runtime.calls.at(-1)?.resumeSessionId).toBeUndefined();
+    expect(ctx.runtime.calls.at(-1)?.seedContext).toContain("Alex: uno");
+  });
+
+  it("keeps the session while the context is small", async () => {
+    const ctx = setup(100, { sessionMaxContextTokens: 40_000, reply: () => ({ text: "ok", usage: { contextTokens: 10_000 } }) });
+    await say(ctx, "uno");
+    await say(ctx, "dos");
+    expect(ctx.runtime.calls.at(-1)?.resumeSessionId).toBeDefined();
+  });
+
+  it("starts a fresh session after an idle gap because the cache is cold", async () => {
+    const start = Date.now();
+    let clock = new Date(start);
+    const ctx = setup(100, { sessionIdleMs: 30 * 60_000, now: () => clock });
+    await say(ctx, "uno");
+    clock = new Date(start + 10 * 60_000);
+    await say(ctx, "dos");
+    expect(ctx.runtime.calls.at(-1)?.resumeSessionId).toBeDefined();
+    clock = new Date(start + 2 * 3_600_000);
+    await say(ctx, "tres");
+    expect(ctx.runtime.calls.at(-1)?.resumeSessionId).toBeUndefined();
+    expect(ctx.runtime.calls.at(-1)?.seedContext).toContain("Alex: dos");
+  });
+
+  it("waits for a summary still being written before seeding the fresh session", async () => {
+    const ctx = setup(3);
+    const summarize = ctx.runtime.summarize.bind(ctx.runtime);
+    ctx.runtime.summarizer = () => "Quedaron en revisar el presupuesto.";
+    ctx.runtime.summarize = async (prompt: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return summarize(prompt);
+    };
+    for (const text of ["uno", "dos", "tres", "cuatro"]) await ctx.orchestrator.startTurn(turn(ctx.conversationId, text));
+
+    expect(ctx.runtime.calls.at(-1)?.seedContext).toContain("Resumen previo: Quedaron en revisar el presupuesto.");
+  });
+
+  it("falls back to a clipped digest when the summary call fails, without losing context", async () => {
+    const ctx = setup(3);
+    ctx.runtime.summarizer = () => {
+      throw new Error("haiku unavailable");
+    };
+    for (const text of ["uno", "dos", "tres"]) await say(ctx, text);
+    await say(ctx, "cuatro");
+    const seed = ctx.runtime.calls.at(-1)?.seedContext ?? "";
+    expect(seed).toContain("Resumen previo: Alex: uno");
+    expect(seed).toContain("Alex: tres");
+  });
+
+  it("does not repeat the current message in the seed when a session cannot be resumed", async () => {
+    const ctx = setup(100);
+    await say(ctx, "primero");
+    ctx.runtime.forgetSession(ctx.store.get(ctx.conversationId)?.claude_session_id as string);
+    await say(ctx, "segundo");
+    const retry = ctx.runtime.calls.at(-1);
+    expect(retry?.resumeSessionId).toBeUndefined();
+    expect(retry?.seedContext).toContain("Alex: primero");
+    expect(retry?.seedContext).not.toContain("segundo");
+  });
+
+  it("stores the token usage of each turn", async () => {
+    const ctx = setup(100, {
+      reply: () => ({ text: "ok", usage: { inputTokens: 10, cacheReadTokens: 200, cacheCreationTokens: 30, outputTokens: 5 } }),
+    });
+    await say(ctx, "uno");
+    const row = ctx.db.prepare("SELECT input_tokens, cache_read_tokens, cache_creation_tokens, output_tokens FROM turns").get();
+    expect(row).toEqual({ input_tokens: 10, cache_read_tokens: 200, cache_creation_tokens: 30, output_tokens: 5 });
   });
 });
-
 
 describe("sensitive content and voice", () => {
   it("stops speaking and keeps the reply as text once the turn read a text-only source", async () => {
@@ -83,7 +170,7 @@ describe("sensitive content and voice", () => {
         toolRegistry.require(input.turnId).security.taintSources.add("gmail_search");
         yield { type: "tool_end", toolUseId: "t1", name: "mcp__jarvis__gmail_search", isError: false };
         yield { type: "text_delta", text: "Tu jefe te escribió sobre el contrato." };
-        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } };
+        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: noUsage };
       },
     };
     const { store, orchestrator, conversationId } = setup(40, { runtime, toolRegistry, textOnlySources: new Set(["gmail_search"]) });
@@ -175,7 +262,7 @@ describe("voice turns cut before a reply", () => {
           return;
         }
         yield { type: "text_delta", text: "ok" };
-        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } };
+        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: noUsage };
       },
     };
     return { ...setup(40, { runtime }), runtime };
@@ -219,7 +306,7 @@ describe("voice turns cut before a reply", () => {
   });
 });
 
-describe("spoken confirmations", () => {
+describe("confirmations by reply", () => {
   function sendingSetup() {
     const toolRegistry = new TurnToolRegistry();
     const runtime: ModelRuntime & { calls: RuntimeTurnInput[] } = {
@@ -239,7 +326,7 @@ describe("spoken confirmations", () => {
         } else {
           yield { type: "text_delta", text: "ok" };
         }
-        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 } };
+        yield { type: "result", sessionId: "s1", text: "", durationMs: 1, numTurns: 1, usage: noUsage };
       },
     };
     const context = setup(40, { runtime, toolRegistry });
@@ -268,22 +355,46 @@ describe("spoken confirmations", () => {
     expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por voz «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho]");
   });
 
-  it("only listens for the answer right after the question, and never from typed text", async () => {
+  it("only takes the answer from the turn right after the question", async () => {
     const { orchestrator, outbox, conversationId } = sendingSetup();
     await orchestrator.startTurn({ ...voiceTurn(conversationId, "mandale a Ana que llego en diez"), createSpeaker: recordingSpeaker().createSpeaker });
-    await orchestrator.startTurn(turn(conversationId, "sí"));
+    await orchestrator.startTurn(turn(conversationId, "contame algo"));
     await orchestrator.startTurn(voiceTurn(conversationId, "sí"));
 
     expect(outbox()).toEqual([]);
   });
 
-  it("does not ask aloud when the reply is text", async () => {
-    const { orchestrator, hub, conversationId } = sendingSetup();
+  it("asks briefly in a text reply, and a typed yes sends it", async () => {
+    const { orchestrator, hub, runtime, outbox, conversationId } = sendingSetup();
     const seen: OutgoingServerMessage[] = [];
     hub.subscribe(conversationId, { send: (message) => seen.push(message) });
-    await orchestrator.startTurn({ ...turn(conversationId, "mandale a Ana que llego en diez") });
+    await orchestrator.startTurn(turn(conversationId, "mandale a Ana que llego en diez"));
+    expect(seen.find((message) => message.type === "assistant.done")).toMatchObject({ text: "Te lo preparo. ¿Confirmo «Enviar WhatsApp: Para Ana Vivo»?" });
 
-    const done = seen.find((message) => message.type === "assistant.done");
-    expect(done).toMatchObject({ text: "Te lo preparo." });
+    await orchestrator.startTurn(turn(conversationId, "dale"));
+    expect(outbox()).toEqual([{ text: "llego en 10" }]);
+    expect(runtime.calls).toHaveLength(1);
+
+    await orchestrator.startTurn(turn(conversationId, "gracias"));
+    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por chat «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho]");
+  });
+
+  it("forgets the question once the card is tapped, so a later yes goes to the model", async () => {
+    const { orchestrator, runtime, db, conversationId } = sendingSetup();
+    await orchestrator.startTurn(turn(conversationId, "mandale a Ana que llego en diez"));
+    const { id } = db.prepare("SELECT id FROM pending_actions").get() as { id: string };
+    await orchestrator.decideAction(id, "reject");
+    await orchestrator.startTurn(turn(conversationId, "sí"));
+
+    expect(runtime.calls).toHaveLength(2);
+  });
+
+  it("a typed no discards the card", async () => {
+    const { orchestrator, outbox, db, conversationId } = sendingSetup();
+    await orchestrator.startTurn(turn(conversationId, "mandale a Ana que llego en diez"));
+    await orchestrator.startTurn(turn(conversationId, "no, cancelalo"));
+
+    expect(outbox()).toEqual([]);
+    expect(db.prepare("SELECT status FROM pending_actions").all()).toEqual([{ status: "rejected" }]);
   });
 });

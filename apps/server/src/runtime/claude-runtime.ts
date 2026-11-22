@@ -20,6 +20,7 @@ export interface ClaudeRuntimeOptions {
   workspaceDir: string;
   timezone: string;
   model?: string;
+  summaryModel?: string;
   effort?: Effort;
   maxTurns: number;
   allowOverage: boolean;
@@ -51,6 +52,9 @@ const FORBIDDEN_BUILTINS = [
   "Skill",
   "SlashCommand",
 ];
+
+const DEFAULT_SUMMARY_MODEL = "claude-haiku-5-5";
+const SUMMARY_SYSTEM_PROMPT = "Resumís conversaciones. Respondés solo con el resumen pedido, sin usar herramientas.";
 
 /** Stops iterating as soon as the signal aborts, without waiting for the next message. */
 async function* untilAborted<T>(source: AsyncIterable<T>, signal: AbortSignal): AsyncGenerator<T> {
@@ -85,6 +89,51 @@ export class ClaudeAgentRuntime implements ModelRuntime {
 
   constructor(private readonly options: ClaudeRuntimeOptions) {
     mkdirSync(options.workspaceDir, { recursive: true });
+  }
+
+  async summarize(prompt: string, signal: AbortSignal): Promise<string> {
+    const options = this.options;
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    if (signal.aborted) abort();
+    signal.addEventListener("abort", abort, { once: true });
+    const stream = query({
+      prompt,
+      options: {
+        abortController,
+        cwd: options.workspaceDir,
+        env: buildRuntimeEnv(options.baseEnv ?? process.env, {
+          timezone: options.timezone,
+          configDir: options.configDir,
+          oauthToken: options.oauthToken,
+        }),
+        systemPrompt: { type: "custom", prompt: SUMMARY_SYSTEM_PROMPT, snapshot: false },
+        settingSources: [],
+        settings: { disableClaudeAiConnectors: true },
+        strictMcpConfig: true,
+        tools: [],
+        allowedTools: [],
+        disallowedTools: FORBIDDEN_BUILTINS,
+        permissionMode: "dontAsk",
+        model: options.summaryModel ?? DEFAULT_SUMMARY_MODEL,
+        effort: "low",
+        maxTurns: 1,
+        persistSession: false,
+        stderr: options.onStderr,
+      },
+    });
+    try {
+      for await (const message of untilAborted(stream, signal)) {
+        if (message.type === "result") {
+          if (message.subtype !== "success") throw new Error(`summary failed: ${message.subtype}`);
+          return message.result;
+        }
+      }
+      throw new Error(signal.aborted ? "summary cancelled" : "summary ended without a result");
+    } finally {
+      signal.removeEventListener("abort", abort);
+      stream.close();
+    }
   }
 
   async *runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent> {

@@ -6,11 +6,12 @@ export interface MapperState {
   toolNames: Map<string, string>;
   text: string;
   allowOverage: boolean;
+  contextTokens: number;
   now: () => number;
 }
 
 export function createMapperState(allowOverage: boolean, now: () => number = Date.now): MapperState {
-  return { toolNames: new Map(), text: "", allowOverage, now };
+  return { toolNames: new Map(), text: "", allowOverage, contextTokens: 0, now };
 }
 
 const assistantErrorCodes: Record<string, RuntimeErrorCode> = {
@@ -23,6 +24,16 @@ const assistantErrorCodes: Record<string, RuntimeErrorCode> = {
   overloaded: "unavailable",
   server_error: "unavailable",
 };
+
+interface CallUsage {
+  input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+}
+
+function contextTokensOf(usage: CallUsage | undefined): number {
+  return (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0);
+}
 
 const RESUME_FAILURE = /no conversation found|session .*not found|could not (find|load) session/i;
 
@@ -97,6 +108,7 @@ export function mapSdkMessage(message: SDKMessage, state: MapperState): RuntimeE
       return events;
     }
     case "assistant": {
+      if (message.parent_tool_use_id === null) state.contextTokens = contextTokensOf(message.message.usage);
       if (!message.error) return [];
       const code = assistantErrorCodes[message.error] ?? "internal";
       return [{ type: "error", code, message: `Claude error: ${message.error}`, sessionId: message.session_id }];
@@ -125,6 +137,8 @@ export function mapSdkMessage(message: SDKMessage, state: MapperState): RuntimeE
               inputTokens: message.usage.input_tokens,
               outputTokens: message.usage.output_tokens,
               cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+              cacheCreationTokens: message.usage.cache_creation_input_tokens ?? 0,
+              contextTokens: state.contextTokens,
             },
           },
         ];

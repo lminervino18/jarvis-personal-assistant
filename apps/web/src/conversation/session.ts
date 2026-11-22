@@ -564,7 +564,7 @@ export class Session {
   private beginUtterance(): boolean {
     const conversationId = this.client.conversationId;
     if (!conversationId || this.status !== "ready") return false;
-    this.interruptAssistant("barge_in");
+    if (this.engine?.player.active) this.interruptAssistant("barge_in");
     const turnId = this.newId();
     const replyMode = this.capabilities?.tts ? "voice" : "text";
     if (!this.client.send({ type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode })) return false;

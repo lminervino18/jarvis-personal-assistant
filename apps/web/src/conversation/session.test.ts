@@ -310,6 +310,22 @@ describe("Session voice turns", () => {
     expect(session.getSnapshot().state).toBe("listening");
   });
 
+  it("keeps a thinking turn alive when the owner speaks before the reply starts", async () => {
+    const { session, socket, engine, connect } = setup();
+    connect(true);
+    await session.toggleMicrophone();
+    engine().feed(0.0008, 40);
+    session.sendText("qué tengo mañana");
+    const turnId = socket().last("user.text")?.turnId as string;
+    socket().server({ type: "state", state: "thinking", turnId });
+
+    engine().feed(0.0008, 30);
+    engine().feed(0.5, 30);
+    expect(socket().last("turn.cancel")).toBeUndefined();
+    expect(socket().last("audio.begin")?.turnId).toEqual(expect.any(String));
+    expect(socket().last("audio.begin")?.turnId).not.toBe(turnId);
+  });
+
   it("closes the microphone when the conversation ends", async () => {
     const { session, socket, connect } = setup();
     connect(true);

@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import { sql as initSql } from "./migrations/001-init.js";
 import { sql as syncCursorsSql } from "./migrations/002-sync-cursors.js";
 import { sql as waOutboxSql } from "./migrations/003-wa-outbox.js";
+import { sql as turnUsageSql } from "./migrations/004-turn-usage.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 
@@ -20,6 +21,7 @@ export const migrations: Migration[] = [
   { version: 1, name: "init", sql: initSql },
   { version: 2, name: "sync_cursors", sql: syncCursorsSql },
   { version: 3, name: "wa_outbox", sql: waOutboxSql },
+  { version: 4, name: "turn_usage", sql: turnUsageSql },
 ];
 
 /**

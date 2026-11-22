@@ -22,7 +22,10 @@ const EnvSchema = z.object({
   CLAUDE_CONFIG_DIR: z.string().optional(),
   CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   CLAUDE_MAX_TURNS: z.coerce.number().int().min(1).max(50).default(12),
-  CLAUDE_SESSION_MAX_TURNS: z.coerce.number().int().min(2).max(500).default(40),
+  CLAUDE_SUMMARY_MODEL: z.string().min(1).default("claude-haiku-5-5"),
+  CLAUDE_SESSION_MAX_TURNS: z.coerce.number().int().min(2).max(500).default(15),
+  CLAUDE_SESSION_MAX_CONTEXT_TOKENS: z.coerce.number().int().min(5_000).max(1_000_000).default(40_000),
+  CLAUDE_SESSION_IDLE_MINUTES: z.coerce.number().int().min(1).max(1_440).default(30),
   CLAUDE_ALLOW_OVERAGE: booleanFlag,
   FOLLOW_UP_WINDOW_MS: z.coerce.number().int().min(0).max(60_000).default(12_000),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
@@ -49,7 +52,10 @@ export interface AppConfig {
     configDir?: string;
     oauthToken?: string;
     maxTurns: number;
+    summaryModel: string;
     sessionMaxTurns: number;
+    sessionMaxContextTokens: number;
+    sessionIdleMs: number;
     allowOverage: boolean;
     workspaceDir: string;
   };
@@ -83,7 +89,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       configDir: parsed.CLAUDE_CONFIG_DIR ? resolve(parsed.CLAUDE_CONFIG_DIR) : undefined,
       oauthToken: parsed.CLAUDE_CODE_OAUTH_TOKEN,
       maxTurns: parsed.CLAUDE_MAX_TURNS,
+      summaryModel: parsed.CLAUDE_SUMMARY_MODEL,
       sessionMaxTurns: parsed.CLAUDE_SESSION_MAX_TURNS,
+      sessionMaxContextTokens: parsed.CLAUDE_SESSION_MAX_CONTEXT_TOKENS,
+      sessionIdleMs: parsed.CLAUDE_SESSION_IDLE_MINUTES * 60_000,
       allowOverage: parsed.CLAUDE_ALLOW_OVERAGE,
       workspaceDir: resolve(dataDir, "runtime-workspace"),
     },

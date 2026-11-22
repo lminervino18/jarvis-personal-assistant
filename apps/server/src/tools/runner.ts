@@ -10,7 +10,7 @@ import {
 } from "@jarvis/contracts";
 import { z } from "zod";
 import { fail } from "./envelope.js";
-import type { AnyToolDefinition, ToolContext } from "./types.js";
+import type { AnyToolDefinition, PreparedInput, ToolContext } from "./types.js";
 
 const PENDING_ACTION_TTL_MS = 15 * 60 * 1000;
 
@@ -90,15 +90,19 @@ export async function runTool(ctx: ToolContext, definition: AnyToolDefinition, r
   const parsed = parseInput(definition, raw);
   if (!parsed.success) return fail("invalid_input", z.prettifyError(parsed.error));
 
-  const changesState = stateChangingTools.has(definition.name);
-  if (changesState && (ctx.security.tainted || confirmAlwaysTools.has(definition.name))) {
-    return requestConfirmation(ctx, definition, parsed.data, ctx.security.tainted);
-  }
-
   try {
+    const prepare = definition.prepare as ((c: ToolContext, i: unknown) => PreparedInput<unknown>) | undefined;
+    const prepared = prepare ? prepare(ctx, parsed.data) : { input: parsed.data };
+    if ("refused" in prepared) return prepared.refused;
+
+    const changesState = stateChangingTools.has(definition.name);
+    if (changesState && (ctx.security.tainted || confirmAlwaysTools.has(definition.name))) {
+      return requestConfirmation(ctx, definition, prepared.input, ctx.security.tainted);
+    }
+
     const result = changesState
-      ? await executeOnce(ctx, definition, parsed.data)
-      : await (definition.execute as (c: ToolContext, i: unknown) => Promise<ToolResult<unknown>>)(ctx, parsed.data);
+      ? await executeOnce(ctx, definition, prepared.input)
+      : await (definition.execute as (c: ToolContext, i: unknown) => Promise<ToolResult<unknown>>)(ctx, prepared.input);
     if (untrustedContentTools.has(definition.name)) {
       ctx.security.tainted = true;
       ctx.security.taintSources.add(definition.name);

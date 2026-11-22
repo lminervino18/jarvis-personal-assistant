@@ -8,6 +8,7 @@ export interface ConversationRow {
   claude_session_id: string | null;
   session_turns: number;
   summary: string | null;
+  summary_through_rid: number;
   updated_at: string;
 }
 
@@ -21,6 +22,22 @@ interface MessageRow {
   created_at: string;
   rid: number;
 }
+
+export interface PendingMessage {
+  rid: number;
+  role: "user" | "assistant";
+  text: string;
+}
+
+export interface TurnUsage {
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  outputTokens: number;
+}
+
+const SEED_MAX_MESSAGES = 60;
+const SEED_MESSAGE_CHARS = 400;
 
 export interface TurnMetrics {
   sttMs?: number;
@@ -71,8 +88,34 @@ export class ConversationStore {
       .run(sessionId, sessionTurns, new Date().toISOString(), conversationId);
   }
 
-  setSummary(conversationId: string, summary: string): void {
-    this.db.prepare("UPDATE conversations SET summary = ? WHERE id = ?").run(summary, conversationId);
+  setSummary(conversationId: string, summary: string, throughRid: number): void {
+    this.db
+      .prepare("UPDATE conversations SET summary = ?, summary_through_rid = ? WHERE id = ?")
+      .run(summary, throughRid, conversationId);
+  }
+
+  lastModelTurnEndedAt(conversationId: string): Date | undefined {
+    const row = this.db
+      .prepare("SELECT MAX(ended_at) AS at FROM turns WHERE conversation_id = ? AND claude_session_id IS NOT NULL")
+      .get(conversationId) as { at: string | null };
+    return row.at ? new Date(row.at) : undefined;
+  }
+
+  /** Owner and assistant messages not yet covered by the conversation summary, oldest first. */
+  unsummarized(conversationId: string, excludeTurnId?: string): PendingMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT rid, role, content FROM messages
+         WHERE conversation_id = ? AND rid > ? AND role != 'system' AND TRIM(content) != '' AND (? IS NULL OR turn_id IS NOT ?)
+         ORDER BY rid`,
+      )
+      .all(
+        conversationId,
+        this.get(conversationId)?.summary_through_rid ?? 0,
+        excludeTurnId ?? null,
+        excludeTurnId ?? null,
+      ) as { rid: number; role: "user" | "assistant"; content: string }[];
+    return rows.map((row) => ({ rid: row.rid, role: row.role, text: row.content }));
   }
 
   setTitleIfEmpty(conversationId: string, title: string): void {
@@ -90,13 +133,13 @@ export class ConversationStore {
 
   finishTurn(
     turnId: string,
-    outcome: { status: TurnStatus; errorCode?: string; sessionId?: string; tainted: boolean; usedTools: boolean },
+    outcome: { status: TurnStatus; errorCode?: string; sessionId?: string; tainted: boolean; usedTools: boolean; usage?: TurnUsage },
     metrics: TurnMetrics,
   ): void {
     this.db
       .prepare(
         `UPDATE turns SET status = ?, error_code = ?, claude_session_id = ?, tainted = ?, used_tools = ?, ended_at = ?,
-           first_text_ms = ?, first_audio_ms = ?
+           first_text_ms = ?, first_audio_ms = ?, input_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, output_tokens = ?
          WHERE id = ?`,
       )
       .run(
@@ -108,6 +151,10 @@ export class ConversationStore {
         new Date().toISOString(),
         metrics.firstTextMs ?? null,
         metrics.firstAudioMs ?? null,
+        outcome.usage?.inputTokens ?? null,
+        outcome.usage?.cacheReadTokens ?? null,
+        outcome.usage?.cacheCreationTokens ?? null,
+        outcome.usage?.outputTokens ?? null,
         turnId,
       );
   }
@@ -179,12 +226,11 @@ export class ConversationStore {
     return { items: rows.slice(0, limit).reverse().map(toHistoryItem), hasMore };
   }
 
-  /** Recent exchange rendered as plain text, used to seed a fresh Claude session. */
-  seedContext(conversationId: string, ownerName: string, maxMessages = 12): string | undefined {
-    const { items } = this.history(conversationId, maxMessages);
-    const lines = items
-      .filter((item) => item.role !== "system" && item.text.trim())
-      .map((item) => `${item.role === "user" ? ownerName : "J.A.R.V.IS"}: ${item.text.replace(/\s+/g, " ").slice(0, 400)}`);
+  /** The summary plus the messages it does not cover, rendered as plain text to seed a fresh Claude session. */
+  seedContext(conversationId: string, ownerName: string, excludeTurnId?: string): string | undefined {
+    const lines = this.unsummarized(conversationId, excludeTurnId)
+      .slice(-SEED_MAX_MESSAGES)
+      .map((message) => `${message.role === "user" ? ownerName : "J.A.R.V.IS"}: ${message.text.replace(/\s+/g, " ").slice(0, SEED_MESSAGE_CHARS)}`);
     const summary = this.get(conversationId)?.summary;
     const parts = [summary ? `Resumen previo: ${summary}` : "", ...lines].filter(Boolean);
     return parts.length ? parts.join("\n") : undefined;

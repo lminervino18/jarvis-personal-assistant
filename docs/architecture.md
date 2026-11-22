@@ -52,7 +52,7 @@ The worker also turns notifiable task events from `work.db` into chat messages a
 1. Client sends `user.text`, or `audio.begin` + binary mic frames + `audio.end`.
 2. Voice turns go through `SpeechToTextService` → `transcript` events.
 3. `ConversationOrchestrator.startTurn` cancels any running turn in that conversation (one active turn per conversation), persists the user message and registers a per-turn toolset.
-4. `ClaudeAgentRuntime.runTurn` resumes the conversation's explicit `claude_session_id` (or starts a fresh session seeded with recent history after `CLAUDE_SESSION_MAX_TURNS`, or when resume fails).
+4. `ClaudeAgentRuntime.runTurn` resumes the conversation's explicit `claude_session_id` (or starts a fresh session seeded with the stored summary plus the messages it does not cover; rotation happens after `CLAUDE_SESSION_MAX_TURNS` turns, over `CLAUDE_SESSION_MAX_CONTEXT_TOKENS` of context in the last call, or after `CLAUDE_SESSION_IDLE_MINUTES` idle; the summary is built from SQLite by a one-shot `CLAUDE_SUMMARY_MODEL` call in the background, with a clipped-digest fallback; or when resume fails).
 5. Runtime events become protocol events: `assistant.delta`, `tool`, `state`, `card`, `assistant.done`, `turn.end`.
 6. For voice replies a `ReplySpeaker` turns text deltas into sentences → TTS → PCM frames tagged with the turn id.
 7. Cancellation (`turn.cancel`) aborts the runtime and the speaker. Tool writes already executed stay; their idempotency key prevents duplicates.

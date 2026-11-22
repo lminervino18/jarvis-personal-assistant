@@ -14,6 +14,7 @@ import type { WebSocket } from "ws";
 import type { ConversationStore } from "../conversation/conversation-store.js";
 import type { ConversationHub, Subscriber } from "../conversation/hub.js";
 import type { ConversationOrchestrator, Logger } from "../conversation/orchestrator.js";
+import { isFillerTranscript, isStockPhrase } from "../voice/filler.js";
 import type { AudioSink, SpeechCapture, SpeechToTextService, TextToSpeechService } from "../voice/types.js";
 import type { z } from "zod";
 
@@ -355,7 +356,13 @@ export class ClientConnection implements Subscriber {
       return;
     }
     if (capture.controller.signal.aborted) return;
-    const text = transcript.text.trim();
+    const text = isStockPhrase(transcript.text) ? "" : transcript.text.trim();
+    const running = this.deps.orchestrator.runningTurn(this.conversationId);
+    if (running && running.turnId !== turnId && isFillerTranscript(text)) {
+      this.send({ type: "turn.end", turnId, status: "cancelled" });
+      this.send({ type: "state", state: running.replying ? "speaking" : "thinking", turnId: running.turnId });
+      return;
+    }
     this.send({ type: "transcript", turnId, text, final: true });
     void this.deps.orchestrator.startTurn({
       conversationId: this.conversationId,

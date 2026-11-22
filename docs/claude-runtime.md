@@ -72,7 +72,7 @@ Alternatives considered and set aside:
 | Authorized tools only | `tools: ["WebSearch"]`, in-process MCP server `jarvis` per turn, `allowedTools`, `disallowedTools`, `permissionMode: "dontAsk"`, `PreToolUse` hook allowlist, `settingSources: []`, `strictMcpConfig`, `disableClaudeAiConnectors` |
 | Cancellation | `AbortController` + iteration that stops on abort without waiting for the next message, then `close()` |
 | Quota and errors | `rate_limit_event` (rejected / overage), assistant `error` codes, result error subtypes, `resume_failed` detection |
-| Session persistence | `conversations.claude_session_id` + `session_turns`; rotation after `CLAUDE_SESSION_MAX_TURNS` with a seed of recent messages from SQLite |
+| Session persistence | `conversations.claude_session_id` + `session_turns`; rotation after `CLAUDE_SESSION_MAX_TURNS` turns, `CLAUDE_SESSION_MAX_CONTEXT_TOKENS` of context in the last call or `CLAUDE_SESSION_IDLE_MINUTES` idle; the seed is the SQLite summary (`conversations.summary`, built in the background by a tool-less Haiku call from the messages after `summary_through_rid`) plus the messages it does not cover. Per-turn token usage is stored in `turns` |
 | Concurrency | One active turn per conversation (`ConversationOrchestrator`), superseded turns are aborted first |
 | Current date | A `[contexto: …]` header in every user message, so resumed sessions resolve "mañana" against the real local date |
 

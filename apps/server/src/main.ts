@@ -97,6 +97,7 @@ const runtime: ModelRuntime =
         workspaceDir: config.claude.workspaceDir,
         timezone: config.timezone,
         model: config.claude.model,
+        summaryModel: config.claude.summaryModel,
         effort: (process.env.CLAUDE_EFFORT as Effort | undefined) ?? "low",
         maxTurns: config.claude.maxTurns,
         allowOverage: config.claude.allowOverage,
@@ -120,6 +121,8 @@ const orchestrator = new ConversationOrchestrator({
   builtinTools,
   ownerName: config.ownerDisplayName,
   sessionMaxTurns: config.claude.sessionMaxTurns,
+  sessionMaxContextTokens: config.claude.sessionMaxContextTokens,
+  sessionIdleMs: config.claude.sessionIdleMs,
   textOnlySources,
   log: logger,
 });

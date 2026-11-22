@@ -63,7 +63,14 @@ export interface ToolDefinition<N extends ToolName> {
   execute(ctx: ToolContext, input: ToolInput<N>): Promise<ToolResult<unknown>>;
   /** How a state-changing call is shown in a confirmation card. */
   describe?(ctx: ToolContext, input: ToolInput<N>): ConfirmationSummary;
+  /**
+   * Checks a call before it runs or waits for confirmation: refuses it (for example an unknown
+   * recipient) or returns the input to use, so a card holds exactly what will run.
+   */
+  prepare?(ctx: ToolContext, input: ToolInput<N>): PreparedInput<ToolInput<N>>;
 }
+
+export type PreparedInput<I> = { input: I } | { refused: ToolResult<unknown> };
 
 export type AnyToolDefinition = { [N in ToolName]: ToolDefinition<N> }[ToolName];
 

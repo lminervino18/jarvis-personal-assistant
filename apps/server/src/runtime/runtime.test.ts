@@ -55,6 +55,27 @@ describe("mapSdkMessage", () => {
     expect(mapSdkMessage(message, createMapperState(false))[0]).toMatchObject({ type: "error", code: "resume_failed" });
   });
 
+  it("reports the size of the last model call and the cache tokens in the result", () => {
+    const state = createMapperState(false);
+    const call = (input: number, read: number, created: number) =>
+      sdk({ type: "assistant", parent_tool_use_id: null, session_id: "s1", message: { content: [], usage: { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: created } } });
+    mapSdkMessage(call(10, 5000, 200), state);
+    mapSdkMessage(call(20, 9000, 300), state);
+    const result = sdk({
+      type: "result",
+      subtype: "success",
+      session_id: "s1",
+      result: "ok",
+      duration_ms: 1,
+      num_turns: 2,
+      usage: { input_tokens: 30, output_tokens: 40, cache_read_input_tokens: 14_000, cache_creation_input_tokens: 500 },
+    });
+    expect(mapSdkMessage(result, state)[0]).toMatchObject({
+      type: "result",
+      usage: { inputTokens: 30, outputTokens: 40, cacheReadTokens: 14_000, cacheCreationTokens: 500, contextTokens: 9320 },
+    });
+  });
+
   it("maps authentication failures reported on assistant messages", () => {
     const message = sdk({ type: "assistant", error: "authentication_failed", session_id: "s1", message: { content: [] } });
     expect(mapSdkMessage(message, createMapperState(false))[0]).toMatchObject({ code: "auth_failed" });

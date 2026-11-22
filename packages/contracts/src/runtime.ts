@@ -24,6 +24,15 @@ export type RuntimeErrorCode =
   | "unavailable"
   | "internal";
 
+/** Token totals of a turn, plus the size of the context sent in its last model call. */
+export interface RuntimeUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  contextTokens: number;
+}
+
 export type RuntimeEvent =
   | { type: "session"; sessionId: string; model: string; tools: string[]; mcpServers: string[]; authSource: string }
   | { type: "text_delta"; text: string }
@@ -36,11 +45,13 @@ export type RuntimeEvent =
       text: string;
       durationMs: number;
       numTurns: number;
-      usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number };
+      usage: RuntimeUsage;
     }
   | { type: "error"; code: RuntimeErrorCode; message: string; sessionId?: string; retryAfterMs?: number };
 
 export interface ModelRuntime {
   readonly name: string;
   runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent>;
+  /** One-shot call without tools or session, used to summarize conversations. Rejects on failure. */
+  summarize?(prompt: string, signal: AbortSignal): Promise<string>;
 }

@@ -7,7 +7,7 @@ const MAX_WORDS = 5;
 const MAX_DETAIL_CHARS = 280;
 const FILLER = new Set(["jarvis", "por", "favor", "porfa", "che"]);
 const YES = new Set([
-  "si", "sip", "dale", "ok", "okey", "okay", "listo", "perfecto", "bueno", "claro", "obvio", "de", "una", "va",
+  "si", "sip", "dale", "ok", "okey", "okay", "claro", "obvio", "de", "una",
   "confirmo", "confirma", "confirmalo", "confirmado", "manda", "mandalo", "mandale", "envia", "envialo", "hacelo", "adelante",
 ]);
 const NO = new Set(["no", "nop", "nope", "cancela", "cancelalo", "descarta", "descartalo", "dejalo", "olvidalo", "mejor", "gracias"]);
