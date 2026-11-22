@@ -1,10 +1,13 @@
 import type { Task } from "../tasks/task-store.js";
 import type { TaskOutcome } from "../tasks/task-service.js";
+import { clip } from "./digest.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
 const SOURCE = { provider: "tasks" };
 const DISABLED = "Las tareas delegadas no están configuradas en este servidor.";
+const LIST_ITEMS = 8;
+const TEXT_CHARS = 240;
 const NOT_DONE_NOTE = "Nunca digas que una tarea está hecha si su estado no es ready o accepted.";
 
 function overview(task: Task) {
@@ -82,7 +85,7 @@ export const taskStatus = defineTool({
       [
         {
           ...overview(task),
-          goal: task.spec?.goal ?? null,
+          goal: task.spec?.goal ? clip(task.spec.goal, 600) : null,
           blocker: task.blocker ?? null,
           costUsd: Math.round(task.costUsd * 100) / 100,
           budgetUsd: task.budgetUsd,
@@ -104,28 +107,41 @@ export const taskResult = defineTool({
     const task = tasks.byRef(input.ref);
     if (!task) return fail("not_found", `No existe la tarea #${input.ref}.`);
     ctx.emitCard(tasks.card(task));
+    const changes = task.report?.changes ?? [];
+    const deliverables = task.report?.deliverables ?? [];
+    const checks = task.review?.checksRun ?? [];
+    const changedFiles = task.evidence?.changedFiles ?? [];
     const criteria = (task.spec?.acceptanceCriteria ?? []).map((criterion) => {
       const verdict = task.review?.criteria.find((item) => item.id === criterion.id);
-      return { id: criterion.id, text: criterion.text, review: verdict?.status ?? "sin revisar", evidence: verdict?.evidence ?? null };
+      return {
+        id: criterion.id,
+        text: clip(criterion.text, TEXT_CHARS),
+        review: verdict?.status ?? "sin revisar",
+        evidence: verdict?.evidence ? clip(verdict.evidence, TEXT_CHARS) : null,
+      };
     });
     return ok(
       SOURCE,
       [
         {
           ...overview(task),
-          goal: task.spec?.goal ?? null,
-          summary: task.report?.summary ?? null,
-          changes: task.report?.changes ?? [],
-          deliverables: task.report?.deliverables ?? [],
+          goal: task.spec?.goal ? clip(task.spec.goal, 600) : null,
+          summary: task.report?.summary ? clip(task.report.summary, 800) : null,
+          changes: changes.slice(0, LIST_ITEMS).map((change) => ({ path: change.path, description: clip(change.description, TEXT_CHARS) })),
+          changesTotal: changes.length,
+          deliverables: deliverables.slice(0, LIST_ITEMS).map((item) => ({ path: item.path, description: clip(item.description, TEXT_CHARS) })),
+          deliverablesTotal: deliverables.length,
           reviewVerdict: task.review?.verdict ?? null,
-          reviewSummary: task.review?.summary ?? null,
+          reviewSummary: task.review?.summary ? clip(task.review.summary, 600) : null,
           criteria,
-          checksRunByReviewer: task.review?.checksRun ?? [],
-          changedFiles: task.evidence?.changedFiles ?? [],
+          checksRunByReviewer: checks.slice(0, LIST_ITEMS).map((check) => ({ ...check, summary: clip(check.summary, TEXT_CHARS) })),
+          checksTotal: checks.length,
+          changedFiles: changedFiles.slice(0, LIST_ITEMS * 2),
+          changedFilesTotal: changedFiles.length,
           diffStat: task.evidence?.diffStat ?? null,
         },
       ],
-      { note: `${NOT_DONE_NOTE} El diff completo y los archivos se ven desde la tarjeta.` },
+      { note: `${NOT_DONE_NOTE} Esto es un resumen (los *Total indican cuántos hay); el detalle completo, el diff y los archivos se ven desde la tarjeta.` },
     );
   },
 });

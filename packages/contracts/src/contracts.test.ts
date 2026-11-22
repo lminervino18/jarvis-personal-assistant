@@ -50,6 +50,12 @@ describe("tool contracts", () => {
     expect(schema.safeParse({ text: "pagar la luz", dueAt: "2026-10-30T09:00:00" }).success).toBe(false);
   });
 
+  it("validates dates server side without repeating a date-time pattern in the JSON schema", () => {
+    const json = JSON.stringify(z.toJSONSchema(z.object(toolInputs.calendar_list)));
+    expect(json).not.toContain("pattern");
+    expect(z.object(toolInputs.calendar_list).safeParse({ from: "2026-10-30", to: "2026-10-31T00:00:00-03:00" }).success).toBe(false);
+  });
+
   it("never classifies an untrusted reader as a state changer", () => {
     for (const name of untrustedContentTools) expect(stateChangingTools.has(name)).toBe(false);
   });

@@ -95,6 +95,18 @@ describe("gmail tools", () => {
   });
 });
 
+describe("gmail thread digest", () => {
+  it("returns only the last messages and tells the model how to ask for more", async () => {
+    const { ctx } = await setup();
+    const result = await runTool(ctx, tool("gmail_get_thread"), { account: "personal", threadId: "t1", lastMessages: 1, bodyChars: 200 });
+    expect(result.ok && result.items).toHaveLength(1);
+    expect(result.ok && result.coverage?.note).toContain("2 mensajes más antiguos");
+    expect(result.ok && result.coverage?.note).toContain("lastMessages");
+    const body = result.ok ? ((result.items as { body: string }[])[0]?.body ?? "") : "";
+    expect(body.length).toBeLessThanOrEqual(201);
+  });
+});
+
 describe("prompt injection through email", () => {
   it("marks the turn as tainted so a following state change needs confirmation", async () => {
     const { ctx, db, cards } = await setup();

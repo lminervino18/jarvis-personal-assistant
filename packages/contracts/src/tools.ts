@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { ChartShape, TableShape } from "./cards.js";
 
-const IsoWithOffset = z.iso.datetime({ offset: true });
+const isoDateTimeWithOffset = z.iso.datetime({ offset: true });
+const IsoWithOffset = z
+  .string()
+  .refine((value) => isoDateTimeWithOffset.safeParse(value).success, "Fecha ISO 8601 con offset inválida")
+  .describe("ISO 8601 con offset");
 const EntityId = z.string().min(1).max(64);
 const TaskRef = z.number().int().positive();
 export const ProjectSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
@@ -43,6 +47,8 @@ export const toolInputs = {
   gmail_get_thread: {
     account: GmailAccountLabel,
     threadId: z.string().min(1).max(64),
+    lastMessages: z.number().int().min(1).max(15).optional(),
+    bodyChars: z.number().int().min(200).max(4000).optional(),
   },
   whatsapp_search: {
     query: z.string().min(1).max(200),
@@ -58,6 +64,7 @@ export const toolInputs = {
     before: IsoWithOffset.optional(),
     after: IsoWithOffset.optional(),
     limit: z.number().int().min(1).max(50).optional(),
+    fullText: z.boolean().optional(),
   },
   whatsapp_send: {
     chatId: z.string().min(1).max(128),
