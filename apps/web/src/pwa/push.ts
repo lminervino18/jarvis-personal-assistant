@@ -37,3 +37,20 @@ export async function subscribeToPush(publicKey: string): Promise<PushResult & {
     return { ok: false, message: "No se pudo activar en este dispositivo." };
   }
 }
+
+export type PushStatus = "install" | "unsupported" | "blocked" | "off" | "on";
+
+/** Whether this device can and does receive notifications; never asks for permission. */
+export async function readPushStatus(): Promise<PushStatus> {
+  const platform = readPlatform();
+  if (isIos(platform) && !platform.standalone) return "install";
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "unsupported";
+  if (Notification.permission === "denied") return "blocked";
+  if (Notification.permission !== "granted") return "off";
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    return (await registration?.pushManager.getSubscription()) ? "on" : "off";
+  } catch {
+    return "off";
+  }
+}
