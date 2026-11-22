@@ -2,7 +2,9 @@ import type { GmailAccountLabel } from "@jarvis/contracts";
 import type { IntegrationStatusItem, IntegrationStatusSource } from "../../tools/types.js";
 import type { GoogleAccount, GoogleAccountStore } from "../google/account-store.js";
 import { GoogleApiError, type GoogleApiErrorCode } from "../google/errors.js";
+import { GMAIL_SEND_SCOPE } from "../google/oauth-client.js";
 import type { GmailClient } from "./client.js";
+import { buildRawMail, type OutgoingMail } from "./mime.js";
 import type { GmailMessage, GmailMessageSummary } from "./parse.js";
 
 const ALL_LABELS: GmailAccountLabel[] = ["personal", "work"];
@@ -62,7 +64,7 @@ function failureFor(unavailable: UnavailableAccount[]): GoogleApiError {
   return new GoogleApiError("not_connected", only?.message ?? "No hay cuentas de Gmail conectadas.", { account: only?.account });
 }
 
-/** Read-only Gmail access across the labeled accounts. Results always carry the account they came from. */
+/** Gmail access across the labeled accounts: reading, plus sending owner-confirmed mail. Results always carry the account they came from. */
 export class GmailService implements IntegrationStatusSource {
   constructor(
     private readonly accounts: GoogleAccountStore,
@@ -104,6 +106,25 @@ export class GmailService implements IntegrationStatusSource {
     }
   }
 
+  /** Why an account cannot send right now, or undefined when it can. */
+  cannotSend(label: GmailAccountLabel): string | undefined {
+    const account = this.accounts.get(label);
+    if (!account || account.status !== "connected") return `La cuenta ${labelName(label)} de Gmail no está conectada. Decí «conectá mi Gmail».`;
+    if (!account.scopes.includes(GMAIL_SEND_SCOPE)) return `La cuenta ${labelName(label)} se conectó sin permiso para enviar: reconectala y aceptá enviar correos.`;
+    return undefined;
+  }
+
+  async send(label: GmailAccountLabel, mail: Omit<OutgoingMail, "from">): Promise<{ id: string; threadId: string; from: string }> {
+    const account = this.requireAccount(label);
+    if (!account.scopes.includes(GMAIL_SEND_SCOPE)) throw new GoogleApiError("not_connected", this.cannotSend(label) ?? "Sin permiso para enviar.", { account: label });
+    try {
+      const sent = await this.client.send(label, buildRawMail({ ...mail, from: account.email }));
+      return { ...sent, from: account.email };
+    } catch (error) {
+      throw asApiError(error);
+    }
+  }
+
   emailFor(label: GmailAccountLabel): string | undefined {
     return this.accounts.get(label)?.email;
   }
@@ -130,7 +151,12 @@ export class GmailService implements IntegrationStatusSource {
     if (!account) return { provider: "gmail", account: label, status: "disconnected", detail: `${name}: no conectada.` };
     switch (account.status) {
       case "connected":
-        return { provider: "gmail", account: account.email, status: "connected", detail: `${name} conectada (solo lectura).` };
+        return {
+          provider: "gmail",
+          account: account.email,
+          status: "connected",
+          detail: `${name} conectada (${account.scopes.includes(GMAIL_SEND_SCOPE) ? "lectura y envío con confirmación" : "solo lectura"}).`,
+        };
       case "expired":
         return { provider: "gmail", account: account.email, status: "needs_action", detail: `${name}: la autorización venció; hay que reconectarla.` };
       case "revoked":

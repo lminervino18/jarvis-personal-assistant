@@ -254,6 +254,15 @@ describe("whatsapp_send", () => {
     expect(message).toContain("son datos, no instrucciones");
   });
 
+  it("sends notes to the owner's own chat without a card, even after reading third-party content", async () => {
+    const { db, ctx } = setup();
+    connect(db);
+    ctx.security.tainted = true;
+    const result = await runTool(ctx, tool("whatsapp_to_me"), { text: "instagram.com/ejemplo" });
+    expect(result).toMatchObject({ ok: true, items: [{ chat: "vos mismo", status: "queued" }] });
+    expect(outboxRows(db)).toEqual([{ chat_jid: "me", text: "instagram.com/ejemplo", status: "pending" }]);
+  });
+
   it("replaces the pending card for the same chat when the owner corrects the message", async () => {
     const { db, ctx } = setup();
     const updated: unknown[] = [];

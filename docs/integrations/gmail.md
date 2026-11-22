@@ -1,10 +1,11 @@
 # Gmail
 
-Read-only access to the owner's Gmail through the Gmail REST API, with one Google authorization per account label.
+Reading the owner's Gmail, and sending owner-confirmed mail, through the Gmail REST API, with one Google authorization per account label.
 
 ## Behavior
 
-- Scope: `openid email https://www.googleapis.com/auth/gmail.readonly`. The server only issues `GET` requests to `users.messages.list`, `users.messages.get` (metadata) and `users.threads.get`. It never modifies labels, never marks as read, never downloads attachments.
+- Scopes: `openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send`. Reading only issues `GET` requests to `users.messages.list`, `users.messages.get` (metadata) and `users.threads.get`; it never modifies labels, never marks as read, never downloads attachments.
+- Sending: `gmail_send` (in `confirmAlwaysTools`) always stops at a card with sender, recipients, subject and the exact text; it runs only after a tap or a short "sí" right after "¿Confirmo?". The message is plain UTF-8 text built in `integrations/gmail/mime.ts` (no line breaks allowed in header values) and posted once to `users.messages.send`; the runner's idempotency keeps a retried confirmation from sending twice. A corrected mail to the same recipients replaces the pending card. An account connected before sending existed has no `gmail.send` scope: the tool refuses and shows a reconnect card.
 - Labels: `personal` and `work`. Each label is bound to the real email Google reports in the ID token. Connecting a label that is bound to a different email is refused, and so is connecting an email already stored under the other label. A label whose access was revoked by the owner can be rebound.
 - Current state: only `personal` is connected. `work` is fully supported but shows as `disconnected` ("Cuenta de trabajo: no conectada"), never as an error. `gmail_search` with `account: all` searches the connected accounts, labels every item with `account` and `accountEmail`, and lists the skipped ones in the coverage note.
 - Results carry From, To, Subject, Date (ISO, owner's time zone), snippet, Gmail labels and, for threads, a text body truncated to about 4000 characters per message (`text/plain` preferred, HTML stripped otherwise), at most the latest 15 messages, and attachments as name, type and size only. Hidden/format characters are stripped from text.

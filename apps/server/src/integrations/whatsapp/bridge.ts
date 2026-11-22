@@ -3,9 +3,15 @@ import type { Logger } from "pino";
 import { WhatsAppEventHandlers } from "./event-handlers.js";
 import type { WaSyncStatus, WhatsAppStore } from "./message-store.js";
 import type { DbAuthState } from "./auth-state.js";
-import type { WhatsAppOutbox } from "./outbox.js";
+import { OWN_CHAT, type WhatsAppOutbox } from "./outbox.js";
 import type { PairingStore } from "./pairing-store.js";
 import type { CloseDecision, ReconnectPolicy } from "./reconnect-policy.js";
+
+/** The owner's own chat id from the paired device id ("5491100000000:12@s.whatsapp.net" → "5491100000000@s.whatsapp.net"). */
+export function ownChat(deviceId: string | undefined): string | undefined {
+  const user = deviceId?.split("@")[0]?.split(":")[0];
+  return user ? `${user}@s.whatsapp.net` : undefined;
+}
 
 const HEARTBEAT_MS = 60_000;
 const STABLE_MS = 120_000;
@@ -147,7 +153,9 @@ export class WhatsAppBridge {
     if (!message) return;
     this.sending = true;
     try {
-      const sent = await socket.sendMessage(message.chatJid, { text: message.text });
+      const target = message.chatJid === OWN_CHAT ? ownChat(this.options.auth.state.creds.me?.id) : message.chatJid;
+      if (!target) throw new Error("own number unknown");
+      const sent = await socket.sendMessage(target, { text: message.text });
       outbox.markSent(message.id, sent?.key?.id ?? undefined, this.now());
       this.options.log.info("whatsapp message sent");
     } catch (error) {

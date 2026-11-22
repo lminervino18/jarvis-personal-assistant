@@ -82,6 +82,7 @@ export class FakeGoogle {
     if (this.staleTokens.has(authorization.replace("Bearer ", ""))) return json({ error: { code: 401 } }, 401);
     if (this.gmailStatus) return json({ error: { errors: [{ reason: "backendError" }] } }, this.gmailStatus);
     if (path === "/messages") return json(this.search.list);
+    if (path === "/messages/send") return json({ id: "sent-1", threadId: "thread-sent" });
     const message = path.startsWith("/messages/") ? this.search.metadata[path.slice("/messages/".length)] : undefined;
     if (message) return json(message);
     const thread = path.startsWith("/threads/") ? this.threads.get(path.slice("/threads/".length)) : undefined;

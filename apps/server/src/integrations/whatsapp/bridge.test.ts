@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TokenCipher } from "../../crypto/token-cipher.js";
 import { openMigratedDatabase } from "../../db/database.js";
 import { useDbAuthState } from "./auth-state.js";
-import { WhatsAppBridge, type BridgeSocket } from "./bridge.js";
+import { ownChat, WhatsAppBridge, type BridgeSocket } from "./bridge.js";
 import { InstanceLockError, acquireInstanceLock } from "./instance-lock.js";
 import { WhatsAppStore } from "./message-store.js";
 import { PairingStore } from "./pairing-store.js";
@@ -16,7 +16,7 @@ import { ReconnectPolicy } from "./reconnect-policy.js";
 import { BRIDGE_BROWSER, conservativeSocketConfig } from "./socket-config.js";
 import { WhatsAppStatusSource } from "./status.js";
 import { loadBaileysFixture } from "./test-support.js";
-import { WhatsAppOutbox } from "./outbox.js";
+import { OWN_CHAT, WhatsAppOutbox } from "./outbox.js";
 
 const START = new Date("2026-10-26T12:00:00Z");
 const fixture = loadBaileysFixture<{ live: WAMessage[]; history: BaileysEventMap["messaging-history.set"] }>();
@@ -417,6 +417,17 @@ describe("conservative configuration", () => {
     expect(outbox.status("m3")).toMatchObject({ status: "unknown" });
     await restarted.sendNextConfirmed();
     expect(sockets[0]?.sent).toHaveLength(1);
+  });
+
+  it("delivers notes to self to the paired number's own chat", async () => {
+    const { outbox, bridge, sockets } = setup();
+    bridge.start();
+    sockets[0]?.open();
+    outbox.enqueue({ id: "self-1", chatJid: OWN_CHAT, text: "instagram.com/ejemplo" }, new Date());
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.sent).toEqual([{ jid: "5490000000099@s.whatsapp.net", text: "instagram.com/ejemplo" }]);
+    expect(ownChat("5490000000099:12@s.whatsapp.net")).toBe("5490000000099@s.whatsapp.net");
+    expect(ownChat(undefined)).toBeUndefined();
   });
 
   it("sends only from the confirmed outbox and never marks as read or announces presence", () => {

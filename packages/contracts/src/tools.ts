@@ -177,6 +177,16 @@ export const toolInputs = {
     action: z.enum(["pause", "resume", "cancel", "retry"]),
     addBudgetUsd: z.number().positive().max(20).optional(),
   },
+  gmail_send: {
+    account: GmailAccountLabel.optional(),
+    to: z.array(z.email().max(254)).min(1).max(10),
+    cc: z.array(z.email().max(254)).max(10).optional(),
+    subject: z.string().trim().min(1).max(200),
+    body: z.string().trim().min(1).max(20000),
+  },
+  whatsapp_to_me: {
+    text: z.string().trim().min(1).max(2000),
+  },
   page_create: {
     title: z.string().trim().min(1).max(80),
     brief: z.string().trim().min(1).max(4000),
@@ -234,10 +244,11 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "whatsapp_send",
   "page_create",
   "page_update",
+  "gmail_send",
 ]);
 
 /** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */
-export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send"]);
+export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send", "gmail_send"]);
 
 export const ToolErrorCode = z.enum([
   "not_connected",

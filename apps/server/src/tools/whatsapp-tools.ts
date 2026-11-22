@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MAX_TEXT_CHARS, WhatsAppQueryError, WhatsAppReader, type WaMessageView } from "../integrations/whatsapp/message-reader.js";
-import { WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
+import { OWN_CHAT, WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { clip, withinBudget } from "./digest.js";
 import { fail, ok } from "./envelope.js";
@@ -110,4 +110,16 @@ export const whatsappSend = defineTool({
   },
 });
 
-export const whatsappTools = [whatsappSearch, whatsappGetMessages, whatsappSend] as const;
+export const whatsappToMe = defineTool({
+  name: "whatsapp_to_me",
+  description:
+    "Le manda un WhatsApp al propio dueño (su chat «mensaje a mí mismo»), sin tarjeta porque solo le llega a él. Usala cuando pide «mandámelo», «pasámelo al WhatsApp» o similar: links, perfiles, datos, recordatorios rápidos.",
+  async execute(ctx, input) {
+    if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", NOT_CONNECTED);
+    const id = randomUUID();
+    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: OWN_CHAT, text: input.text }, ctx.now());
+    return ok(SOURCE, [{ outboxId: id, chat: "vos mismo", status: "queued" }], { note: "Le llega a su propio chat de WhatsApp en unos segundos." });
+  },
+});
+
+export const whatsappTools = [whatsappSearch, whatsappGetMessages, whatsappSend, whatsappToMe] as const;

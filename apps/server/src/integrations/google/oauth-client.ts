@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
-const SCOPES = ["openid", "email", GMAIL_READONLY_SCOPE];
+/** Lets the assistant send owner-confirmed mail; it cannot read, change or delete anything with it. */
+export const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+const SCOPES = ["openid", "email", GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE];
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";

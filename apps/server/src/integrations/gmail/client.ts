@@ -21,7 +21,7 @@ export interface GmailSearchPage {
   nextPageToken?: string;
 }
 
-/** Read-only Gmail REST client: it only issues GET requests to messages.list/get and threads.get. */
+/** Gmail REST client: GET requests to messages.list/get and threads.get, and one POST to messages.send for owner-confirmed mail. */
 export class GmailClient {
   constructor(
     private readonly tokens: GoogleAccessTokens,
@@ -42,6 +42,19 @@ export class GmailClient {
     return (thread.messages ?? []).map((message) => toMessage(message, this.timezone));
   }
 
+  /** Sends an RFC 2822 message (base64url) and returns its ids. */
+  async send(label: GmailAccountLabel, raw: string): Promise<{ id: string; threadId: string }> {
+    const body = JSON.stringify({ raw });
+    let response = await this.request(`${BASE_URL}/messages/send`, await this.tokens.get(label), "POST", body);
+    if (response.status === 401) {
+      this.tokens.invalidate(label);
+      response = await this.request(`${BASE_URL}/messages/send`, await this.tokens.get(label), "POST", body);
+    }
+    if (!response.ok) throw await this.failure(label, response);
+    const sent = (await response.json()) as { id?: string; threadId?: string };
+    return { id: sent.id ?? "", threadId: sent.threadId ?? "" };
+  }
+
   private async summary(label: GmailAccountLabel, messageId: string): Promise<GmailMessageSummary | undefined> {
     const params = new URLSearchParams({ format: "metadata" });
     for (const name of METADATA_HEADERS) params.append("metadataHeaders", name);
@@ -55,20 +68,21 @@ export class GmailClient {
 
   private async get(label: GmailAccountLabel, path: string, params: URLSearchParams): Promise<unknown> {
     const url = `${BASE_URL}${path}?${params.toString()}`;
-    let response = await this.send(url, await this.tokens.get(label));
+    let response = await this.request(url, await this.tokens.get(label));
     if (response.status === 401) {
       this.tokens.invalidate(label);
-      response = await this.send(url, await this.tokens.get(label));
+      response = await this.request(url, await this.tokens.get(label));
     }
     if (!response.ok) throw await this.failure(label, response);
     return response.json();
   }
 
-  private async send(url: string, accessToken: string): Promise<Response> {
+  private async request(url: string, accessToken: string, method: "GET" | "POST" = "GET", body?: string): Promise<Response> {
     try {
       return await this.fetchFn(url, {
-        method: "GET",
-        headers: { authorization: `Bearer ${accessToken}`, accept: "application/json" },
+        method,
+        headers: { authorization: `Bearer ${accessToken}`, accept: "application/json", ...(body ? { "content-type": "application/json" } : {}) },
+        ...(body ? { body } : {}),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch {

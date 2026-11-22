@@ -11,6 +11,9 @@ export interface OutboxMessage {
  * (`sending`) before the socket call, and a claim interrupted by a crash becomes `unknown`
  * instead of being retried, because WhatsApp may already have delivered it.
  */
+/** Outbox destination meaning the owner's own chat ("message yourself"); the bridge resolves it to the paired number. */
+export const OWN_CHAT = "me";
+
 export class WhatsAppOutbox {
   constructor(private readonly db: Db) {}
 
