@@ -74,3 +74,16 @@ export function useAssistantAnnouncement(messages: ThreadMessage[]): string {
   }, [messages]);
   return text;
 }
+
+/** Height of an element, kept up to date while it resizes (e.g. a growing composer). */
+export function useElementHeight(element: RefObject<HTMLElement | null>, fallback: number): number {
+  const [height, setHeight] = useState(fallback);
+  useEffect(() => {
+    const target = element.current;
+    if (!target) return;
+    const observer = new ResizeObserver(() => setHeight(Math.round(target.getBoundingClientRect().height)));
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [element]);
+  return height;
+}

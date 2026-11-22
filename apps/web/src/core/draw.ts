@@ -184,12 +184,21 @@ function drawDisc(ctx: CanvasRenderingContext2D, radius: number, animator: CoreA
 }
 
 /** Draws one frame centered in a square canvas of `size` CSS pixels. */
+const COMPACT_MAX_PX = 120;
+
 export function drawCore(ctx: CanvasRenderingContext2D, size: number, animator: CoreAnimator, style: CoreStyle, quality: Quality): void {
   const radius = size / 2;
   ctx.clearRect(0, 0, size, size);
   ctx.save();
   ctx.translate(radius, radius);
   drawHalo(ctx, radius, animator);
+  if (size <= COMPACT_MAX_PX) {
+    for (const index of [0, 2]) drawRing(ctx, radius, index, animator, style, 0);
+    if (style.sweep) drawSweep(ctx, radius, animator);
+    drawDisc(ctx, radius, animator, style);
+    ctx.restore();
+    return;
+  }
   if (quality > 0) drawReticle(ctx, radius, animator);
   const rings = quality === 0 ? [0, 2, 3] : [0, 1, 2, 3];
   for (const index of rings) drawRing(ctx, radius, index, animator, style, quality);
