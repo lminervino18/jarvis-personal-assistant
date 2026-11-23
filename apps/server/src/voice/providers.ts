@@ -64,8 +64,11 @@ function buildStt(env: VoiceEnv, options: VoiceServiceOptions, warnings: string[
   }
 }
 
+/** Context for the recognizer: the owner's accent and the names Whisper tends to misspell. */
+export const STT_VOCABULARY = "Charla con JARVIS en español rioplatense sobre WhatsApp, Gmail, Instagram, la agenda y recordatorios.";
+
 function openAiStt(env: VoiceEnv, provider: string, baseUrl: string, defaultModel: string, apiKey: string | undefined) {
-  return new OpenAiCompatibleStt({ provider, baseUrl, apiKey, model: env.STT_MODEL ?? defaultModel, language: env.VOICE_LANGUAGE });
+  return new OpenAiCompatibleStt({ provider, baseUrl, apiKey, model: env.STT_MODEL ?? defaultModel, language: env.VOICE_LANGUAGE, prompt: STT_VOCABULARY });
 }
 
 function buildTts(env: VoiceEnv, options: VoiceServiceOptions, warnings: string[]): TextToSpeechService {

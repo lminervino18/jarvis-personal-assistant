@@ -50,6 +50,20 @@ describe("OpenAiCompatibleStt", () => {
     expect(wav.pcm).toEqual(audio);
   });
 
+  it("sends the vocabulary prompt and drops a transcript that only echoes it", async () => {
+    const calls: RequestInit[] = [];
+    const fetcher = (async (_url: string, init: RequestInit) => {
+      calls.push(init);
+      return Response.json({ text: "Charla con JARVIS en español rioplatense sobre WhatsApp." });
+    }) as unknown as typeof fetch;
+    const prompt = "Charla con JARVIS en español rioplatense sobre WhatsApp, Gmail, Instagram, la agenda y recordatorios.";
+    const stt = new OpenAiCompatibleStt({ provider: "groq", baseUrl: "https://stt.example/v1", model: "m", language: "es", prompt, fetch: fetcher });
+    const capture = stt.startCapture({ turnId: "t", format: FORMAT_16K, signal: idle.signal });
+    capture.push(tone(16000, 1));
+    expect((await capture.finish()).text).toBe("");
+    expect((calls[0]?.body as FormData).get("prompt")).toBe(prompt);
+  });
+
   it("downsamples wideband captures to 16 kHz before uploading", async () => {
     const { calls, stt } = setup(() => Response.json({ text: "hola" }));
     const capture = stt.startCapture({ turnId: "t", format: { ...FORMAT_16K, sampleRate: 48000 }, signal: idle.signal });

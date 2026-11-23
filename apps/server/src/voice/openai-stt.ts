@@ -3,6 +3,23 @@ import { concatBytes, encodeWav, pcmDurationMs, resample, toBytes, toSamples } f
 import type { SpeechCapture, SpeechToTextService, TranscriptResult } from "./types.js";
 
 const UPLOAD_SAMPLE_RATE = 16000;
+const PROMPT_ECHO_WORDS = 5;
+
+function words(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/** Whisper sometimes answers near-silent audio with its own prompt; that is not something the owner said. */
+function repeatsPrompt(transcript: string, prompt: string): boolean {
+  const head = words(prompt).slice(0, PROMPT_ECHO_WORDS).join(" ");
+  return head.length > 0 && words(transcript).join(" ").includes(head);
+}
 const MIN_AUDIO_MS = 150;
 const DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -58,7 +75,8 @@ export class OpenAiCompatibleStt implements SpeechToTextService {
     if (!response.ok) throw new Error(`${this.provider} transcription failed with status ${response.status}`);
     const body = (await response.json()) as { text?: unknown };
     if (typeof body.text !== "string") throw new Error(`${this.provider} returned no transcript`);
-    return { text: body.text.trim(), provider: this.provider, latencyMs: performance.now() - startedAt, audioMs };
+    const text = this.options.prompt && repeatsPrompt(body.text, this.options.prompt) ? "" : body.text.trim();
+    return { text, provider: this.provider, latencyMs: performance.now() - startedAt, audioMs };
   }
 
   private buildForm(pcm: Uint8Array, format: AudioFormat): FormData {
