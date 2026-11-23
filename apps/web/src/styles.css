@@ -486,6 +486,9 @@ button {
 }
 
 .card {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   margin: 8px 0 0;
   padding: 14px 16px;
   border: 0.5px solid rgba(255, 255, 255, 0.1);
@@ -1226,6 +1229,8 @@ button {
 }
 
 .build-item {
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin-bottom: 16px;
 }
 
@@ -1254,6 +1259,7 @@ button {
 
 .build-target,
 .build-notice {
+  overflow-wrap: anywhere;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1374,12 +1380,17 @@ button {
 
 .card-attachment.file {
   display: inline-flex;
+  overflow-wrap: anywhere;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
   background: var(--fill);
   color: var(--label);
   text-decoration: none;
+}
+
+.card-attachment.file span {
+  min-width: 0;
 }
 
 @keyframes spin {
