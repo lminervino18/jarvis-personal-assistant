@@ -547,6 +547,32 @@ button {
   overflow-wrap: anywhere;
 }
 
+.video-progress {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.video-progress div {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--cyan);
+}
+
+.video-player {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 14px;
+  background: #000;
+}
+
+.video-player[data-vertical="true"] {
+  max-width: 280px;
+}
+
 .card-actions {
   display: flex;
   flex-wrap: wrap;

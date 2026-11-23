@@ -5,6 +5,7 @@ import type { CardActions } from "./actions.js";
 import { QrCode } from "./QrCode.js";
 import { YoutubeCard } from "./YoutubeCard.js";
 import { ChartCard } from "./ChartCard.js";
+import { VideoCard } from "./VideoCard.js";
 
 type Of<K extends Card["kind"]> = Extract<Card, { kind: K }>;
 
@@ -450,5 +451,7 @@ export function CardView({ card, actions }: { card: Card; actions: CardActions }
       return <TableCard card={card} />;
     case "attachment":
       return <AttachmentView card={card} />;
+    case "video":
+      return <VideoCard card={card} />;
   }
 }
