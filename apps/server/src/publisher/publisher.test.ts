@@ -29,7 +29,8 @@ function setup(answers: (call: Call) => Partial<ExecResult> | undefined = () => 
   const exec: Exec = async (command, args, options) => {
     const call = { command, args, ...(options.env ? { env: options.env } : {}) };
     calls.push(call);
-    const defaults: ExecResult = args[0] === "diff" && args.includes("--cached") ? { code: 1, output: "" } : args[0] === "rev-parse" ? { code: 0, output: "abc123def456\n" } : { code: 0, output: "" };
+    const defaults: ExecResult =
+      (args[0] === "diff" && args.includes("--cached")) || args.includes("--reverse") ? { code: 1, output: "" } : args[0] === "rev-parse" ? { code: 0, output: "abc123def456\n" } : { code: 0, output: "" };
     return { ...defaults, ...answers(call) };
   };
   const publisher = new Publisher(
@@ -107,6 +108,16 @@ describe("publisher", () => {
     await publisher.runPending();
     expect(result()).toMatchObject({ status: "failed", step: "verify", message: expect.stringContaining("infra/scripts/deploy.sh") });
     expect(calls).toEqual([]);
+  });
+
+  it("reports a change that is already in JARVIS as published, without checking or deploying again", async () => {
+    const { publisher, submit, result, ran } = setup((call) => (call.args.includes("--reverse") ? { code: 0, output: "" } : undefined));
+    submit();
+    await publisher.runPending();
+    expect(result()).toMatchObject({ status: "published", step: "apply", commit: "abc123def456", message: "El cambio ya estaba publicado en JARVIS." });
+    expect(ran("docker")).toEqual([]);
+    expect(ran("git", "push")).toEqual([]);
+    expect(ran("infra/scripts/deploy.sh")).toEqual([]);
   });
 
   it("stops before GitHub when the checks fail", async () => {

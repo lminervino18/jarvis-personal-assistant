@@ -152,6 +152,8 @@ export class Publisher {
       progress("prepare");
       await this.prepare();
       progress("apply");
+      const present = await this.alreadyPublished(patchFile);
+      if (present) return { id: request.id, status: "published", step, commit: present, message: "El cambio ya estaba publicado en JARVIS.", at: this.now().toISOString() };
       await this.apply(patchFile);
       progress("checks");
       await this.check(request.id);
@@ -191,6 +193,14 @@ export class Publisher {
     await this.must("prepare", "git", ["fetch", "--quiet", "origin", "main"], this.repoDir, "No pude bajar la última versión de GitHub.");
     await this.must("prepare", "git", ["checkout", "--quiet", "--force", "-B", "publish", "origin/main"], this.repoDir, "No pude preparar la copia de publicación.");
     await this.must("prepare", "git", ["clean", "-fdxq"], this.repoDir, "No pude limpiar la copia de publicación.");
+  }
+
+  /** The current commit when the change is already in JARVIS (published by hand or by an earlier attempt). */
+  private async alreadyPublished(patchFile: string): Promise<string | undefined> {
+    const reverse = await this.run("git", ["apply", "--reverse", "--check", "--whitespace=nowarn", patchFile], this.repoDir);
+    if (reverse.code !== 0) return undefined;
+    const head = await this.run("git", ["rev-parse", "--short", "HEAD"], this.repoDir);
+    return head.output.trim() || "HEAD";
   }
 
   private async apply(patchFile: string): Promise<void> {
