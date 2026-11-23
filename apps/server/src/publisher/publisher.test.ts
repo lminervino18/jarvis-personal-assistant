@@ -110,10 +110,13 @@ describe("publisher", () => {
   });
 
   it("stops before GitHub when the checks fail", async () => {
-    const { publisher, submit, result, ran } = setup((call) => (call.command === "docker" && call.args[0] === "build" ? { code: 1, output: "lint ok\nFAIL src/a.test.ts > breaks\nTests 1 failed" } : undefined));
+    const output = ["#12 70.10 lint ok", "#12 75.20 FAIL src/a.test.ts > reads the fixture", "#12 75.21 Error: ENOENT: no such file or directory, open 'fixtures/synthetic/a.ogg'", ...Array.from({ length: 40 }, (_, i) => `#12 76.${i} noise ${i}`), "#12 79.70 Tests 1 failed"].join("\n");
+    const { publisher, submit, result, ran } = setup((call) => (call.command === "docker" && call.args[0] === "build" ? { code: 1, output } : undefined));
     submit();
     await publisher.runPending();
-    expect(result()).toMatchObject({ status: "failed", step: "checks", message: expect.stringContaining("Tests 1 failed") });
+    expect(result()).toMatchObject({ status: "failed", step: "checks", message: expect.stringContaining("FAIL src/a.test.ts > reads the fixture") });
+    expect(result()?.message).toContain("ENOENT");
+    expect(result()?.message).toContain("Tests 1 failed");
     expect(ran("git", "push")).toEqual([]);
     expect(ran("infra/scripts/deploy.sh")).toEqual([]);
   });

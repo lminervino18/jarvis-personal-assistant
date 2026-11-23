@@ -267,6 +267,7 @@ function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: stri
     ];
   }
   if (card.status === "ready") return [{ action: "accept", label: "Aceptar entrega", primary: true }];
+  if (card.build && card.status === "accepted" && card.publication?.status === "failed") return [{ action: "publish", label: "Publicar de nuevo", primary: true }];
   if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return [];
   if (card.blocker?.kind === "approval") {
     return [

@@ -65,6 +65,16 @@ function tail(output: string): string {
   return lines.slice(-OUTPUT_TAIL_LINES).join("\n").slice(-MESSAGE_CHARS);
 }
 
+const FAILURE_LINE = /(FAIL\s|×|✗|\berror\b|Error:|ENOENT|ERR_[A-Z_]+|Tests\s+\d+ failed)/i;
+const MAX_FAILURE_LINES = 12;
+
+/** The lines that say what failed (failing tests, lint and type errors), then the end of the output. */
+function failureDetails(output: string): string {
+  const lines = output.split("\n").map((line) => line.trimEnd().replace(/^#\d+\s+[\d.]+\s+/, "")).filter(Boolean);
+  const relevant = [...new Set(lines.filter((line) => FAILURE_LINE.test(line) && !/^ERROR: failed to (build|solve)/.test(line)))].slice(0, MAX_FAILURE_LINES);
+  return (relevant.length ? `${relevant.join("\n")}\n…\n${tail(output)}` : tail(output)).slice(0, MESSAGE_CHARS);
+}
+
 /**
  * Publishes owner-approved build changes, one at a time, with no model involved: it checks
  * the signature and the patch, applies it on the current main, runs the full check in the
@@ -193,7 +203,7 @@ export class Publisher {
     const tag = `jarvis-check:${id.slice(0, 8)}`;
     const result = await this.run("docker", ["build", "--target", "check", "--progress=plain", "--tag", tag, "."], this.repoDir, this.config.checkTimeoutMs);
     await this.run("docker", ["image", "rm", "--force", tag], this.repoDir);
-    if (result.code !== 0) throw new StepFailure("checks", `No pasó lint, typecheck, tests o build:\n${tail(result.output)}`);
+    if (result.code !== 0) throw new StepFailure("checks", `No pasó lint, typecheck, tests o build:\n${failureDetails(result.output)}`);
   }
 
   private async commit(title: string): Promise<string> {

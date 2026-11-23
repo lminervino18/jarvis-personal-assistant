@@ -124,6 +124,19 @@ describe("build mode", () => {
     expect(notified[0]?.message).toContain("commit abc1234");
   });
 
+  it("lets the owner publish again after a failed publication, and only then", () => {
+    const { service, now, readyBuild, store, writeResult } = setup();
+    const task = readyBuild();
+    service.publish(task.id, now);
+    expect(service.publish(task.id, now)).toMatchObject({ ok: false });
+    writeResult(store.publication(task.id)!.id, { status: "failed", step: "checks", message: "No pasó lint, typecheck, tests o build" });
+    service.syncPublications(now);
+    expect(store.require(task.id).status).toBe("accepted");
+
+    expect(service.publish(task.id, now)).toMatchObject({ ok: true });
+    expect(store.publication(task.id)).toMatchObject({ status: "queued" });
+  });
+
   it("reports a publisher that never answered", () => {
     const { service, now, readyBuild, store } = setup();
     const task = readyBuild();

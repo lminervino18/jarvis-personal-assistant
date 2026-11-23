@@ -181,6 +181,12 @@ export class TaskService {
     return this.apply(task, action, now);
   }
 
+  /** The current card of a task, for refreshing cards stored in the chat history. */
+  cardFor(taskId: string): TaskCard | undefined {
+    const task = this.store.get(taskId);
+    return task ? this.card(task) : undefined;
+  }
+
   card(task: Task): TaskCard {
     return taskCard(task, this.store.publication(task.id));
   }
@@ -212,7 +218,8 @@ export class TaskService {
     const task = this.store.get(taskId);
     if (!task) return { ok: false, code: "not_found", message: "La tarea no existe." };
     if (task.project !== BUILD_PROJECT) return this.invalid("Solo se publican cambios de JARVIS.");
-    if (task.status !== "ready" || !task.evidence) return this.invalid("Se publica una entrega lista y revisada.");
+    const retry = task.status === "accepted" && this.store.publication(task.id)?.status === "failed";
+    if ((task.status !== "ready" && !retry) || !task.evidence) return this.invalid("Se publica una entrega lista y revisada.");
     if (!this.spool?.available()) return this.invalid("La publicación no está configurada en el servidor.");
     const patch = this.layout.patch(task.id, task.evidence, MAX_PATCH_BYTES);
     if (!patch?.trim()) return this.invalid("No encontré el cambio para publicar, o es demasiado grande.");
@@ -220,7 +227,7 @@ export class TaskService {
     const commitTitle = proposed && isCommitTitle(proposed) ? proposed : `feat(build): apply build task ${task.ref}`;
     const publication = this.store.createPublication(task.id, commitTitle, now);
     if (!publication) return this.invalid("Ya hay una publicación en curso; esperá a que termine.");
-    if (!this.store.update(task.id, { status: "accepted", blocker: null, finishedAt: now.toISOString() }, now, ["ready"])) {
+    if (!this.store.update(task.id, { status: "accepted", blocker: null, finishedAt: now.toISOString() }, now, ["ready", "accepted"])) {
       this.store.updatePublication(publication.id, { status: "failed", step: "request", message: "La tarea cambió de estado antes de publicar." }, now);
       return this.changed(task.ref);
     }
