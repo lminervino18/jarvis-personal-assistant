@@ -75,6 +75,9 @@ ProtectControlGroups=yes
 LockPersonality=yes
 MemoryMax=2500M
 CPUQuota=150%
+CPUWeight=20
+IOWeight=20
+Nice=10
 TasksMax=1024
 
 [Install]
@@ -113,6 +116,9 @@ Environment=HOME=/home/deploy
 Environment=PATH=/opt/jarvis-agents/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/opt/jarvis-agents/bin/node /opt/jarvis-agents/app/dist/publisher-main.js
 TimeoutStartSec=2h
+CPUWeight=20
+IOWeight=20
+Nice=10
 UNIT
 
 cat > /etc/systemd/system/jarvis-publisher.path <<'UNIT'

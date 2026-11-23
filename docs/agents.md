@@ -241,7 +241,7 @@ Measured on the VPS (Debian 13.7, 2026-11-21), in the same order:
 - user `jarvis-agents`, UID 10001 like the containers' user, with no access to the personal volume, `jarvis.env` or the Docker socket;
 - the app and the Node binary are copied from the `jarvis-agent-runner:<tag>` image, so the host runs exactly what was built and tested;
 - `/srv/jarvis/work` replaces the `work-data` volume; server, worker, bridge and backup bind-mount it through `infra/agents/compose.host-runner.yml`;
-- a hardened systemd unit: read-only system, write access only to the work area, private `/tmp` and devices, memory, CPU and task limits.
+- a hardened systemd unit: read-only system, write access only to the work area, private `/tmp` and devices, memory, CPU and task limits, and a lower CPU and I/O priority (`Nice=10`, `CPUWeight=20`) so agent work never starves the voice server.
 
 Hardening details that matter:
 - `ProtectKernelTunables`, `ProtectKernelLogs` and `RestrictSUIDSGID` each break bubblewrap ("Function not implemented"), so the unit leaves them out.
