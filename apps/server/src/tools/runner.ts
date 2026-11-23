@@ -133,6 +133,22 @@ export async function runTool(ctx: ToolContext, definition: AnyToolDefinition, r
   }
 }
 
+const STORED_STATUS: Record<string, ConfirmCardValue["status"]> = {
+  pending: "pending",
+  executed: "confirmed",
+  failed: "failed",
+  rejected: "rejected",
+  expired: "expired",
+};
+
+/** A confirmation card as it stands now: a stored snapshot may still say pending after it was decided or expired. */
+export function currentConfirmCard(db: ToolContext["services"]["db"], card: ConfirmCardValue, now: Date): ConfirmCardValue {
+  const row = db.prepare("SELECT status, expires_at FROM pending_actions WHERE id = ?").get(card.actionId) as { status: string; expires_at: string } | undefined;
+  if (!row) return card;
+  const status = row.status === "pending" && new Date(row.expires_at) <= now ? "expired" : (STORED_STATUS[row.status] ?? card.status);
+  return status === card.status ? card : { ...card, status };
+}
+
 export interface PendingActionOutcome {
   status: "executed" | "failed" | "rejected" | "expired" | "not_found";
   result?: ToolResult<unknown>;

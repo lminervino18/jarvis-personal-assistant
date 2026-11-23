@@ -186,6 +186,21 @@ describe("thread cards", () => {
     expect(state.messages[0]?.cards).toHaveLength(1);
   });
 
+  it("updates a task card in place, shows it once with its latest state, and ignores updates for tasks not in the chat", () => {
+    const task = (status: "ready" | "accepted", taskId = "33333333-3333-4333-8333-333333333333"): Card => ({
+      kind: "task", taskId, ref: 3, title: "Transcribir audios", status, phase: null, paused: false, iteration: 1, costUsd: 0.4, budgetUsd: 5, build: true, updatedAt: NOW,
+    });
+    const first = item("m1", "assistant", "lista para revisar", NOW, T1, [task("ready")]);
+    const second = item("m2", "system", "publicando", NOW, null, [task("accepted")]);
+    const view = threadView(attached([first, second]).messages);
+    expect(view[0]?.cards[0]).toMatchObject({ kind: "task", status: "accepted" });
+    expect(view[1]?.cards).toEqual([]);
+
+    const updated = apply(attached([first]), server("card", { card: task("accepted") }), server("card", { card: task("accepted", "44444444-4444-4444-8444-444444444444") }));
+    expect(updated.messages).toHaveLength(1);
+    expect(updated.messages[0]?.cards[0]).toMatchObject({ status: "accepted" });
+  });
+
   it("keeps confirm and player cards in the place where they first appeared with the latest version", () => {
     const first = item("m1", "assistant", "mirá", NOW, T1, [confirm("pending"), youtube("Uno")]);
     const second = item("m2", "assistant", "listo", NOW, T2, [confirm("confirmed"), youtube("Dos")]);

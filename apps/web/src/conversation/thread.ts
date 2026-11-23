@@ -239,6 +239,7 @@ function onStandaloneCard(state: ThreadState, card: Card, receivedAt: string): T
     const message = state.messages[index] as ThreadMessage;
     return { ...state, messages: replaceAt(state.messages, index, { ...message, cards: withCard(message.cards, card) }) };
   }
+  if (card.kind === "task") return state;
   const message: ThreadMessage = {
     id: `local:card:${identity ?? card.kind}:${receivedAt}`,
     turnId: null,
@@ -262,11 +263,11 @@ function settleTurn(state: ThreadState, turnId: string): ThreadState {
   return { ...state, transcript, messages: replaceAt(state.messages, index, { ...message, streaming: false }) };
 }
 
-const SINGLE_INSTANCE_KINDS = new Set<Card["kind"]>(["confirm", "youtube"]);
+const SINGLE_INSTANCE_KINDS = new Set<Card["kind"]>(["confirm", "youtube", "task"]);
 
 /**
- * Confirmation and player cards are shown once, where they first appeared, with the latest
- * version received (e.g. a confirmation that later became "confirmed").
+ * Confirmation, player and task cards are shown once, where they first appeared, with the latest
+ * version received (e.g. a confirmation that later became "confirmed", a task that got published).
  */
 export function threadView(messages: ThreadMessage[]): ThreadMessage[] {
   const latest = new Map<string, Card>();

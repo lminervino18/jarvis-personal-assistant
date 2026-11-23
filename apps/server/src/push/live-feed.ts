@@ -39,6 +39,8 @@ export class SystemMessageFeed {
     private readonly hub: ConversationHub,
     private readonly log: Pick<Logger, "error">,
     private readonly intervalMs = DEFAULT_INTERVAL_MS,
+    /** Hears every batch delivered, e.g. so the model learns about the notices the owner saw. */
+    private readonly onDelivered?: (conversationId: string, items: HistoryItem[]) => void,
   ) {
     this.cursor = (db.prepare("SELECT COALESCE(MAX(rid), 0) AS rid FROM messages").get() as { rid: number }).rid;
   }
@@ -65,6 +67,7 @@ export class SystemMessageFeed {
     for (const [conversationId, items] of byConversation) {
       this.hub.emit(conversationId, { type: "history", conversationId, items, hasMore: false });
       this.hub.announce(conversationId, items.map((item) => item.text).join(" "));
+      this.onDelivered?.(conversationId, items);
     }
     return rows.length;
   }

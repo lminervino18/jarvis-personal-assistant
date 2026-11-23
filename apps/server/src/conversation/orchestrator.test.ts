@@ -477,7 +477,7 @@ describe("confirmations by reply", () => {
     expect(runtime.calls).toHaveLength(1);
 
     await orchestrator.startTurn(voiceTurn(conversationId, "gracias"));
-    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por voz «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho]");
+    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por voz «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho. Esa tarjeta ya no está pendiente.]");
   });
 
   it("only takes the answer from the turn right after the question", async () => {
@@ -501,7 +501,7 @@ describe("confirmations by reply", () => {
     expect(runtime.calls).toHaveLength(1);
 
     await orchestrator.startTurn(turn(conversationId, "gracias"));
-    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por chat «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho]");
+    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño confirmó por chat «Enviar WhatsApp: Para Ana Vivo»; resultado: hecho. Esa tarjeta ya no está pendiente.]");
   });
 
   it("forgets the question once the card is tapped, so a later yes goes to the model", async () => {
@@ -512,6 +512,18 @@ describe("confirmations by reply", () => {
     await orchestrator.startTurn(turn(conversationId, "sí"));
 
     expect(runtime.calls).toHaveLength(2);
+    expect(runtime.calls[1]?.text).toContain("[nota del sistema: el dueño rechazó con la tarjeta «Enviar WhatsApp: Para Ana Vivo»; resultado: descartado. Esa tarjeta ya no está pendiente.]");
+  });
+
+  it("tells the model about background notices the owner saw, but not twice about a card decision", async () => {
+    const { orchestrator, runtime, conversationId } = sendingSetup();
+    orchestrator.noteSystemMessages(conversationId, [
+      { id: "m1", turnId: null, role: "system", text: "La tarea #3 está publicada en producción (commit abc1234).", at: new Date().toISOString(), interrupted: false, cards: [] },
+      { id: "m2", turnId: null, role: "system", text: "Confirmado: Enviar WhatsApp.", at: new Date().toISOString(), interrupted: false, cards: [{ kind: "confirm", actionId: crypto.randomUUID(), title: "Enviar WhatsApp", summary: "Para Ana", details: [], expiresAt: new Date().toISOString(), status: "confirmed" }] },
+    ]);
+    await orchestrator.startTurn(turn(conversationId, "¿y la tarea?"));
+    expect(runtime.calls[0]?.text).toContain("[aviso que el dueño ya vio en el chat: La tarea #3 está publicada en producción (commit abc1234).]");
+    expect(runtime.calls[0]?.text).not.toContain("Confirmado: Enviar WhatsApp.");
   });
 
   it("asks again about the only pending card when a yes comes after the question was lost", async () => {

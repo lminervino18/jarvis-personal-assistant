@@ -4,6 +4,7 @@ import fastifyCookie from "@fastify/cookie";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
+import type { Card } from "@jarvis/contracts";
 import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from "fastify";
 import { z } from "zod";
 import { verifyPassword } from "./auth/password.js";
@@ -32,6 +33,7 @@ export interface AppDeps {
   onPushSubscribe?(subscription: PushSubscription, userAgent: string | undefined): Promise<void>;
   onPlayerState?(state: PlayerState): void;
   onTaskAction?(action: TaskAction): TaskActionOutcome;
+  refreshCard?(card: Card): Card;
   build?: BuildHandlers;
   /** Lets integration modules add their own routes (OAuth callbacks, device gateway). */
   registerRoutes?(app: FastifyInstance, helpers: RouteHelpers): Promise<void> | void;
@@ -140,6 +142,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           : undefined,
         onPlayerState: deps.onPlayerState,
         onTaskAction: deps.onTaskAction,
+        refreshCard: deps.refreshCard,
         build: deps.build,
       });
     },

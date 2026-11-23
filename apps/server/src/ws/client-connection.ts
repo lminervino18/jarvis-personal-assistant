@@ -8,6 +8,7 @@ import {
   type AudioFormat,
   type Card,
   type ClientKind,
+  type HistoryItem,
   type OutgoingServerMessage,
   type ReplyMode,
 } from "@jarvis/contracts";
@@ -61,6 +62,8 @@ export interface ConnectionDeps {
   onPushSubscribe?(subscription: PushSubscription): Promise<void>;
   onPlayerState?(state: PlayerState): void;
   onTaskAction?(action: TaskAction): TaskActionOutcome;
+  /** The current state of a card stored in history (a task that moved on, a confirmation already decided). */
+  refreshCard?(card: Card): Card;
   build?: BuildHandlers;
 }
 
@@ -224,7 +227,7 @@ export class ClientConnection implements Subscriber {
       case "history.fetch": {
         if (!this.ownsConversation(message.conversationId)) return;
         const page = this.deps.store.history(message.conversationId, message.limit, message.beforeMessageId);
-        this.send({ type: "history", conversationId: message.conversationId, ...page });
+        this.send({ type: "history", conversationId: message.conversationId, ...page, items: this.refreshed(page.items) });
         return;
       }
       case "push.subscribe":
@@ -277,8 +280,19 @@ export class ClientConnection implements Subscriber {
       this.send({ type: "notice", level: "warning", code: "tasks_unavailable", message: "Las tareas delegadas no están configuradas." });
       return;
     }
-    if (outcome.ok) this.send({ type: "card", card: outcome.card });
+    if (outcome.ok && this.conversationId) {
+      const card = outcome.card;
+      const task = card.kind === "task" ? ` en la tarea #${card.ref} «${card.title}»` : "";
+      this.deps.hub.emit(this.conversationId, { type: "card", card });
+      this.deps.orchestrator.addNote(this.conversationId, `[nota del sistema: el dueño tocó «${message.action}»${task}: ${outcome.message} La tarjeta ya muestra el estado nuevo.]`);
+    }
     this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "task_updated" : "task_action_rejected", message: outcome.message });
+  }
+
+  private refreshed(items: HistoryItem[]): HistoryItem[] {
+    const refresh = this.deps.refreshCard;
+    if (!refresh) return items;
+    return items.map((item) => (item.cards.length ? { ...item, cards: item.cards.map((card) => refresh(card)) } : item));
   }
 
   /**
@@ -337,7 +351,7 @@ export class ClientConnection implements Subscriber {
     });
     if (this.sendHistory) {
       const page = this.deps.store.history(conversationId, HISTORY_PAGE);
-      this.send({ type: "history", conversationId, ...page });
+      this.send({ type: "history", conversationId, ...page, items: this.refreshed(page.items) });
     }
     const activeTurn = this.deps.orchestrator.activeTurn(conversationId);
     this.send(activeTurn ? { type: "state", state: "thinking", turnId: activeTurn } : { type: "state", state: "idle" });

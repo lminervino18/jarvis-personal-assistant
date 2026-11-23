@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
+import type { Card, ErrorCode, HistoryItem, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
 import type { Attachment } from "../attachments/attachment-store.js";
 import type { TurnToolset } from "../runtime/claude-runtime.js";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
@@ -233,7 +233,21 @@ export class ConversationOrchestrator {
     return true;
   }
 
-  async decideAction(actionId: string, decision: "confirm" | "reject"): Promise<PendingActionOutcome | undefined> {
+  /** Tells the model, at the start of the next turn, about something the owner did or saw outside the conversation. */
+  addNote(conversationId: string, note: string): void {
+    this.notes.set(conversationId, [...(this.notes.get(conversationId) ?? []), note]);
+  }
+
+  /** Background notices the owner just saw (tasks, publications, pages): the model hears about them too. */
+  noteSystemMessages(conversationId: string, items: readonly HistoryItem[]): void {
+    for (const item of items) {
+      if (item.cards.some((card) => card.kind === "confirm") || !item.text.trim()) continue;
+      this.addNote(conversationId, `[aviso que el dueño ya vio en el chat: ${item.text.trim().slice(0, 400)}]`);
+    }
+  }
+
+  /** Applies a decision on a confirmation card (tapped, said or written) and tells the model about it. */
+  async decideAction(actionId: string, decision: "confirm" | "reject", channel: "tarjeta" | "voz" | "chat" = "tarjeta"): Promise<PendingActionOutcome | undefined> {
     const { services, tools, store, hub } = this.deps;
     const conversationId = (
       services.db.prepare("SELECT conversation_id FROM pending_actions WHERE id = ?").get(actionId) as
@@ -251,6 +265,9 @@ export class ConversationOrchestrator {
     );
     if (!outcome.card) return outcome;
     emitCard(outcome.card);
+    const verb = decision === "confirm" ? "confirmó" : "rechazó";
+    const how = channel === "tarjeta" ? "con la tarjeta" : `por ${channel}`;
+    this.addNote(conversationId, `[nota del sistema: el dueño ${verb} ${how} «${outcome.card.title}: ${outcome.card.summary}»; resultado: ${outcomeNote[outcome.status]}. Esa tarjeta ya no está pendiente.]`);
     const text =
       outcome.status === "executed"
         ? `Confirmado: ${outcome.card.title}.`
@@ -491,16 +508,9 @@ export class ConversationOrchestrator {
 
   /** A short yes or no, spoken or written, to the card the last reply asked about: decided here, without the model. */
   private async answerDecision(input: StartTurnInput, actionId: string, decision: SpokenDecision, signal: AbortSignal): Promise<void> {
-    const { conversationId } = input;
     this.startModellessTurn(input);
-    const outcome = await this.decideAction(actionId, decision);
+    const outcome = await this.decideAction(actionId, decision, input.inputMode === "voice" ? "voz" : "chat");
     const status = outcome?.status ?? "not_found";
-    if (outcome?.card) {
-      const verb = decision === "confirm" ? "confirmó" : "rechazó";
-      const channel = input.inputMode === "voice" ? "por voz" : "por chat";
-      const note = `[nota del sistema: el dueño ${verb} ${channel} «${outcome.card.title}: ${outcome.card.summary}»; resultado: ${outcomeNote[status]}]`;
-      this.notes.set(conversationId, [...(this.notes.get(conversationId) ?? []), note]);
-    }
     await this.replyWithoutModel(input, spokenOutcome[status], signal);
   }
 

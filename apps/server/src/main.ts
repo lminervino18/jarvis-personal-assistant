@@ -35,6 +35,7 @@ import { TaskService, type TaskOutcome } from "./tasks/task-service.js";
 import { TaskStore } from "./tasks/task-store.js";
 import { WorkLayout } from "./tasks/workspace.js";
 import { allTools } from "./tools/index.js";
+import { currentConfirmCard } from "./tools/runner.js";
 import type { ToolServices } from "./tools/types.js";
 import { createVoiceServices } from "./voice/providers.js";
 import { Outbox } from "./worker/outbox.js";
@@ -138,7 +139,7 @@ const pagesServer = pages && config.pages ? buildPagesServer(pages, { trustProxy
 
 const store = new ConversationStore(db);
 const hub = new ConversationHub();
-const systemMessageFeed = new SystemMessageFeed(db, hub, logger);
+const systemMessageFeed = new SystemMessageFeed(db, hub, logger, undefined, (conversationId, items) => orchestrator.noteSystemMessages(conversationId, items));
 
 const orchestrator = new ConversationOrchestrator({
   store,
@@ -187,6 +188,11 @@ const app = await buildApp({
   onTaskAction: tasks
     ? (action) => cardOutcome(tasks, tasks.decide(action.taskId, action.action, action.approvalId, new Date()))
     : undefined,
+  refreshCard: (card) => {
+    if (card.kind === "task") return tasks?.cardFor(card.taskId) ?? card;
+    if (card.kind === "confirm") return currentConfirmCard(db, card, new Date());
+    return card;
+  },
   build: tasks
     ? {
         list: () => tasks.buildCards(),
