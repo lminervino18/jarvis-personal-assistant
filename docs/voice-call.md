@@ -9,7 +9,7 @@ Status:
 
 ## Two circuits
 
-- Conversation: microphone → Silero VAD (phone) → PCM over the WebSocket → Groq Whisper at pauses and at the end → orchestrator → Claude (streaming) → sentence chunker → ElevenLabs → phone player.
+- Conversation: microphone → Silero VAD (phone) → PCM over the WebSocket → Groq Whisper at pauses and at the end → orchestrator → Claude (streaming) → sentence chunker → one ElevenLabs socket per reply → phone player.
 - Work: pages, delegated tasks and agents run in the background (`apps/server/src/tasks`, the host agent runner, the publisher). They notify the conversation when they finish; the call never waits for them. The agent runner and publisher run with `Nice=10`, `CPUWeight=20`, `IOWeight=20`, so they cannot starve the voice server.
 
 ## End of turn
@@ -21,8 +21,9 @@ The phone detects speech; the server alone confirms the end of a turn.
 | Speech probability per 32 ms window | phone, Silero v6 on onnxruntime-web (WASM, one thread) | start ≥ 0.5, keep ≥ 0.35 |
 | Speech confirmed | phone | 200 ms voiced (250 ms and ≥ 0.6 while the reply plays) |
 | Pre-roll | phone | 300 ms |
-| Pause reported (`audio.pause`) | phone | 450 ms of silence |
-| Resume reported (`audio.resume`) | phone | 100 ms voiced after a pause |
+| Tentative pause (`audio.pause` with `tentative`) | phone | 250 ms of silence: the server starts transcribing in advance |
+| Pause reported (`audio.pause`) | phone | 450 ms of silence; reuses the tentative transcription if the owner did not speak in between |
+| Resume reported (`audio.resume`) | phone | speech after a tentative pause, or 100 ms voiced after a pause |
 | Checkpoint | server | Whisper transcribes the audio so far at each pause |
 | Close now | server | the checkpoint sounds finished (`turnLooksComplete`): question, short answer, sentence without a trailing connector |
 | Close after waiting | server | 1.8 s more without speech (2.25 s of silence in total) |
@@ -52,6 +53,16 @@ Now the process starts when the owner starts speaking (`prepareTurn`, `runtime.p
 - It is discarded if another turn finished meanwhile (its session could be stale), if the speech was noise or a backchannel, or after 150 s.
 - Measured on 2026-11-23 on the server with the real runtime, 4 turns each: first text 911 ms median without preparing, 700 ms with it (warm disk cache). The cold-start saving is larger.
 
+## Speech synthesis
+
+ElevenLabs runs over its stream-input WebSocket: one socket per reply, opened when the turn starts (before Claude writes), one flushed message per sentence, `{"text": ""}` at the end. If the socket fails before any audio, the reply falls back to one HTTP request per sentence.
+
+Measured on 2026-11-23 from the server, 3 runs each, text arriving 700 ms after the speaker opened:
+- first audio after the text: 248 ms median over HTTP, 269 ms over the socket (no difference, since HTTP reused its connection);
+- whole reply generated: 679 ms over HTTP, 517 ms over the socket.
+
+The gain is continuity (prosody across sentences, fewer chances of gaps), not the first sound. It costs the same, since characters are billed the same.
+
 ## Measuring
 
 - Per turn: `docker compose logs server | grep -E "turn timing|turn endpoint|backchannel|client audio|event loop"`.
@@ -65,7 +76,6 @@ Now the process starts when the owner starts speaking (`prepareTurn`, `runtime.p
 
 ## Not done yet
 
-- Speculative generation (starting Claude on a stable checkpoint before the turn is confirmed).
-- ElevenLabs WebSocket input streaming; replies still synthesize one sentence per request over a pooled connection.
-- Keeping one Claude process for a whole call; the per-turn process is only started earlier.
+- Speculative Claude generation. Transcription is what waits: Whisper takes about 300 ms and now starts at 250 ms of silence, so its result arrives after the 450 ms confirmation. Starting Claude earlier would spend plan quota for no gain until transcription gets faster than the pause.
+- One Claude process for the whole call. The per-turn process is already started while the owner speaks (or while the previous reply plays): about 45 ms to init against 700 ms of model time. A permanent process would not cut a measurable amount and would need per-turn tools and policy rebuilt.
 - Recording in history which part of an interrupted reply was actually heard.
