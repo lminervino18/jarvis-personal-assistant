@@ -146,7 +146,7 @@ Database migrations only move forward. Rolling back the image does not undo a mi
 Everything above except the server itself is tested on a developer machine and in CI:
 
 ```bash
-docker build -t jarvis:local .
+docker build --target runtime -t jarvis:local .
 infra/scripts/restore-test.sh      # synthetic database, local restic repository
 ```
 

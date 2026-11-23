@@ -73,7 +73,7 @@ table_counts() {
   docker run --rm --network none --entrypoint table-counts.sh -v "$data_volume":/data "$backup_image" /data/jarvis.db
 }
 
-ensure_image "$app_image" "$root"
+ensure_image "$app_image" --target runtime "$root"
 ensure_image "$backup_image" "$root/infra/backup"
 
 log "creating volumes and starting the server on an empty database"

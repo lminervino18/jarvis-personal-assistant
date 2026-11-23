@@ -43,7 +43,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the application image
-        run: docker build --tag jarvis:ci .
+        run: docker build --target runtime --tag jarvis:ci .
       - name: Build the backup image
         run: docker build --tag jarvis-backup:ci infra/backup
       - name: Check the bundled Claude binary starts
