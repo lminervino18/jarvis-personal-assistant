@@ -149,6 +149,8 @@ export const ClientAudioMessage = z.object({
   supported: AudioProcessing,
   applied: AudioProcessing.extend({ sampleRate: z.number().optional(), channelCount: z.number().optional() }),
   contextSampleRate: z.number(),
+  /** Which speech detector the client runs: Silero, or the volume fallback. */
+  detector: z.enum(["silero", "energy"]).optional(),
 });
 
 export type CaptureReport = Omit<z.infer<typeof ClientAudioMessage>, "type">;

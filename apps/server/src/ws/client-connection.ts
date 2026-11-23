@@ -24,6 +24,8 @@ const HELLO_TIMEOUT_MS = 10_000;
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 const AUDIO_HIGH_WATER_BYTES = 256 * 1024;
 const MAX_CAPTURE_SECONDS = 120;
+/** Speech over the reply longer than this is a real interruption, so its pauses get the normal end-of-turn wait. */
+const PROVISIONAL_MAX_SECONDS = 1.5;
 /** After a pause whose words sound unfinished, how long the server waits for the owner to go on. */
 const END_OF_TURN_WAIT_MS = 1800;
 const MAX_MESSAGES_PER_SECOND = 40;
@@ -432,7 +434,7 @@ export class ClientConnection implements Subscriber {
   private onAudioPause(turnId: string): void {
     const capture = this.captures.get(turnId);
     if (!capture || capture.dictation) return;
-    if (capture.provisional) return void this.onAudioEnd(turnId);
+    if (capture.provisional && capture.bytes < capture.maxBytes * (PROVISIONAL_MAX_SECONDS / MAX_CAPTURE_SECONDS)) return void this.onAudioEnd(turnId);
     clearTimeout(capture.timer);
     const generation = ++capture.generation;
     capture.paused = true;

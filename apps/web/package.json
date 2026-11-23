@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@jarvis/contracts": "workspace:*",
+    "@ricky0123/vad-web": "0.0.31",
     "echarts": "6.1.0",
+    "onnxruntime-web": "1.31.1",
     "qrcode-generator": "2.0.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",

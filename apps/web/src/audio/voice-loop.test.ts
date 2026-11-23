@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { VoiceLoop, type VoiceLoopHandlers } from "./voice-loop.js";
+import { SpeechVad, playbackSpeechVadOptions, speechVadOptions } from "./speech-vad.js";
+import { VoiceLoop, type DetectorFactory, type VoiceLoopHandlers } from "./voice-loop.js";
 
 const FRAME_SAMPLES = 320;
 
@@ -10,20 +11,39 @@ function frame(amplitude: number): Int16Array {
 const QUIET = frame(0.0008);
 const SPEECH = frame(0.1);
 
-function harness(accept = true) {
+/** A detector driven by the probability written in each test frame, standing in for Silero. */
+const probabilityDetectors: DetectorFactory = (playing) => {
+  const vad = new SpeechVad(playing ? playbackSpeechVadOptions : speechVadOptions);
+  return {
+    push: (pcm) => vad.push((pcm[0] ?? 0) / 1000),
+    reset: () => vad.reset(),
+    get voicedMs() {
+      return vad.voicedTotalMs;
+    },
+  };
+};
+
+function probability(value: number): Int16Array {
+  return new Int16Array(FRAME_SAMPLES).fill(Math.round(value * 1000));
+}
+
+function harness(accept = true, detectors?: DetectorFactory) {
   const events: string[] = [];
   const frames: Int16Array[] = [];
   const handlers: VoiceLoopHandlers = {
-    onStart: () => {
-      events.push("start");
+    onStart: (duringPlayback) => {
+      events.push(duringPlayback ? "start-over-reply" : "start");
       return accept;
     },
     onFrame: (pcm) => frames.push(pcm),
+    onPause: () => events.push("pause"),
+    onResume: () => events.push("resume"),
+    onConfirmed: () => events.push("confirmed"),
     onEnd: () => events.push("end"),
     onLevel: () => {},
     onTimeout: () => events.push("timeout"),
   };
-  const loop = new VoiceLoop(handlers);
+  const loop = new VoiceLoop(handlers, detectors);
   const feed = (pcm: Int16Array, count: number) => {
     for (let i = 0; i < count; i++) loop.push(pcm);
   };
@@ -102,12 +122,43 @@ describe("VoiceLoop", () => {
     loop.setPlaying(true);
     feed(echo, 100);
     feed(frame(0.6), 20);
-    expect(events).toEqual(["start"]);
+    expect(events).toEqual(["start-over-reply"]);
 
     const second = harness();
     second.feed(QUIET, 40);
     second.loop.setPlaying(true);
     second.feed(echo, 100);
     expect(second.events).toEqual([]);
+  });
+
+  it("reports pauses and resumes inside one utterance instead of ending it at a short silence", () => {
+    const { events, feed } = harness(true, probabilityDetectors);
+    feed(probability(0.9), 20);
+    feed(probability(0.05), 25);
+    feed(probability(0.9), 10);
+    feed(probability(0.05), 25);
+    expect(events).toEqual(["start", "pause", "resume", "pause"]);
+    feed(probability(0.05), 160);
+    expect(events.at(-1)).toBe("end");
+  });
+
+  it("treats speech over the reply as a candidate and confirms it only when it lasts", () => {
+    const { loop, events, feed } = harness(true, probabilityDetectors);
+    loop.setPlaying(true);
+    feed(probability(0.9), 15);
+    expect(events).toEqual(["start-over-reply"]);
+    feed(probability(0.05), 25);
+    expect(events).toEqual(["start-over-reply", "pause"]);
+    loop.cancel();
+    feed(probability(0.9), 40);
+    expect(events).toEqual(["start-over-reply", "pause", "start-over-reply", "confirmed"]);
+  });
+
+  it("ignores a short noise below the speech probability", () => {
+    const { events, feed } = harness(true, probabilityDetectors);
+    feed(probability(0.3), 50);
+    feed(probability(0.9), 5);
+    feed(probability(0.05), 10);
+    expect(events).toEqual([]);
   });
 });

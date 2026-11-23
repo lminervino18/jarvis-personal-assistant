@@ -13,7 +13,7 @@ import {
 import { MicError, type AudioEngine } from "../audio/engine.js";
 import { levelFromDbfs, pcm16ToBytes, rmsDbfs } from "../audio/pcm.js";
 import type { PcmPlayerOptions } from "../audio/playback.js";
-import { VoiceLoop } from "../audio/voice-loop.js";
+import { VoiceLoop, type DetectorFactory } from "../audio/voice-loop.js";
 import { ProtocolClient, defaultSocketUrl, type CloseInfo, type ConnectionStatus, type TransportFactory } from "../protocol/client.js";
 import { deriveState, isBusy } from "./assistant-state.js";
 import { integrationResultCard, type IntegrationResult } from "./integration-result.js";
@@ -73,6 +73,8 @@ export interface SessionDeps {
   subscribePush?(publicKey: string): Promise<PushResult & { subscription?: Extract<ClientMessage, { type: "push.subscribe" }>["subscription"] }>;
   newId?(): string;
   now?(): number;
+  /** Loads the Silero speech detector; without it the volume fallback is used. */
+  loadDetectors?(): Promise<DetectorFactory>;
 }
 
 interface TurnTiming {
@@ -131,6 +133,10 @@ export class Session {
   private buildTasks: BuildTask[] | null = null;
   private viewportReports = 0;
   private captureReports = 0;
+  private bargeCandidate: string | null = null;
+  private pausedAt: number | null = null;
+  private detector: "silero" | "energy" = "energy";
+  private detectorsLoading = false;
   private noticeCount = 0;
   private inputLevel = 0;
   private readonly levels: Levels = { input: 0, output: 0 };
@@ -151,6 +157,9 @@ export class Session {
     this.voice = new VoiceLoop({
       onStart: () => this.beginUtterance(),
       onFrame: (pcm) => this.sendFrame(pcm),
+      onPause: () => this.notifyPause(),
+      onResume: () => this.captureTurn && this.client.send({ type: "audio.resume", turnId: this.captureTurn }),
+      onConfirmed: () => this.confirmBargeIn(),
       onEnd: () => this.endUtterance(),
       onLevel: (level) => void (this.inputLevel = level),
       onTimeout: () => (this.callActive ? this.voice.startWindow(CALL_LISTEN_MS) : this.closeMicrophone()),
@@ -370,7 +379,23 @@ export class Session {
   private reportCapture(): void {
     const report = this.engine?.captureReport?.();
     if (!report || this.captureReports >= MAX_CAPTURE_REPORTS) return;
-    if (this.client.send({ type: "client.audio", ...report })) this.captureReports += 1;
+    if (this.client.send({ type: "client.audio", ...report, detector: this.detector })) this.captureReports += 1;
+  }
+
+  /** Loads Silero once; until it is ready (or if it cannot run) the volume detector keeps working. */
+  private loadDetectors(): void {
+    const load = this.deps.loadDetectors;
+    if (!load || this.detector === "silero" || this.detectorsLoading) return;
+    this.detectorsLoading = true;
+    load()
+      .then((detectors) => {
+        this.voice.useDetectors(detectors);
+        this.detector = "silero";
+        this.reportCapture();
+      })
+      .catch(() => {
+        this.detectorsLoading = false;
+      });
   }
 
   reportViewport(report: ViewportReport): void {
@@ -533,6 +558,7 @@ export class Session {
         this.rearm();
         break;
       case "state":
+        if (message.state === "transcribing" && message.turnId) this.onUtteranceClosed(message.turnId);
         this.serverState = message.state;
         if (message.turnId) this.activeTurn = message.turnId;
         if (message.state === "idle") this.activeTurn = null;
@@ -542,7 +568,14 @@ export class Session {
         this.recordFirstText(message.turnId);
         break;
       case "turn.end":
+        if (message.turnId === this.captureTurn) this.onUtteranceClosed(message.turnId);
+        if (message.turnId === this.bargeCandidate) this.dropBargeCandidate();
         this.onTurnEnd(message.turnId, message.status);
+        break;
+      case "transcript":
+        if (!message.final) break;
+        if (message.turnId === this.captureTurn) this.onUtteranceClosed(message.turnId);
+        if (message.turnId === this.bargeCandidate && message.text.trim()) this.confirmBargeIn();
         break;
       case "audio.begin":
         this.onSpeechBegin(message.turnId, message.format.sampleRate);
@@ -593,6 +626,7 @@ export class Session {
   }
 
   private onDrained(): void {
+    if (this.bargeCandidate) this.engine?.duck?.(false);
     this.voice.setPlaying(false);
     this.audioWanted = false;
     this.rearm();
@@ -608,10 +642,10 @@ export class Session {
     else this.timings.delete(turnId);
   }
 
-  private markTurnSent(turnId: string, state: ServerAssistantState, voice: boolean): void {
+  private markTurnSent(turnId: string, state: ServerAssistantState, voice: boolean, inputEndedAt = this.nowMs()): void {
     this.activeTurn = turnId;
     this.serverState = state;
-    this.timings.set(turnId, { inputEndedAt: this.nowMs(), voice, ended: false });
+    this.timings.set(turnId, { inputEndedAt, voice, ended: false });
   }
 
   private recordFirstText(turnId: string): void {
@@ -655,16 +689,56 @@ export class Session {
     this.serverState = "idle";
   }
 
+  /**
+   * Speech started. Over a playing reply it is only a candidate: the reply is lowered, not stopped,
+   * until the speech lasts (onConfirmed) or the server hears real words; a backchannel restores it.
+   */
   private beginUtterance(): boolean {
     const conversationId = this.client.conversationId;
     if (!conversationId || this.status !== "ready") return false;
-    if (this.engine?.player.active) this.interruptAssistant("barge_in");
+    const overReply = this.engine?.player.active === true;
     const turnId = this.newId();
     const replyMode = this.capabilities?.tts ? "voice" : "text";
-    if (!this.client.send({ type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode })) return false;
+    const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode, ...(overReply ? { duringPlayback: true } : {}) } as const;
+    if (!this.client.send(begin)) return false;
     this.captureTurn = turnId;
+    this.pausedAt = null;
+    if (overReply) {
+      this.bargeCandidate = turnId;
+      this.engine?.duck?.(true);
+    }
     this.emit();
     return true;
+  }
+
+  private notifyPause(): void {
+    if (!this.captureTurn) return;
+    this.pausedAt = this.nowMs();
+    this.client.send({ type: "audio.pause", turnId: this.captureTurn });
+  }
+
+  /** The candidate turned out to be the owner talking: stop the reply for good. */
+  private confirmBargeIn(): void {
+    if (!this.bargeCandidate) return;
+    this.bargeCandidate = null;
+    this.interruptAssistant("barge_in");
+    this.engine?.duck?.(false);
+    this.emit();
+  }
+
+  /** The candidate was a backchannel or noise: the reply goes on at full volume, from where it was. */
+  private dropBargeCandidate(): void {
+    this.bargeCandidate = null;
+    this.engine?.duck?.(false);
+  }
+
+  /** The server closed the utterance at a pause: stop streaming it and wait for the reply. */
+  private onUtteranceClosed(turnId: string): void {
+    if (this.captureTurn !== turnId) return;
+    this.voice.cancel();
+    this.captureTurn = null;
+    if (this.bargeCandidate === turnId) return;
+    this.markTurnSent(turnId, "transcribing", this.capabilities?.tts === true, this.pausedAt ?? undefined);
   }
 
   private sendFrame(pcm: Int16Array): void {
@@ -713,6 +787,7 @@ export class Session {
       await engine.resume();
       await engine.startMicrophone((pcm) => this.voice.push(pcm));
       this.reportCapture();
+      this.loadDetectors();
       this.micOpen = true;
       this.voice.startWindow(windowMs);
     } catch (error) {

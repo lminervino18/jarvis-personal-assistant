@@ -5,6 +5,9 @@ import captureWorkletUrl from "./capture.worklet.ts?worker&url";
 
 export type MicFailure = "denied" | "unavailable";
 
+const DUCKED_GAIN = 0.2;
+const DUCK_TIME_CONSTANT = 0.03;
+
 export class MicError extends Error {
   constructor(readonly reason: MicFailure) {
     super(reason);
@@ -26,6 +29,8 @@ export interface AudioEngine {
   onRunningChange(listener: () => void): void;
   /** What the browser applied to the last microphone it opened. */
   captureReport?(): CaptureReport | null;
+  /** Lowers the reply while a possible interruption is checked, and restores it. */
+  duck?(ducked: boolean): void;
 }
 
 interface Microphone {
@@ -55,6 +60,7 @@ export class WebAudioEngine implements AudioEngine {
   readonly player: PcmPlayer;
   private readonly context = new AudioContext({ latencyHint: "interactive" });
   private readonly analyser = this.context.createAnalyser();
+  private readonly output = this.context.createGain();
   private readonly samples: Float32Array<ArrayBuffer>;
   private workletLoaded: Promise<void> | null = null;
   private microphone: Microphone | null = null;
@@ -64,7 +70,8 @@ export class WebAudioEngine implements AudioEngine {
     this.analyser.fftSize = 1024;
     this.samples = new Float32Array(this.analyser.fftSize);
     this.analyser.connect(this.context.destination);
-    this.player = new PcmPlayer(this.context, this.analyser, playerOptions);
+    this.output.connect(this.analyser);
+    this.player = new PcmPlayer(this.context, this.output, playerOptions);
   }
 
   get running(): boolean {
@@ -117,6 +124,10 @@ export class WebAudioEngine implements AudioEngine {
 
   captureReport(): CaptureReport | null {
     return this.lastCapture;
+  }
+
+  duck(ducked: boolean): void {
+    this.output.gain.setTargetAtTime(ducked ? DUCKED_GAIN : 1, this.context.currentTime, DUCK_TIME_CONSTANT);
   }
 
   stopMicrophone(): void {

@@ -19,6 +19,7 @@ const demo = new URLSearchParams(window.location.search).has("demo");
 function createSession(): Session {
   const session = new Session({
     createEngine: (options) => new WebAudioEngine(options),
+    loadDetectors: () => import("./audio/silero.js").then((module) => module.loadSileroDetectors()),
     isSessionValid: async () => (await fetchAuthState())?.authenticated !== false,
     subscribePush: subscribeToPush,
   });

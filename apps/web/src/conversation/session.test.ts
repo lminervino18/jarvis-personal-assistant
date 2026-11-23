@@ -1,6 +1,8 @@
 import { BinaryFrameKind, decodeAudioFrame, encodeAudioFrame, type CaptureReport } from "@jarvis/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MicError, type AudioEngine } from "../audio/engine.js";
+import { SpeechVad } from "../audio/speech-vad.js";
+import type { DetectorFactory } from "../audio/voice-loop.js";
 import { pcm16ToBytes } from "../audio/pcm.js";
 import { PcmPlayer, type PcmPlayerOptions } from "../audio/playback.js";
 import { FakePlaybackContext } from "../audio/testing.js";
@@ -38,7 +40,12 @@ class FakeEngine implements AudioEngine {
   frames: ((pcm: Int16Array) => void) | null = null;
   micError: Error | null = null;
   report: CaptureReport | null = null;
+  ducked = false;
   listener: () => void = () => {};
+
+  duck(ducked: boolean): void {
+    this.ducked = ducked;
+  }
 
   captureReport(): CaptureReport | null {
     return this.report;
@@ -317,11 +324,62 @@ describe("Session voice turns", () => {
     socket().handlers.binary(encodeAudioFrame(BinaryFrameKind.ttsAudio, turnId, pcm16ToBytes(new Int16Array(24000))));
 
     engine().feed(0.0008, 30);
+    engine().feed(0.5, 20);
+    expect(socket().last("audio.begin")).toMatchObject({ duringPlayback: true });
+    expect(socket().last("turn.cancel")).toBeUndefined();
+    expect(engine().ducked).toBe(true);
+    expect(engine().context.sources[0]?.stopped).toBe(false);
+
     engine().feed(0.5, 30);
     expect(socket().last("turn.cancel")).toMatchObject({ turnId, reason: "barge_in" });
     expect(engine().context.sources[0]?.stopped).toBe(true);
+    expect(engine().ducked).toBe(false);
     expect(socket().last("audio.begin")?.turnId).not.toBe(turnId);
     expect(session.getSnapshot().state).toBe("listening");
+  });
+
+  it("keeps the reply playing at full volume when the speech over it was a backchannel", async () => {
+    const { session, socket, engine, connect } = setup();
+    connect(true);
+    await session.toggleMicrophone();
+    engine().feed(0.0008, 40);
+    session.sendText("contame un cuento");
+    const turnId = socket().last("user.text")?.turnId as string;
+    socket().server({ type: "audio.begin", turnId, format: { encoding: "pcm_s16le", sampleRate: 24000, channels: 1 }, processed: false });
+    socket().handlers.binary(encodeAudioFrame(BinaryFrameKind.ttsAudio, turnId, pcm16ToBytes(new Int16Array(24000))));
+    engine().feed(0.0008, 30);
+    engine().feed(0.5, 18);
+    const candidate = socket().last("audio.begin")?.turnId as string;
+    expect(engine().ducked).toBe(true);
+
+    socket().server({ type: "turn.end", turnId: candidate, status: "cancelled" });
+    expect(engine().ducked).toBe(false);
+    expect(engine().context.sources[0]?.stopped).toBe(false);
+    expect(socket().json().some((message) => message.type === "turn.cancel" && message.turnId === turnId)).toBe(false);
+  });
+
+  it("tells the server about pauses and stops streaming when the server closes the turn", async () => {
+    const detectors: DetectorFactory = () => {
+      const vad = new SpeechVad();
+      return { push: (pcm) => vad.push(Math.abs(pcm[0] ?? 0) > 1000 ? 0.9 : 0.05), reset: () => vad.reset(), get voicedMs() { return vad.voicedTotalMs; } };
+    };
+    const { session, socket, engine, connect } = setup({ loadDetectors: async () => detectors });
+    connect(true);
+    await session.enableAudio();
+    engine().report = { supported: {}, applied: {}, contextSampleRate: 48000 };
+    await session.startCall();
+    await Promise.resolve();
+    engine().feed(0.1, 20);
+    const turnId = socket().last("audio.begin")?.turnId as string;
+    engine().feed(0.0008, 25);
+    expect(socket().last("audio.pause")).toEqual({ type: "audio.pause", turnId });
+    expect(socket().last("audio.end")).toBeUndefined();
+
+    socket().server({ type: "state", state: "transcribing", turnId });
+    const streamed = socket().binaryFrames().filter((frame) => frame.turnId === turnId).length;
+    engine().feed(0.0008, 10);
+    expect(socket().binaryFrames().filter((frame) => frame.turnId === turnId)).toHaveLength(streamed);
+    expect(socket().last("client.audio")).toMatchObject({ detector: "silero" });
   });
 
   it("keeps a thinking turn alive when the owner speaks before the reply starts", async () => {
@@ -458,7 +516,7 @@ describe("speaker, voice notes and calls", () => {
     await session.enableAudio();
     engine().report = { supported: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, applied: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, sampleRate: 48000, channelCount: 1 }, contextSampleRate: 48000 };
     await session.startCall();
-    expect(socket().last("client.audio")).toEqual({ type: "client.audio", ...engine().report });
+    expect(socket().last("client.audio")).toEqual({ type: "client.audio", ...engine().report, detector: "energy" });
   });
 
   it("tells the server when a call starts and ends, so it can speak background news", async () => {

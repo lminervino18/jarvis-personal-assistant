@@ -20,7 +20,7 @@ export function contentSecurityPolicy(publicOrigin: string): string {
   const wsOrigin = publicOrigin.replace(/^http/, "ws");
   return [
     "default-src 'self'",
-    "script-src 'self' https://www.youtube.com https://s.ytimg.com",
+    "script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com https://s.ytimg.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https://i.ytimg.com",
     "media-src 'self' blob:",
