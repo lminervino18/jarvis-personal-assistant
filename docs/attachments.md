@@ -31,3 +31,19 @@ Instagram has no sending: JARVIS offers WhatsApp or mail instead.
 
 - 10 MB per file, 4 per message. The model only receives images and PDFs up to 5 MB; other files are still forwardable.
 - Previews at `GET /api/attachments/:id` are owner only, `Content-Security-Policy: sandbox` and `nosniff`; anything that is not an image or a PDF is served as a download.
+
+## Audio transcription
+
+The owner uploads a WhatsApp voice note (or any audio) from their phone and JARVIS answers with the text. Status: *tested with fixtures*; not tried with a real provider yet.
+
+```
+owner uploads the audio file → POST /api/attachments/transcribe (owner only, raw body, Content-Type = audio type)
+  → type and size validated (voice/audio-file-transcription.ts)
+  → the same OpenAI-compatible STT as the calls (OpenAiCompatibleStt.transcribeFile → /audio/transcriptions)
+  → { "text": "..." } or { "error": "<code>" }
+```
+
+- Types: `audio/ogg` (voice notes, `codecs=opus` is ignored), `audio/opus`, `audio/mp4`, `audio/m4a`, `audio/x-m4a`, `audio/mpeg`, `audio/mp3`, `audio/wav`, `audio/x-wav`, `audio/wave`. Up to 10 MB.
+- Errors, always without audio or text: `unsupported_type` (415), `empty_file` (400), `file_too_large` (413), `stt_unavailable` (503, no OpenAI-compatible STT configured), `transcription_failed` (502). Invalid files never reach the STT.
+- The audio is not stored and not logged; the transcript is only in the response.
+- The WhatsApp bridge still downloads no media: the owner has to save the voice note and upload it by hand.

@@ -22,6 +22,7 @@ function repeatsPrompt(transcript: string, prompt: string): boolean {
 }
 const MIN_AUDIO_MS = 150;
 const DEFAULT_TIMEOUT_MS = 20_000;
+const FILE_TIMEOUT_MS = 60_000;
 
 export interface OpenAiSttOptions {
   provider: string;
@@ -77,6 +78,26 @@ export class OpenAiCompatibleStt implements SpeechToTextService {
     if (typeof body.text !== "string") throw new Error(`${this.provider} returned no transcript`);
     const text = this.options.prompt && repeatsPrompt(body.text, this.options.prompt) ? "" : body.text.trim();
     return { text, provider: this.provider, latencyMs: performance.now() - startedAt, audioMs };
+  }
+
+  async transcribeFile(file: { data: Uint8Array; mediaType: string; fileName: string }, signal?: AbortSignal): Promise<string> {
+    const form = new FormData();
+    form.set("file", new Blob([file.data], { type: file.mediaType }), file.fileName);
+    form.set("model", this.options.model);
+    form.set("response_format", "json");
+    form.set("temperature", "0");
+    if (this.options.language) form.set("language", this.options.language);
+    const timeout = AbortSignal.timeout(this.options.timeoutMs ?? FILE_TIMEOUT_MS);
+    const response = await (this.options.fetch ?? fetch)(`${this.options.baseUrl}/audio/transcriptions`, {
+      method: "POST",
+      headers: this.options.apiKey ? { authorization: `Bearer ${this.options.apiKey}` } : {},
+      body: form,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (!response.ok) throw new Error(`${this.provider} transcription failed with status ${response.status}`);
+    const body = (await response.json()) as { text?: unknown };
+    if (typeof body.text !== "string") throw new Error(`${this.provider} returned no transcript`);
+    return body.text.trim();
   }
 
   private buildForm(pcm: Uint8Array, format: AudioFormat): FormData {

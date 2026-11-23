@@ -37,6 +37,7 @@ import { WorkLayout } from "./tasks/workspace.js";
 import { allTools } from "./tools/index.js";
 import { currentConfirmCard } from "./tools/runner.js";
 import type { ToolServices } from "./tools/types.js";
+import { OpenAiCompatibleStt } from "./voice/openai-stt.js";
 import { createVoiceServices } from "./voice/providers.js";
 import { Outbox } from "./worker/outbox.js";
 import type { TaskActionOutcome } from "./ws/client-connection.js";
@@ -168,7 +169,7 @@ const app = await buildApp({
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
-    registerAttachmentRoutes(instance, helpers, attachments);
+    registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
     registerDeviceRoutes(instance, helpers, {
       devices,
       connection: {
