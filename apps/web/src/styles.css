@@ -1355,3 +1355,53 @@ button {
     transform: rotate(360deg);
   }
 }
+
+.note-wrap {
+  position: relative;
+  display: flex;
+}
+
+.note-lock {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 16px);
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  width: 40px;
+  padding: 10px 0 8px;
+  border-radius: 20px;
+  background: rgba(28, 28, 30, 0.94);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  color: var(--label);
+  transform: translate(-50%, calc(var(--lift, 0) * -40px));
+  pointer-events: none;
+  animation: note-lock-in 0.18s ease-out;
+}
+
+.note-lock svg:last-child {
+  color: var(--secondary);
+  animation: nudge-up 1.2s ease-in-out infinite;
+}
+
+.recording-hint {
+  color: var(--secondary);
+}
+
+.field-button.discard {
+  color: var(--red);
+  margin-left: -10px;
+}
+
+@keyframes note-lock-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+}
+
+@keyframes nudge-up {
+  50% {
+    transform: translateY(-3px);
+  }
+}
