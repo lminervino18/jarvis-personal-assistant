@@ -1,6 +1,6 @@
 // Voice turn latency and outcome report from jarvis.db. Run inside the server container:
-//   docker compose exec -T -e SINCE=2026-11-23T00:00:00Z server node - < infra/scripts/voice-report.cjs
-const Database = require("better-sqlite3");
+//   docker compose exec -T -e SINCE=2026-11-23T00:00:00Z server node --input-type=module - < infra/scripts/voice-report.mjs
+import Database from "better-sqlite3";
 
 const db = new Database("/data/jarvis.db", { readonly: true });
 const since = process.env.SINCE ?? "1970-01-01T00:00:00Z";

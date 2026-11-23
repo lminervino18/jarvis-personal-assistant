@@ -55,7 +55,7 @@ Now the process starts when the owner starts speaking (`prepareTurn`, `runtime.p
 ## Measuring
 
 - Per turn: `docker compose logs server | grep -E "turn timing|turn endpoint|backchannel|client audio|event loop"`.
-- Latency report from the database: `docker compose exec -T -e SINCE=<iso date> server node - < infra/scripts/voice-report.cjs`.
+- Latency report from the database: `docker compose exec -T -e SINCE=<iso date> server node --input-type=module - < infra/scripts/voice-report.mjs`.
 - `first_text_ms` and `first_audio_ms` count from the moment the turn closed (server) or the pause was reported (phone). The silence the owner waited before that is the endpointing time in the table above.
 
 ## Rollback
