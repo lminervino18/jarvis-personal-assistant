@@ -434,7 +434,10 @@ export class ClientConnection implements Subscriber {
   private onAudioPause(turnId: string): void {
     const capture = this.captures.get(turnId);
     if (!capture || capture.dictation) return;
-    if (capture.provisional && capture.bytes < capture.maxBytes * (PROVISIONAL_MAX_SECONDS / MAX_CAPTURE_SECONDS)) return void this.onAudioEnd(turnId);
+    if (capture.provisional && capture.bytes < capture.maxBytes * (PROVISIONAL_MAX_SECONDS / MAX_CAPTURE_SECONDS)) {
+      this.deps.log.info({ turnId, reason: "candidate" }, "turn endpoint");
+      return void this.onAudioEnd(turnId);
+    }
     clearTimeout(capture.timer);
     const generation = ++capture.generation;
     capture.paused = true;
