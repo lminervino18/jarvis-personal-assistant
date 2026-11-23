@@ -8,11 +8,21 @@ function run(vad: SpeechVad, probability: number, ms: number): string[] {
 }
 
 describe("SpeechVad", () => {
-  it("starts after enough voiced time and reports a pause after 450 ms of silence", () => {
+  it("starts after enough voiced time, hints at 250 ms of silence and reports a pause at 450 ms", () => {
     const vad = new SpeechVad();
     expect(run(vad, 0.9, 200)).toEqual(["start"]);
-    expect(run(vad, 0.1, 440)).toEqual([]);
+    expect(run(vad, 0.1, 240)).toEqual([]);
+    expect(run(vad, 0.1, 20)).toEqual(["hint"]);
+    expect(run(vad, 0.1, 180)).toEqual([]);
     expect(run(vad, 0.1, 20)).toEqual(["pause"]);
+  });
+
+  it("reports a resume when the owner talks again after the hint, before the pause", () => {
+    const vad = new SpeechVad();
+    run(vad, 0.9, 300);
+    expect(run(vad, 0.1, 300)).toEqual(["hint"]);
+    expect(run(vad, 0.9, 40)).toEqual(["resume"]);
+    expect(run(vad, 0.1, 460)).toEqual(["hint", "pause"]);
   });
 
   it("resumes only on real voice after a pause, not on a click", () => {
@@ -28,7 +38,7 @@ describe("SpeechVad", () => {
   it("ends only after a long silence, as a safety net when the server never decides", () => {
     const vad = new SpeechVad();
     run(vad, 0.9, 300);
-    expect(run(vad, 0.1, 3400)).toEqual(["pause"]);
+    expect(run(vad, 0.1, 3400)).toEqual(["hint", "pause"]);
     expect(run(vad, 0.1, 100)).toEqual(["end"]);
   });
 

@@ -78,6 +78,8 @@ interface Capture {
   generation: number;
   pausedAt?: number;
   checkpoint?: { generation: number; result: Promise<TranscriptResult | undefined> };
+  /** The pause reused a transcription started at the earlier tentative pause. */
+  earlyCheckpoint?: boolean;
   timer?: NodeJS.Timeout;
 }
 
@@ -190,7 +192,7 @@ export class ClientConnection implements Subscriber {
       case "audio.end":
         return this.onAudioEnd(message.turnId);
       case "audio.pause":
-        return this.onAudioPause(message.turnId);
+        return message.tentative ? this.onTentativePause(message.turnId) : this.onAudioPause(message.turnId);
       case "audio.resume":
         return this.onAudioResume(message.turnId);
       case "turn.cancel": {
@@ -431,6 +433,14 @@ export class ClientConnection implements Subscriber {
    * sounds finished; otherwise waits a little for the owner to go on. The server is the only one
    * that confirms the end of a turn.
    */
+  /** A short silence: transcribes in advance so a real pause can be decided without waiting for Whisper. */
+  private onTentativePause(turnId: string): void {
+    const capture = this.captures.get(turnId);
+    if (!capture || capture.dictation || capture.provisional || !capture.capture.peek) return;
+    const generation = ++capture.generation;
+    capture.checkpoint = { generation, result: capture.capture.peek().catch(() => undefined) };
+  }
+
   private onAudioPause(turnId: string): void {
     const capture = this.captures.get(turnId);
     if (!capture || capture.dictation) return;
@@ -439,11 +449,13 @@ export class ClientConnection implements Subscriber {
       return void this.onAudioEnd(turnId);
     }
     clearTimeout(capture.timer);
-    const generation = ++capture.generation;
+    const early = capture.checkpoint?.generation === capture.generation ? capture.checkpoint : undefined;
+    const generation = early ? capture.generation : ++capture.generation;
     capture.paused = true;
     capture.pausedAt = performance.now();
-    const result = capture.capture.peek ? capture.capture.peek().catch(() => undefined) : Promise.resolve(undefined);
+    const result = early?.result ?? (capture.capture.peek ? capture.capture.peek().catch(() => undefined) : Promise.resolve(undefined));
     capture.checkpoint = { generation, result };
+    capture.earlyCheckpoint = early !== undefined;
     capture.timer = setTimeout(() => this.closeTurn(turnId, generation, "silence"), END_OF_TURN_WAIT_MS);
     void result.then((transcript) => {
       if (transcript && turnLooksComplete(transcript.text)) this.closeTurn(turnId, generation, "complete");
@@ -462,7 +474,7 @@ export class ClientConnection implements Subscriber {
     const capture = this.captures.get(turnId);
     if (!capture || !capture.paused || capture.generation !== generation) return;
     const checkpoint = capture.checkpoint?.generation === generation ? capture.checkpoint.result : undefined;
-    this.deps.log.info({ turnId, reason, pauseMs: Math.round(performance.now() - (capture.pausedAt ?? 0)) }, "turn endpoint");
+    this.deps.log.info({ turnId, reason, early: capture.earlyCheckpoint === true, pauseMs: Math.round(performance.now() - (capture.pausedAt ?? 0)) }, "turn endpoint");
     void this.onAudioEnd(turnId, checkpoint);
   }
 

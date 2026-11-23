@@ -48,8 +48,11 @@ export const AudioBeginMessage = z.object({
   duringPlayback: z.boolean().optional(),
 });
 
-/** The owner went quiet inside an utterance; the server decides with the words whether the turn ended. */
-export const AudioPauseMessage = z.object({ type: z.literal("audio.pause"), turnId: Id });
+/**
+ * The owner went quiet inside an utterance; the server decides with the words whether the turn ended.
+ * A tentative pause comes earlier and only lets the server start transcribing in advance.
+ */
+export const AudioPauseMessage = z.object({ type: z.literal("audio.pause"), turnId: Id, tentative: z.boolean().optional() });
 
 /** The owner kept talking after a pause, so the same turn continues. */
 export const AudioResumeMessage = z.object({ type: z.literal("audio.resume"), turnId: Id });

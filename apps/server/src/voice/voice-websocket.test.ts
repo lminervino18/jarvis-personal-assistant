@@ -202,6 +202,32 @@ describe("voice over the WebSocket with fixture providers", () => {
     await client.waitFor("turn.end", (m) => m.turnId === turnId && m.status === "completed");
   });
 
+  it("reuses the transcription started at the tentative pause, so the real pause decides at once", async () => {
+    let peeks = 0;
+    const fixture = new FixtureStt({ transcript: "¿Qué hora es?", latencyMs: 150 });
+    const stt: SpeechToTextService = {
+      provider: "fixture",
+      available: () => true,
+      startCapture: (options) => {
+        const capture = fixture.startCapture(options);
+        return { ...capture, peek: () => (peeks++, capture.peek!()) };
+      },
+    };
+    const { port } = await startServer({}, undefined, { stt });
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const turnId = crypto.randomUUID();
+    client.begin(conversationId, turnId);
+    client.sendFrames(turnId, 1);
+    client.send({ type: "audio.pause", turnId, tentative: true });
+    await new Promise((resolveTick) => setTimeout(resolveTick, 200));
+    const pausedAt = Date.now();
+    client.send({ type: "audio.pause", turnId });
+    await client.waitFor("transcript", (m) => m.final && m.turnId === turnId);
+    expect(Date.now() - pausedAt).toBeLessThan(120);
+    expect(peeks).toBe(1);
+  });
+
   it("waits through a pause when the sentence hangs, and keeps it as one turn when the owner goes on", async () => {
     const second = MIC_FORMAT.sampleRate * 2;
     const stt = new FixtureStt({ transcript: (bytes) => (bytes <= second * 1.2 ? "Quiero que..." : "Quiero que revises el correo.") });

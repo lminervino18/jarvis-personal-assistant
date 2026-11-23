@@ -157,6 +157,7 @@ export class Session {
     this.voice = new VoiceLoop({
       onStart: () => this.beginUtterance(),
       onFrame: (pcm) => this.sendFrame(pcm),
+      onHint: () => this.captureTurn && this.client.send({ type: "audio.pause", turnId: this.captureTurn, tentative: true }),
       onPause: () => this.notifyPause(),
       onResume: () => this.captureTurn && this.client.send({ type: "audio.resume", turnId: this.captureTurn }),
       onConfirmed: () => this.confirmBargeIn(),

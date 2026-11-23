@@ -10,6 +10,8 @@ export interface SpeechVadOptions {
   minSpeechMs: number;
   /** Silence inside a candidate that discards it as a blip. */
   candidateGapMs: number;
+  /** Silence after which the server starts transcribing in advance, in case the turn is ending. */
+  hintMs: number;
   /** Silence after speech that reports a pause; the server decides whether the turn ended. */
   pauseMs: number;
   /** Voiced time after a pause that reports the owner kept talking. */
@@ -25,6 +27,7 @@ export const speechVadOptions: SpeechVadOptions = {
   stopProbability: 0.35,
   minSpeechMs: 200,
   candidateGapMs: 100,
+  hintMs: 250,
   pauseMs: 450,
   resumeMs: 100,
   endSilenceMs: 3500,
@@ -34,7 +37,7 @@ export const speechVadOptions: SpeechVadOptions = {
 /** Stricter start while the assistant speaks, so a click or residual echo does not open a candidate. */
 export const playbackSpeechVadOptions: SpeechVadOptions = { ...speechVadOptions, startProbability: 0.6, minSpeechMs: 250 };
 
-export type SpeechDecision = VadDecision | "pause" | "resume";
+export type SpeechDecision = VadDecision | "hint" | "pause" | "resume";
 
 /**
  * Turns per-frame speech probabilities (Silero) into utterance events. Unlike a volume threshold it
@@ -47,6 +50,7 @@ export class SpeechVad {
   private gapMs = 0;
   private utteranceMs = 0;
   private paused = false;
+  private hinted = false;
   private resumeRunMs = 0;
   private totalVoicedMs = 0;
 
@@ -63,6 +67,7 @@ export class SpeechVad {
     this.gapMs = 0;
     this.utteranceMs = 0;
     this.paused = false;
+    this.hinted = false;
     this.resumeRunMs = 0;
     this.totalVoicedMs = 0;
   }
@@ -98,7 +103,7 @@ export class SpeechVad {
   }
 
   private onSpeech(probability: number): SpeechDecision {
-    const { frameMs, pauseMs, endSilenceMs, maxUtteranceMs, resumeMs, startProbability, stopProbability } = this.options;
+    const { frameMs, hintMs, pauseMs, endSilenceMs, maxUtteranceMs, resumeMs, startProbability, stopProbability } = this.options;
     this.utteranceMs += frameMs;
     if (this.utteranceMs >= maxUtteranceMs) {
       this.reset();
@@ -108,6 +113,7 @@ export class SpeechVad {
       this.resumeRunMs = probability >= startProbability ? this.resumeRunMs + frameMs : 0;
       if (this.resumeRunMs >= resumeMs) {
         this.paused = false;
+        this.hinted = false;
         this.gapMs = 0;
         this.totalVoicedMs += this.resumeRunMs;
         this.resumeRunMs = 0;
@@ -123,13 +129,19 @@ export class SpeechVad {
     if (probability >= stopProbability) {
       this.gapMs = 0;
       this.totalVoicedMs += frameMs;
-      return "speech";
+      if (!this.hinted) return "speech";
+      this.hinted = false;
+      return "resume";
     }
     this.gapMs += frameMs;
     if (this.gapMs >= pauseMs) {
       this.paused = true;
       this.resumeRunMs = 0;
       return "pause";
+    }
+    if (this.gapMs >= hintMs && !this.hinted) {
+      this.hinted = true;
+      return "hint";
     }
     return "speech";
   }

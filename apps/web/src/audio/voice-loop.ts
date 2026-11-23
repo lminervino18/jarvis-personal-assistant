@@ -6,6 +6,8 @@ export interface VoiceLoopHandlers {
   /** Speech was confirmed. Returning false rejects it (e.g. the socket is down). */
   onStart(duringPlayback: boolean): boolean;
   onFrame(pcm: Int16Array): void;
+  /** A short silence: the server may start transcribing in case the turn is ending. */
+  onHint(): void;
   /** The owner went quiet inside the utterance; the server decides whether the turn ended. */
   onPause(): void;
   /** The owner kept talking after a pause. */
@@ -138,6 +140,7 @@ export class VoiceLoop {
       return;
     }
     this.handlers.onFrame(frame);
+    if (decision === "hint") this.handlers.onHint();
     if (decision === "pause") this.handlers.onPause();
     if (decision === "resume") this.handlers.onResume();
     if (this.overPlayback && !this.confirmed && this.detector.voicedMs >= this.options.confirmMs) {

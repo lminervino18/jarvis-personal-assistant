@@ -36,6 +36,7 @@ function harness(accept = true, detectors?: DetectorFactory) {
       return accept;
     },
     onFrame: (pcm) => frames.push(pcm),
+    onHint: () => events.push("hint"),
     onPause: () => events.push("pause"),
     onResume: () => events.push("resume"),
     onConfirmed: () => events.push("confirmed"),
@@ -137,7 +138,7 @@ describe("VoiceLoop", () => {
     feed(probability(0.05), 25);
     feed(probability(0.9), 10);
     feed(probability(0.05), 25);
-    expect(events).toEqual(["start", "pause", "resume", "pause"]);
+    expect(events).toEqual(["start", "hint", "pause", "resume", "hint", "pause"]);
     feed(probability(0.05), 160);
     expect(events.at(-1)).toBe("end");
   });
@@ -148,10 +149,10 @@ describe("VoiceLoop", () => {
     feed(probability(0.9), 15);
     expect(events).toEqual(["start-over-reply"]);
     feed(probability(0.05), 25);
-    expect(events).toEqual(["start-over-reply", "pause"]);
+    expect(events).toEqual(["start-over-reply", "hint", "pause"]);
     loop.cancel();
     feed(probability(0.9), 40);
-    expect(events).toEqual(["start-over-reply", "pause", "start-over-reply", "confirmed"]);
+    expect(events).toEqual(["start-over-reply", "hint", "pause", "start-over-reply", "confirmed"]);
   });
 
   it("ignores a short noise below the speech probability", () => {

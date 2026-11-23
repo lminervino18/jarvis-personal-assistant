@@ -372,7 +372,10 @@ describe("Session voice turns", () => {
     engine().feed(0.1, 20);
     const turnId = socket().last("audio.begin")?.turnId as string;
     engine().feed(0.0008, 25);
-    expect(socket().last("audio.pause")).toEqual({ type: "audio.pause", turnId });
+    expect(socket().json().filter((message) => message.type === "audio.pause")).toEqual([
+      { type: "audio.pause", turnId, tentative: true },
+      { type: "audio.pause", turnId },
+    ]);
     expect(socket().last("audio.end")).toBeUndefined();
 
     socket().server({ type: "state", state: "transcribing", turnId });
