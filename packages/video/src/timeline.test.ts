@@ -49,7 +49,7 @@ describe("video timeline", () => {
     const last = timeline.scenes.at(-1)!;
     expect(timeline.durationMs).toBe(last.startMs + last.durationMs);
     expect(timeline.captions[0]?.text).toBe("Hola, soy Jarvis, el asistente");
-    expect(timeline.captions[0]?.startMs).toBe(700);
+    expect(timeline.captions[0]?.startMs).toBe(400);
   });
 
   it("refuses a timeline whose scenes miss their narration", () => {

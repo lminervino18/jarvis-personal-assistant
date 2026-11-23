@@ -7,10 +7,10 @@ export const SIZES: Record<VideoFormat, { width: number; height: number }> = {
   landscape: { width: 1920, height: 1080 },
 };
 
-const LEAD_MS = 350;
-const FIRST_LEAD_MS = 700;
-const TAIL_MS = 450;
-const LAST_TAIL_MS = 1600;
+const LEAD_MS = 250;
+const FIRST_LEAD_MS = 400;
+const TAIL_MS = 300;
+const LAST_TAIL_MS = 1000;
 const CAPTION_CHARS: Record<VideoFormat, number> = { vertical: 30, landscape: 46 };
 const CAPTION_HOLD_MS = 250;
 

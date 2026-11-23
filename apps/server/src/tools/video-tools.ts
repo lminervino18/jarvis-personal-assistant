@@ -80,7 +80,7 @@ const RENDER_NOTE =
 export const videoCreate = defineTool({
   name: "video_create",
   description:
-    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y de 3 a 7 escenas variadas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración corta por escena que nombre lo que se ve. 30 a 60 segundos en total. Crear un video no lo envía: para mandarlo, video_send.",
+    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y las escenas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración por escena que nombre lo que se ve. Estándar: unos 10 segundos, o sea la presentación más 1 o 2 escenas de una sola oración corta (unos 60 caracteres cada una); más escenas y más largo solo si el dueño lo pide. Crear un video no lo envía: para mandarlo, video_send.",
   async execute(ctx, input) {
     const store = ctx.services.videos;
     if (!store) return fail("disabled", DISABLED);

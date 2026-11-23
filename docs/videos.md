@@ -1,6 +1,6 @@
 # Narrated videos
 
-JARVIS makes short narrated videos from the chat: explanations, announcements, questions that need an answer, and task results. Every video speaks with JARVIS's ElevenLabs voice, animates in the "Pulso" style of the pages, carries burned-in captions, and can be watched in the app, downloaded, or sent by WhatsApp or mail.
+JARVIS makes short narrated videos from the chat (about 10 seconds by default: the spoken intro plus one or two one-sentence scenes; longer only on request): explanations, announcements, questions that need an answer, and task results. Every video speaks with JARVIS's ElevenLabs voice, animates in the "Pulso" style of the pages, carries burned-in captions, and can be watched in the app, downloaded, or sent by WhatsApp or mail.
 
 Status: *implemented*, *tested with fixtures* (timeline, store, narrator with a fake ElevenLabs, pipeline with a fake render, tools). A real render of the sample composition is checked in CI inside the video image. The first video with the real voice is pending in production.
 
