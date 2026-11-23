@@ -27,12 +27,27 @@ export interface VideoUsage {
   bytes: number;
 }
 
+/** A send the owner asked for with the video, with the recipient already resolved. */
+export interface VideoSend {
+  channel: "whatsapp" | "email";
+  /** Chat id or email address. */
+  to: string;
+  /** How the card names the recipient. */
+  recipient: string;
+  text?: string;
+  subject?: string;
+  account?: "personal" | "work";
+  status: "pending" | "queued" | "sent" | "failed";
+  error?: string;
+}
+
 export interface Video {
   id: string;
   title: string;
   ownerName: string;
   currentVersion: number;
   pageSlug: string | null;
+  send?: VideoSend;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,6 +87,7 @@ interface VideoRow {
   owner_name: string;
   current_version: number;
   page_slug: string | null;
+  send_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -112,6 +128,7 @@ function toVideo(row: VideoRow): Video {
     ownerName: row.owner_name,
     currentVersion: row.current_version,
     pageSlug: row.page_slug,
+    ...(row.send_json ? { send: JSON.parse(row.send_json) as VideoSend } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -154,13 +171,13 @@ function toDelivery(row: DeliveryRow): VideoDelivery {
 export class VideoStore {
   constructor(private readonly db: Db) {}
 
-  create(brief: VideoBrief, ownerName: string, now: Date): VideoVersion {
+  create(brief: VideoBrief, ownerName: string, now: Date, send?: VideoSend): VideoVersion {
     const id = randomUUID();
     const at = now.toISOString();
     this.db.transaction(() => {
       this.db
-        .prepare("INSERT INTO videos (id, title, owner_name, current_version, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)")
-        .run(id, brief.title, ownerName, at, at);
+        .prepare("INSERT INTO videos (id, title, owner_name, current_version, send_json, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)")
+        .run(id, brief.title, ownerName, send ? JSON.stringify(send) : null, at, at);
       this.insertVersion(id, 1, brief, at);
     })();
     return this.require(id, 1);
@@ -177,6 +194,7 @@ export class VideoStore {
         .run(at, videoId);
       this.insertVersion(videoId, version, brief, at);
       this.db.prepare("UPDATE videos SET title = ?, current_version = ?, updated_at = ? WHERE id = ?").run(brief.title, version, at, videoId);
+      if (video.send && video.send.status !== "queued") this.setSendStatus(videoId, "pending", now);
     })();
     return this.require(videoId, version);
   }
@@ -282,6 +300,14 @@ export class VideoStore {
     return WORKING.includes(this.version(videoId, version)?.status ?? "cancelled");
   }
 
+  /** Records how the requested send went; a pending send waits for the owner's tap on the card. */
+  setSendStatus(videoId: string, status: VideoSend["status"], now: Date, error?: string): void {
+    const send = this.get(videoId)?.send;
+    if (!send) return;
+    const { error: _previous, ...rest } = send;
+    this.db.prepare("UPDATE videos SET send_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify({ ...rest, status, ...(error ? { error } : {}) }), now.toISOString(), videoId);
+  }
+
   setPageSlug(videoId: string, slug: string, now: Date): void {
     this.db.prepare("UPDATE videos SET page_slug = ?, updated_at = ? WHERE id = ?").run(slug, now.toISOString(), videoId);
   }
@@ -301,6 +327,17 @@ export class VideoStore {
       ...(current.durationMs !== undefined ? { durationMs: current.durationMs } : {}),
       files: current.files,
       ...(current.error ? { error: current.error } : {}),
+      ...(video.send
+        ? {
+            send: {
+              channel: video.send.channel,
+              recipient: video.send.recipient,
+              ...(video.send.text ? { text: video.send.text } : {}),
+              status: video.send.status,
+              ...(video.send.error ? { error: video.send.error } : {}),
+            },
+          }
+        : {}),
       updatedAt: current.updatedAt,
     };
   }

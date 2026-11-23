@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
-import { VideoFile, VideoFormat, VideoStatus } from "./videos.js";
+import { VideoFile, VideoFormat, VideoSendState, VideoStatus } from "./videos.js";
 
 const IsoDateTime = z.iso.datetime({ offset: true });
 
@@ -135,6 +135,8 @@ export const VideoCard = z.object({
     vtt: z.uuid().optional(),
   }),
   error: z.string().max(300).optional(),
+  /** The send the owner asked for together with the video; their tap on the card sends it. */
+  send: VideoSendState.optional(),
   updatedAt: IsoDateTime,
 });
 export type VideoCard = z.infer<typeof VideoCard>;

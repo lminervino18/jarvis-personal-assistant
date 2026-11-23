@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ChartShape, TableShape } from "./cards.js";
-import { VideoBrief } from "./videos.js";
+import { VideoBrief, VideoSendRequest } from "./videos.js";
 
 const isoDateTimeWithOffset = z.iso.datetime({ offset: true });
 const IsoWithOffset = z
@@ -207,6 +207,7 @@ export const toolInputs = {
   },
   video_create: {
     brief: VideoBrief,
+    sendTo: VideoSendRequest.optional().describe("Solo si el dueño ya dijo a quién mandarlo: la tarjeta del video trae el botón para enviarlo"),
   },
   video_status: {
     videoId: z.uuid().optional(),

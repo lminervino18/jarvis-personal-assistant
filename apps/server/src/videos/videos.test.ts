@@ -8,7 +8,8 @@ import { openMigratedDatabase } from "../db/database.js";
 import { FileLinks } from "../files/file-links.js";
 import type { GmailService } from "../integrations/gmail/gmail-service.js";
 import type { ToolContext } from "../tools/types.js";
-import { deliveryFor, videoCreate, videoSend, videoStatus } from "../tools/video-tools.js";
+import { videoCreate, videoSend, videoStatus } from "../tools/video-tools.js";
+import { deliveryFor, sendVideo } from "./video-delivery.js";
 import { encodeWav } from "../voice/pcm.js";
 import { Narrator, type Narration } from "./narrator.js";
 import { videoPageHtml } from "./video-page.js";
@@ -287,6 +288,31 @@ describe("video tools", () => {
     expect(sent).toHaveLength(1);
     expect(store.deliveries(videoId)).toMatchObject([{ channel: "email", file: "full", status: "sent", providerId: "mail-1" }]);
     expect(full.size).toBe(2000);
+  });
+
+  it("keeps the send the owner asked for in the video card and sends it once from there", async () => {
+    const { ctx, store, attachments, cards, sent } = toolContext();
+    const created = await videoCreate.execute(ctx, { brief: BRIEF, sendTo: { channel: "email", to: "ana@example.test", text: "Mirá esto" } });
+    expect(created.ok && created.note).toContain("Enviar a ana@example.test");
+    expect(cards[0]).toMatchObject({ kind: "video", send: { channel: "email", recipient: "ana@example.test", text: "Mirá esto", status: "pending" } });
+    const videoId = (cards[0] as { videoId: string }).videoId;
+    store.claimNext(NOW, 60_000);
+    const full = attachments.save({ name: "torneo.mp4", mediaType: "video/mp4", data: Buffer.alloc(500) }, NOW)!;
+    store.finish(videoId, 1, { files: { full: { attachmentId: full.id, size: full.size } }, qa: { passed: true, checks: [] }, usage: { ttsCharacters: 0, ttsCachedCharacters: 0, renderSeconds: 0, bytes: 0 } }, NOW);
+
+    const request = store.get(videoId)!.send!;
+    const input = { videoId, version: 1, channel: request.channel, to: request.to, text: request.text! };
+    expect(await sendVideo(ctx.services, input, NOW)).toMatchObject({ ok: true, status: "sent", repeated: false });
+    expect(store.card(videoId)?.send?.status).toBe("sent");
+    expect(await sendVideo(ctx.services, input, NOW)).toMatchObject({ ok: true, repeated: true });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("refuses a video whose scenes only repeat the intro", async () => {
+    const { ctx } = toolContext();
+    const brief = { ...BRIEF, purpose: "contarles que la pasé muy bien en el asado", scenes: [{ type: "title" as const, title: "La pasé muy bien en el asado", narration: "La pasé muy bien en el asado." }] };
+    const result = await videoCreate.execute(ctx, { brief });
+    expect(result.ok ? "" : result.error.message).toContain("repite lo que ya dice la presentación");
   });
 
   it("does not send a video that is not ready", () => {

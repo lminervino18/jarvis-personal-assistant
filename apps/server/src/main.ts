@@ -23,6 +23,7 @@ import { AttachmentStore } from "./attachments/attachment-store.js";
 import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
 import { registerVideoRoutes } from "./videos/video-routes.js";
 import { VideoStore } from "./videos/video-store.js";
+import { sendVideo } from "./videos/video-delivery.js";
 import { ChatStudies } from "./integrations/whatsapp/chat-study.js";
 import { analyzeFile } from "./files/file-analysis.js";
 import { FileLinks } from "./files/file-links.js";
@@ -195,7 +196,7 @@ const app = await buildApp({
     await gmail.registerRoutes(instance, helpers);
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
-    registerVideoRoutes(instance, helpers, videos, attachments, videosDir);
+    registerVideoRoutes(instance, helpers, videos, attachments, videosDir, (input) => sendVideo(services, input, new Date()));
     registerDeviceRoutes(instance, helpers, {
       devices,
       connection: {

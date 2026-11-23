@@ -129,5 +129,24 @@ export const VideoBrief = z
   });
 export type VideoBrief = z.infer<typeof VideoBrief>;
 
+/** Who the owner asked to send a video to, when they said it while asking for the video. */
+export const VideoSendRequest = z.object({
+  channel: z.enum(["whatsapp", "email"]),
+  to: z.string().trim().min(1).max(254).describe("WhatsApp: id, número o nombre del chat. Email: la dirección"),
+  text: z.string().trim().max(1500).optional().describe("Texto corto que acompaña al video; omitilo si el dueño lo quiere sin texto"),
+  subject: z.string().trim().min(1).max(200).optional(),
+  account: z.enum(["personal", "work"]).optional(),
+});
+export type VideoSendRequest = z.infer<typeof VideoSendRequest>;
+
+export const VideoSendState = z.object({
+  channel: z.enum(["whatsapp", "email"]),
+  recipient: z.string().max(200),
+  text: z.string().max(1500).optional(),
+  status: z.enum(["pending", "queued", "sent", "failed"]),
+  error: z.string().max(300).optional(),
+});
+export type VideoSendState = z.infer<typeof VideoSendState>;
+
 export const VideoFile = z.object({ attachmentId: z.uuid(), size: z.number().int().nonnegative() });
 export type VideoFile = z.infer<typeof VideoFile>;

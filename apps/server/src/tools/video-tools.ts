@@ -1,39 +1,45 @@
-import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { VideoBrief } from "@jarvis/contracts";
+import type { VideoBrief, VideoSendRequest } from "@jarvis/contracts";
 import { LINK_DAYS } from "../files/file-links.js";
 import { WhatsAppReader } from "../integrations/whatsapp/message-reader.js";
-import { WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
+import { deliveryFor, sendVideo } from "../videos/video-delivery.js";
 import { videoPageHtml } from "../videos/video-page.js";
 import { formatDuration } from "../videos/video-paths.js";
-import type { VideoStore, VideoVersion } from "../videos/video-store.js";
+import { repetitionProblem } from "../videos/video-script.js";
+import type { VideoSend, VideoStore, VideoVersion } from "../videos/video-store.js";
 import { fail, ok } from "./envelope.js";
-import { MAX_MAIL_ATTACHMENT_BYTES } from "./gmail-tools.js";
 import { defineTool, type ToolContext } from "./types.js";
 import { queryFailure } from "./whatsapp-tools.js";
 
 const SOURCE = { provider: "videos" };
 const DISABLED = "Los videos no están configurados en el servidor.";
-/** WhatsApp plays videos up to this size inline; bigger ones go lighter or as a link. */
-export const WHATSAPP_VIDEO_BYTES = 16 * 1024 * 1024;
-const CHANNEL_LIMIT = { whatsapp: WHATSAPP_VIDEO_BYTES, email: MAX_MAIL_ATTACHMENT_BYTES } as const;
 const CHANNEL_NAME = { whatsapp: "WhatsApp", email: "mail" } as const;
-
-type Channel = keyof typeof CHANNEL_LIMIT;
-type Delivery = { file: "full" | "light"; attachmentId: string; size: number } | { file: "link" };
 
 function megabytes(bytes: number): string {
   return `${(bytes / 1048576).toLocaleString("es-AR", { maximumFractionDigits: 1 })} MB`;
 }
 
-/** The file a channel can carry: the full video, the light one, or only a link when both are too big. */
-export function deliveryFor(version: VideoVersion, channel: Channel): Delivery {
-  const limit = CHANNEL_LIMIT[channel];
-  const { full, light } = version.files;
-  if (full && full.size <= limit) return { file: "full", ...full };
-  if (light && light.size <= limit) return { file: "light", ...light };
-  return { file: "link" };
+function briefProblem(ctx: ToolContext, brief: VideoBrief): string | undefined {
+  return mediaProblem(ctx, brief) ?? repetitionProblem(brief, ctx.services.ownerName ?? "");
+}
+
+/** Resolves who a requested send goes to before the video exists, so the card can name them. */
+function resolveSend(ctx: ToolContext, request: VideoSendRequest): VideoSend | { problem: ReturnType<typeof fail> } {
+  const base = { channel: request.channel, status: "pending" as const, ...(request.text ? { text: request.text } : {}), ...(request.subject ? { subject: request.subject } : {}) };
+  if (request.channel === "email") {
+    if (!z.email().safeParse(request.to).success) return { problem: fail("invalid_input", "Para mandarlo por mail necesito una dirección válida.") };
+    const account = request.account ?? "personal";
+    const problem = ctx.services.gmail ? ctx.services.gmail.cannotSend(account) : "Gmail no está configurado en el servidor.";
+    if (problem) return { problem: fail("not_connected", problem) };
+    return { ...base, to: request.to, recipient: request.to, account };
+  }
+  try {
+    const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(request.to, { liveOnly: true });
+    return { ...base, to: chat.jid, recipient: chat.name?.trim() || request.to };
+  } catch (error) {
+    return { problem: queryFailure(error) };
+  }
 }
 
 function mediaProblem(ctx: ToolContext, brief: VideoBrief): string | undefined {
@@ -80,16 +86,19 @@ const RENDER_NOTE =
 export const videoCreate = defineTool({
   name: "video_create",
   description:
-    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y las escenas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración por escena que nombre lo que se ve. Estándar: unos 10 segundos, o sea la presentación más 1 o 2 escenas de una sola oración corta (unos 60 caracteres cada una); más escenas y más largo solo si el dueño lo pide. Crear un video no lo envía: para mandarlo, video_send.",
+    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y las escenas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración por escena que nombre lo que se ve. Estándar: unos 10 segundos, o sea la presentación más 1 o 2 escenas de una sola oración corta (unos 60 caracteres cada una); más escenas y más largo solo si el dueño lo pide. No repitas: «purpose» es el tema general y cada escena suma algo nuevo (un dato, las opciones, qué hacer), nunca lo mismo con otras palabras; el servidor rechaza escenas que repiten. Si el dueño ya dijo a quién mandarlo («mandale a Juan un video…»), pasalo en sendTo: la tarjeta del video trae el botón para enviarlo y no hace falta video_send.",
   async execute(ctx, input) {
     const store = ctx.services.videos;
     if (!store) return fail("disabled", DISABLED);
-    const problem = mediaProblem(ctx, input.brief);
+    const problem = briefProblem(ctx, input.brief);
     if (problem) return fail("invalid_input", problem);
-    const version = store.create(input.brief, ctx.services.ownerName ?? "su dueño", ctx.now());
+    const send = input.sendTo ? resolveSend(ctx, input.sendTo) : undefined;
+    if (send && "problem" in send) return send.problem;
+    const version = store.create(input.brief, ctx.services.ownerName ?? "su dueño", ctx.now(), send);
     const card = store.card(version.videoId);
     if (card) ctx.emitCard(card);
-    return ok(SOURCE, [{ videoId: version.videoId, version: version.version, status: version.status }], { note: RENDER_NOTE });
+    const sendNote = send ? ` La tarjeta muestra «Enviar a ${send.recipient}»: el dueño lo toca cuando el video está listo. No llames video_send para este envío.` : "";
+    return ok(SOURCE, [{ videoId: version.videoId, version: version.version, status: version.status, ...(send ? { sendTo: send.recipient } : {}) }], { note: RENDER_NOTE + sendNote });
   },
 });
 
@@ -119,7 +128,7 @@ export const videoRevise = defineTool({
   async execute(ctx, input) {
     const store = ctx.services.videos;
     if (!store) return fail("disabled", DISABLED);
-    const problem = mediaProblem(ctx, input.brief);
+    const problem = briefProblem(ctx, input.brief);
     if (problem) return fail("invalid_input", problem);
     const version = store.revise(input.videoId, input.brief, ctx.now());
     if (!version) return fail("not_found", "No encuentro ese video.");
@@ -134,12 +143,6 @@ function readyVersion(ctx: ToolContext, videoId: string): VideoVersion | string 
   if (!store) return DISABLED;
   if (!store.get(videoId)) return "No encuentro ese video.";
   return store.latestReady(videoId) ?? "El video todavía no está listo: esperá el aviso en el chat.";
-}
-
-function pageUrl(ctx: ToolContext, videoId: string): string | undefined {
-  const slug = ctx.services.videos?.get(videoId)?.pageSlug;
-  const base = ctx.services.filesBaseUrl?.replace(/\/+$/, "");
-  return slug && base ? `${base}/${slug}` : undefined;
 }
 
 export const videoSend = defineTool({
@@ -185,48 +188,14 @@ export const videoSend = defineTool({
     };
   },
   async execute(ctx, input) {
-    const store = ctx.services.videos;
-    const version = readyVersion(ctx, input.videoId);
-    if (!store || typeof version === "string") return fail("not_found", typeof version === "string" ? version : DISABLED);
-    const dedupeKey = createHash("sha256").update(JSON.stringify([input.videoId, version.version, input.channel, input.to, input.text ?? ""])).digest("hex");
-    const previous = store.findDelivery(dedupeKey);
-    if (previous) return ok(SOURCE, [{ deliveryId: previous.id, status: previous.status }], { note: "Ese mismo envío ya se había hecho; no lo repetí." });
-    const delivery = deliveryFor(version, input.channel);
-    const links: string[] = [];
-    const page = pageUrl(ctx, input.videoId);
-    if (page) links.push(`Versión interactiva: ${page}`);
-    if (delivery.file === "link" || input.channel === "email") {
-      const full = version.files.full;
-      const base = ctx.services.filesBaseUrl?.replace(/\/+$/, "");
-      if (full && base && ctx.services.fileLinks) links.push(`Ver o bajar el video: ${base}/d/${ctx.services.fileLinks.create(full.attachmentId, ctx.now()).token}`);
-    }
-    if (delivery.file === "link" && links.length === 0) return fail("disabled", "El video no entra en ese canal y los links públicos no están configurados.");
-    const text = [input.text, ...links].filter(Boolean).join("\n\n");
-    const base = { videoId: input.videoId, version: version.version, channel: input.channel, recipient: input.to, file: delivery.file, dedupeKey } as const;
-    if (input.channel === "whatsapp") {
-      if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", "WhatsApp no está conectado ahora: el video no se envió.");
-      const id = randomUUID();
-      new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: input.to, text, ...(delivery.file === "link" ? {} : { attachmentId: delivery.attachmentId }) }, ctx.now());
-      const saved = store.addDelivery({ ...base, status: "queued", providerId: id }, ctx.now());
-      return ok(SOURCE, [{ deliveryId: saved.id, file: delivery.file, status: "queued" }], { note: "Quedó en la cola de WhatsApp y sale en unos segundos. No afirmes que llegó ni que lo vieron." });
-    }
-    const gmail = ctx.services.gmail;
-    if (!gmail) return fail("disabled", "Gmail no está configurado en el servidor.");
-    const attach = delivery.file === "link" ? version.files.thumbnail : delivery.attachmentId;
-    const stored = attach ? ctx.services.attachments?.read(attach) : undefined;
-    try {
-      const sent = await gmail.send(input.account ?? "personal", {
-        to: [input.to],
-        subject: input.subject ?? version.brief.title,
-        body: text || version.brief.title,
-        files: stored ? [{ name: stored.attachment.name, mediaType: stored.attachment.mediaType, data: stored.data }] : [],
-      });
-      const saved = store.addDelivery({ ...base, status: "sent", providerId: sent.id }, ctx.now());
-      return ok(SOURCE, [{ deliveryId: saved.id, file: delivery.file, status: "sent", messageId: sent.id }], { note: "El mail salió desde Gmail." });
-    } catch (error) {
-      store.addDelivery({ ...base, status: "failed", providerId: null }, ctx.now());
-      return fail("upstream_error", error instanceof Error ? error.message.slice(0, 200) : "No pude mandar el mail.", true);
-    }
+    const sent = await sendVideo(ctx.services, input, ctx.now());
+    if (!sent.ok) return fail(sent.code, sent.message, sent.retryable);
+    const note = sent.repeated
+      ? "Ese mismo envío ya se había hecho; no lo repetí."
+      : sent.status === "queued"
+        ? "Quedó en la cola de WhatsApp y sale en unos segundos. No afirmes que llegó ni que lo vieron."
+        : "El mail salió desde Gmail.";
+    return ok(SOURCE, [{ deliveryId: sent.deliveryId, file: sent.file, status: sent.status }], { note });
   },
 });
 
