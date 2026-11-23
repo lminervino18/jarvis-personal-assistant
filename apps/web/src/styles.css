@@ -51,8 +51,11 @@ body {
   overscroll-behavior: none;
 }
 
-.thread {
+.thread,
+.build-list {
+  overflow-x: hidden;
   overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .build-dictation {
@@ -507,12 +510,14 @@ button {
 }
 
 .card-title {
+  overflow-wrap: anywhere;
   margin: 2px 0 0;
   font-size: 17px;
   font-weight: 600;
 }
 
 .card-meta {
+  overflow-wrap: anywhere;
   color: var(--secondary);
   font-size: 14px;
 }
