@@ -218,11 +218,12 @@ const shutdown = async (signal: string) => {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+const LOOP_SAMPLE_MS = 20;
+const loopDelay = monitorEventLoopDelay({ resolution: LOOP_SAMPLE_MS });
 loopDelay.enable();
 setInterval(() => {
-  const ms = (nanoseconds: number) => Math.round(nanoseconds / 1e6);
-  logger.info({ p50: ms(loopDelay.percentile(50)), p99: ms(loopDelay.percentile(99)), max: ms(loopDelay.max), rssMb: Math.round(process.memoryUsage().rss / 1048576) }, "event loop");
+  const lagMs = (nanoseconds: number) => Math.max(0, Math.round(nanoseconds / 1e6) - LOOP_SAMPLE_MS);
+  logger.info({ lagP50Ms: lagMs(loopDelay.percentile(50)), lagP99Ms: lagMs(loopDelay.percentile(99)), lagMaxMs: lagMs(loopDelay.max), rssMb: Math.round(process.memoryUsage().rss / 1048576) }, "event loop");
   loopDelay.reset();
 }, 60_000).unref();
 
