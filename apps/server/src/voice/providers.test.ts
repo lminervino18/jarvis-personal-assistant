@@ -1,4 +1,6 @@
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
 import { ElevenLabsEngine } from "./elevenlabs-tts.js";
 import { OpenAiCompatibleStt } from "./openai-stt.js";
 import { decodeWav, encodeWav, toBytes, toSamples } from "./pcm.js";
@@ -115,6 +117,35 @@ describe("ElevenLabsEngine", () => {
     expect((request.init.headers as Record<string, string>)["xi-api-key"]).toBe("k");
     expect(JSON.parse(request.init.body as string)).toEqual({ text: "Hola Loren.", model_id: "eleven_flash_v2_5", language_code: "es", previous_text: "Buen día." });
     expect(engine.sampleRate).toBe(24000);
+  });
+
+  it("streams a reply over one socket: sentences flushed as they come, audio in order, closed with an empty text", async () => {
+    const pcm = tone(24000, 0.1);
+    const server = new WebSocketServer({ port: 0 });
+    const received: unknown[] = [];
+    let request: { url?: string; key?: string } = {};
+    server.on("connection", (socket, upgrade) => {
+      request = { url: upgrade.url, key: upgrade.headers["xi-api-key"] as string };
+      socket.on("message", (data) => {
+        const message = JSON.parse(String(data)) as { text: string; flush?: boolean };
+        received.push(message);
+        if (message.flush) socket.send(JSON.stringify({ audio: Buffer.from(pcm).toString("base64") }));
+        if (message.text === "") socket.send(JSON.stringify({ audio: null, isFinal: true }));
+      });
+    });
+    await new Promise((resolve) => server.once("listening", resolve));
+    const port = (server.address() as AddressInfo).port;
+    const engine = new ElevenLabsEngine({ apiKey: "k", voiceId: "voice 1", languageCode: "es", socketUrl: `ws://127.0.0.1:${port}` });
+    const stream = engine.openStream(idle.signal);
+    stream.send("Hola Loren.");
+    stream.send("¿Todo bien?");
+    stream.end();
+    const parts = await collect(stream.audio);
+    server.close();
+    expect(parts.reduce((sum, part) => sum + part.byteLength, 0)).toBe(pcm.byteLength * 2);
+    expect(request.key).toBe("k");
+    expect(request.url).toBe("/v1/text-to-speech/voice%201/stream-input?model_id=eleven_flash_v2_5&output_format=pcm_24000&inactivity_timeout=120&language_code=es");
+    expect(received).toEqual([{ text: " " }, { text: "Hola Loren. ", flush: true }, { text: "¿Todo bien? ", flush: true }, { text: "" }]);
   });
 
   it("throws on provider errors", async () => {

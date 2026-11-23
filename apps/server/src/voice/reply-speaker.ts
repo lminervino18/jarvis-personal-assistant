@@ -18,6 +18,23 @@ export interface SpeechEngine {
   synthesize(text: string, request: SynthesisRequest): AsyncIterable<Uint8Array>;
 }
 
+/** One reply's continuous synthesis: sentences go in as they are ready, audio comes out in order. */
+export interface SpeechStream {
+  send(text: string): void;
+  /** No more text; the remaining audio is generated and the stream ends. */
+  end(): void;
+  readonly audio: AsyncIterable<Uint8Array>;
+}
+
+/** An engine that can also keep one stream open for a whole reply. */
+export interface StreamingSpeechEngine extends SpeechEngine {
+  openStream(signal: AbortSignal): SpeechStream;
+}
+
+function canStream(engine: SpeechEngine): engine is StreamingSpeechEngine {
+  return typeof (engine as Partial<StreamingSpeechEngine>).openStream === "function";
+}
+
 export interface QueuedSpeakerOptions {
   engine: SpeechEngine;
   output: AudioFormat;
@@ -41,12 +58,17 @@ export class QueuedReplySpeaker implements ReplySpeaker {
   private begun = false;
   private ended = false;
   private lastSpoken: string | undefined;
+  private stream: SpeechStream | undefined;
+  private streamed: Promise<void> = Promise.resolve();
+  private readonly sentToStream: string[] = [];
+  private streamHeard = false;
 
   constructor(private readonly options: QueuedSpeakerOptions) {
     this.resampler = new LinearResampler(options.engine.sampleRate, options.output.sampleRate);
     this.effect = new RoboticEffect(options.output.sampleRate, options.effectIntensity);
     if (options.signal.aborted) this.cancel();
     else options.signal.addEventListener("abort", () => this.cancel(), { once: true });
+    if (!this.cancelled && canStream(options.engine)) this.openStream(options.engine);
   }
 
   textDelta(text: string): void {
@@ -61,6 +83,8 @@ export class QueuedReplySpeaker implements ReplySpeaker {
 
   async finish(): Promise<void> {
     if (!this.stopped) this.enqueue(this.chunker.flush());
+    this.stream?.end();
+    await this.streamed;
     await this.drained;
     if (this.failure !== undefined) {
       this.close("error");
@@ -83,8 +107,41 @@ export class QueuedReplySpeaker implements ReplySpeaker {
   }
 
   private enqueue(chunks: string[]): void {
+    const stream = this.stream;
+    if (stream) {
+      for (const text of chunks.map(sanitizeForSpeech).filter(Boolean)) {
+        this.sentToStream.push(text);
+        stream.send(text);
+      }
+      return;
+    }
     this.queue.push(...chunks);
     if (!this.running && this.queue.length > 0) this.drained = this.run();
+  }
+
+  /** Opens the reply's stream now, before any text, so its handshake overlaps the model's thinking. */
+  private openStream(engine: StreamingSpeechEngine): void {
+    const stream = engine.openStream(this.controller.signal);
+    this.stream = stream;
+    this.streamed = this.pump(stream);
+  }
+
+  private async pump(stream: SpeechStream): Promise<void> {
+    try {
+      for await (const chunk of stream.audio) {
+        if (this.cancelled) return;
+        this.streamHeard = true;
+        await this.write(this.process(chunk));
+      }
+    } catch (error) {
+      if (this.cancelled) return;
+      if (this.streamHeard) {
+        this.failure = error;
+        return;
+      }
+      this.stream = undefined;
+      this.enqueue(this.sentToStream.splice(0));
+    }
   }
 
   private async run(): Promise<void> {

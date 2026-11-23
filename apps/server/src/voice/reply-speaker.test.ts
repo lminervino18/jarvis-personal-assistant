@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { EngineTextToSpeech } from "./engine-tts.js";
 import { FixtureSpeechEngine, type FixtureEngineOptions } from "./fixture-providers.js";
 import { concatBytes } from "./pcm.js";
+import type { StreamingSpeechEngine } from "./reply-speaker.js";
 import type { AudioSink } from "./types.js";
 
 const FORMAT_22K: AudioFormat = { encoding: "pcm_s16le", sampleRate: 22050, channels: 1 };
@@ -60,6 +61,57 @@ function setup(options: FixtureEngineOptions & { effect?: number; output?: Audio
 }
 
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("QueuedReplySpeaker with a reply stream", () => {
+  function streamingSetup(failBeforeAudio: boolean) {
+    const http = new FixtureSpeechEngine();
+    const sent: string[] = [];
+    let opened = 0;
+    const engine: StreamingSpeechEngine = {
+      sampleRate: http.sampleRate,
+      synthesize: (text, request) => http.synthesize(text, request),
+      openStream: (signal) => {
+        opened += 1;
+        let finish: () => void = () => {};
+        const ended = new Promise<void>((resolve) => (finish = resolve));
+        return {
+          send: (text) => void sent.push(text),
+          end: () => finish(),
+          audio: (async function* () {
+            await ended;
+            if (failBeforeAudio) throw new Error("socket refused");
+            for (const text of sent) if (!signal.aborted) yield* http.synthesize(text, { signal, previousText: undefined });
+          })(),
+        };
+      },
+    };
+    const sink = new RecordingSink();
+    const tts = new EngineTextToSpeech({ provider: "stream", engine, effectIntensity: 0 });
+    const speaker = tts.createSpeaker({ turnId: "turn-1", output: FORMAT_22K, sink, signal: new AbortController().signal });
+    return { speaker, sink, sent, opened: () => opened };
+  }
+
+  it("opens the stream before any text and sends each sanitized sentence to it", async () => {
+    const { speaker, sink, sent, opened } = streamingSetup(false);
+    expect(opened()).toBe(1);
+    speaker.textDelta("Hola **Loren**. Te cuento algo");
+    speaker.textDelta(" importante.");
+    await speaker.finish();
+    expect(sent).toEqual(["Hola Loren.", "Te cuento algo importante."]);
+    expect(sink.events.at(0)).toBe("begin");
+    expect(sink.events.at(-1)).toBe("end:complete");
+    expect(sink.bytes.byteLength).toBeGreaterThan(0);
+  });
+
+  it("falls back to one request per sentence when the stream fails before any audio", async () => {
+    const { speaker, sink, sent } = streamingSetup(true);
+    speaker.textDelta("Hola, Loren. ¿Cómo andás hoy?");
+    await speaker.finish();
+    expect(sent).toEqual(["Hola, Loren.", "¿Cómo andás hoy?"]);
+    expect(sink.events.at(-1)).toBe("end:complete");
+    expect(sink.bytes.byteLength).toBeGreaterThan(0);
+  });
+});
 
 describe("QueuedReplySpeaker", () => {
   it("speaks sanitized sentences in order and brackets them with one begin and one end", async () => {
