@@ -38,6 +38,16 @@ export interface TurnUsage {
 
 const SEED_MAX_MESSAGES = 60;
 const SEED_MESSAGE_CHARS = 400;
+const SEED_RECENT_MESSAGES = 4;
+const SEED_RECENT_CHARS = 2500;
+
+/** Shortens a message keeping its start and, above all, its end, where the open question usually is. */
+function clipMiddle(text: string, max: number): string {
+  const clean = text.replace(/\s+/g, " ");
+  if (clean.length <= max) return clean;
+  const head = Math.floor(max * 0.4);
+  return `${clean.slice(0, head)} … ${clean.slice(clean.length - (max - head))}`;
+}
 
 export interface TurnMetrics {
   sttMs?: number;
@@ -235,9 +245,11 @@ export class ConversationStore {
 
   /** The summary plus the messages it does not cover, rendered as plain text to seed a fresh Claude session. */
   seedContext(conversationId: string, ownerName: string, excludeTurnId?: string): string | undefined {
-    const lines = this.unsummarized(conversationId, excludeTurnId)
-      .slice(-SEED_MAX_MESSAGES)
-      .map((message) => `${message.role === "user" ? ownerName : "J.A.R.V.IS"}: ${message.text.replace(/\s+/g, " ").slice(0, SEED_MESSAGE_CHARS)}`);
+    const messages = this.unsummarized(conversationId, excludeTurnId).slice(-SEED_MAX_MESSAGES);
+    const lines = messages.map((message, index) => {
+      const limit = index >= messages.length - SEED_RECENT_MESSAGES ? SEED_RECENT_CHARS : SEED_MESSAGE_CHARS;
+      return `${message.role === "user" ? ownerName : "J.A.R.V.IS"}: ${clipMiddle(message.text, limit)}`;
+    });
     const summary = this.get(conversationId)?.summary;
     const parts = [summary ? `Resumen previo: ${summary}` : "", ...lines].filter(Boolean);
     return parts.length ? parts.join("\n") : undefined;

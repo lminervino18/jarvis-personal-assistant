@@ -24,7 +24,7 @@ const EnvSchema = z.object({
   CLAUDE_MAX_TURNS: z.coerce.number().int().min(1).max(50).default(12),
   CLAUDE_SUMMARY_MODEL: z.string().min(1).default("claude-haiku-5-5"),
   CLAUDE_SESSION_MAX_TURNS: z.coerce.number().int().min(2).max(500).default(15),
-  CLAUDE_SESSION_MAX_CONTEXT_TOKENS: z.coerce.number().int().min(5_000).max(1_000_000).default(40_000),
+  CLAUDE_SESSION_MAX_CONTEXT_TOKENS: z.coerce.number().int().min(5_000).max(1_000_000).default(100_000),
   CLAUDE_SESSION_IDLE_MINUTES: z.coerce.number().int().min(1).max(1_440).default(30),
   CLAUDE_ALLOW_OVERAGE: booleanFlag,
   FOLLOW_UP_WINDOW_MS: z.coerce.number().int().min(0).max(60_000).default(12_000),
