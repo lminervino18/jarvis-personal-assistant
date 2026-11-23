@@ -22,7 +22,7 @@ function clipMessage(message: WaMessageView, max: number): WaMessageView {
   return { ...message, text, textTruncated: message.textTruncated || text.length < message.text.length };
 }
 
-function queryFailure(error: unknown) {
+export function queryFailure(error: unknown) {
   if (!(error instanceof WhatsAppQueryError)) throw error;
   return fail(error.code, error.message);
 }

@@ -4,7 +4,7 @@ import { clip } from "./digest.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
-const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 const DEFAULT_RESULTS = 10;
 const DEFAULT_THREAD_MESSAGES = 6;

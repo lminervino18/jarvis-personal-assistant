@@ -51,7 +51,7 @@ const ORB = `<canvas id="orb" aria-hidden="true"></canvas>
 })();
 </script>`;
 
-const REFERENCE_CSS = `:root {
+export const REFERENCE_CSS = `:root {
   --white: #ffffff; --ink: #0b0a12; --uv: #5b2bff; --uv-deep: #3a12d6; --uv-mist: #f1ecff; --muted: #5d5873; --line: #e4e0f0;
   --display: "Space Grotesk", "Inter", system-ui, sans-serif; --text: "Inter", system-ui, -apple-system, sans-serif;
 }

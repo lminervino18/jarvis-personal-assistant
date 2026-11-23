@@ -48,7 +48,7 @@ export interface SharedFile {
 }
 
 /** Sends a file honoring a single byte range, which iPhones need to play video and audio. */
-function sendFile(request: FastifyRequest, reply: FastifyReply, file: { mediaType: string; data: Buffer }): FastifyReply {
+export function sendFile(request: FastifyRequest, reply: FastifyReply, file: { mediaType: string; data: Buffer }): FastifyReply {
   const size = file.data.length;
   reply.header("accept-ranges", "bytes").type(file.mediaType);
   const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers.range ?? ""));

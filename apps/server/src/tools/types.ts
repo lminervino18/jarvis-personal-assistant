@@ -8,6 +8,7 @@ import type { Db } from "../db/database.js";
 import type { GmailService } from "../integrations/gmail/gmail-service.js";
 import type { YoutubeService } from "../integrations/youtube/youtube-service.js";
 import type { TaskService } from "../tasks/task-service.js";
+import type { VideoStore } from "../videos/video-store.js";
 
 /** Per-turn security state. Once tainted, state-changing tools need owner confirmation. */
 export interface TurnSecurityState {
@@ -46,6 +47,9 @@ export interface ToolServices {
   filesBaseUrl?: string;
   /** Reads any file for the model: images, transcripts, text of documents and sheets. */
   analyzeFile?: (file: FileToAnalyze) => Promise<FileAnalysis>;
+  videos?: VideoStore;
+  /** The name the videos' spoken intro uses («el asistente personal de …»). */
+  ownerName?: string;
 }
 
 export interface PlayerCommand {

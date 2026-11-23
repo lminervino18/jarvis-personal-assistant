@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ChartShape, TableShape } from "./cards.js";
+import { VideoBrief } from "./videos.js";
 
 const isoDateTimeWithOffset = z.iso.datetime({ offset: true });
 const IsoWithOffset = z
@@ -197,6 +198,27 @@ export const toolInputs = {
   file_share_link: {
     attachmentId: z.uuid(),
   },
+  video_create: {
+    brief: VideoBrief,
+  },
+  video_status: {
+    videoId: z.uuid().optional(),
+  },
+  video_revise: {
+    videoId: z.uuid(),
+    brief: VideoBrief,
+  },
+  video_send: {
+    videoId: z.uuid(),
+    channel: z.enum(["whatsapp", "email"]),
+    to: z.string().trim().min(1).max(254).describe("WhatsApp: id, número o nombre del chat. Email: la dirección"),
+    text: z.string().trim().min(1).max(1500),
+    subject: z.string().trim().min(1).max(200).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  video_page: {
+    videoId: z.uuid(),
+  },
   page_create: {
     title: z.string().trim().min(1).max(80),
     brief: z.string().trim().min(1).max(4000),
@@ -259,10 +281,14 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "page_update",
   "gmail_send",
   "file_share_link",
+  "video_create",
+  "video_revise",
+  "video_send",
+  "video_page",
 ]);
 
 /** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */
-export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send", "gmail_send"]);
+export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send", "gmail_send", "video_send"]);
 
 export const ToolErrorCode = z.enum([
   "not_connected",

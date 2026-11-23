@@ -21,6 +21,8 @@ import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prom
 import { createLogger } from "./logger.js";
 import { AttachmentStore } from "./attachments/attachment-store.js";
 import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
+import { registerVideoRoutes } from "./videos/video-routes.js";
+import { VideoStore } from "./videos/video-store.js";
 import { analyzeFile } from "./files/file-analysis.js";
 import { FileLinks } from "./files/file-links.js";
 import { baileysDownload, WhatsAppFiles } from "./files/whatsapp-files.js";
@@ -142,6 +144,10 @@ services.pages = pages;
 const fileLinks = new FileLinks(db);
 services.fileLinks = fileLinks;
 services.filesBaseUrl = config.pages?.baseUrl;
+const videos = new VideoStore(db);
+const videosDir = join(config.dataDir, "videos");
+services.videos = videos;
+services.ownerName = config.ownerDisplayName;
 services.analyzeFile = (file) => analyzeFile(file, { stt: voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined });
 if (tokenCipher) services.whatsappFiles = new WhatsAppFiles(db, tokenCipher, attachments, baileysDownload);
 setInterval(() => fileLinks.purgeExpired(new Date()), 6 * 3_600_000).unref();
@@ -184,6 +190,7 @@ const app = await buildApp({
     await gmail.registerRoutes(instance, helpers);
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
+    registerVideoRoutes(instance, helpers, videos, attachments, videosDir);
     registerDeviceRoutes(instance, helpers, {
       devices,
       connection: {
@@ -205,6 +212,7 @@ const app = await buildApp({
     : undefined,
   refreshCard: (card) => {
     if (card.kind === "task") return tasks?.cardFor(card.taskId) ?? card;
+    if (card.kind === "video") return videos.card(card.videoId, card.version) ?? card;
     if (card.kind === "confirm") return currentConfirmCard(db, card, new Date());
     return card;
   },

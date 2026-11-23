@@ -111,6 +111,14 @@ export class PageService {
     return page;
   }
 
+  /** Publishes ready-made HTML (no model involved), built from the page's slug, with the photos and videos it may show. */
+  publishStatic(input: { title: string; brief: string; attachmentIds: string[]; html(slug: string): string }): Page {
+    const page = this.deps.store.create({ slug: slugify(input.title), title: input.title, brief: input.brief }, this.now());
+    this.deps.store.addAssets(page.id, input.attachmentIds);
+    this.deps.store.publish(page.id, input.html(page.slug), this.now());
+    return this.deps.store.require(page.slug);
+  }
+
   /** Rewrites a published page with a change, in the background. The current version stays online meanwhile. */
   update(page: Page, change: string, attachmentIds?: string[]): Page {
     this.deps.store.markGenerating(page.id, this.now());

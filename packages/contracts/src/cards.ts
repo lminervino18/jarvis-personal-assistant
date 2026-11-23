@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
+import { VideoFile, VideoFormat, VideoStatus } from "./videos.js";
 
 const IsoDateTime = z.iso.datetime({ offset: true });
 
@@ -116,6 +117,28 @@ export const TaskCard = z.object({
   updatedAt: IsoDateTime,
 });
 
+/** A narrated video JARVIS makes, as the owner sees it in the chat: progress, preview and the files to share. */
+export const VideoCard = z.object({
+  kind: z.literal("video"),
+  videoId: z.uuid(),
+  version: z.number().int().positive(),
+  title: z.string().max(80),
+  format: VideoFormat,
+  status: VideoStatus,
+  progress: z.number().min(0).max(1),
+  durationMs: z.number().int().nonnegative().optional(),
+  files: z.object({
+    full: VideoFile.optional(),
+    light: VideoFile.optional(),
+    thumbnail: z.uuid().optional(),
+    srt: z.uuid().optional(),
+    vtt: z.uuid().optional(),
+  }),
+  error: z.string().max(300).optional(),
+  updatedAt: IsoDateTime,
+});
+export type VideoCard = z.infer<typeof VideoCard>;
+
 export const ChartKind = z.enum(["bar", "line", "area", "pie", "progress"]);
 export type ChartKind = z.infer<typeof ChartKind>;
 
@@ -158,5 +181,6 @@ export const Card = z.discriminatedUnion("kind", [
   ChartCard,
   TableCard,
   AttachmentCard,
+  VideoCard,
 ]);
 export type Card = z.infer<typeof Card>;

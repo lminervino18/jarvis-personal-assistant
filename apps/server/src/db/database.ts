@@ -8,6 +8,7 @@ import { sql as turnUsageSql } from "./migrations/004-turn-usage.js";
 import { sql as pagesSql } from "./migrations/005-pages.js";
 import { sql as attachmentsSql } from "./migrations/006-attachments.js";
 import { sql as whatsappMediaSql } from "./migrations/007-whatsapp-media.js";
+import { sql as videosSql } from "./migrations/008-videos.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as publicationsSql } from "./work-migrations/003-publications.js";
@@ -29,6 +30,7 @@ export const migrations: Migration[] = [
   { version: 5, name: "pages", sql: pagesSql },
   { version: 6, name: "attachments", sql: attachmentsSql },
   { version: 7, name: "whatsapp_media", sql: whatsappMediaSql },
+  { version: 8, name: "videos", sql: videosSql },
 ];
 
 /**
