@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { query, type McpSdkServerConfigWithInstance, type Options, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type McpSdkServerConfigWithInstance, type Options, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { CompletionRequest, ModelRuntime, RuntimeEvent, RuntimeFile, RuntimeTurnInput } from "@jarvis/contracts";
 import type { TurnSecurityState } from "../tools/types.js";
 import { temporalContext } from "../util/time.js";
@@ -72,15 +72,42 @@ async function* untilAborted<T>(source: AsyncIterable<T>, signal: AbortSignal): 
   }
 }
 
-/** A single user message carrying the owner's images and PDFs before the text, for the SDK's streaming input. */
-async function* withFiles(text: string, files: readonly RuntimeFile[]): AsyncIterable<SDKUserMessage> {
+/** The owner's message for the SDK's streaming input, with images and PDFs before the text. */
+function userMessage(text: string, files: readonly RuntimeFile[] = []): SDKUserMessage {
+  if (files.length === 0) return { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null };
   const blocks = files.map((file) =>
     file.mediaType === "application/pdf"
       ? { type: "document" as const, source: { type: "base64" as const, media_type: "application/pdf" as const, data: file.data } }
       : { type: "image" as const, source: { type: "base64" as const, media_type: file.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp", data: file.data } },
   );
-  yield { type: "user", message: { role: "user", content: [...blocks, { type: "text", text }] }, parent_tool_use_id: null };
+  return { type: "user", message: { role: "user", content: [...blocks, { type: "text", text }] }, parent_tool_use_id: null };
 }
+
+async function* single(message: SDKUserMessage): AsyncIterable<SDKUserMessage> {
+  yield message;
+}
+
+/** Continues an iteration that was started earlier, so the process could boot before the prompt existed. */
+async function* continueFrom<T>(first: Promise<IteratorResult<T>>, iterator: AsyncIterator<T>): AsyncIterable<T> {
+  let next = first;
+  for (;;) {
+    const { value, done } = await next;
+    if (done) return;
+    yield value;
+    next = iterator.next();
+  }
+}
+
+interface PreparedTurn {
+  resumeSessionId: string | undefined;
+  stream: Query;
+  messages: AsyncIterable<SDKMessage>;
+  send(message: SDKUserMessage): void;
+  abortController: AbortController;
+  timer: NodeJS.Timeout;
+}
+
+const PREPARED_TTL_MS = 150_000;
 
 export function composeTurnPrompt(input: RuntimeTurnInput, now: Date, timezone: string): string {
   const channel = input.replyMode === "voice" ? "voz" : "texto";
@@ -98,6 +125,7 @@ export function composeTurnPrompt(input: RuntimeTurnInput, now: Date, timezone: 
  */
 export class ClaudeAgentRuntime implements ModelRuntime {
   readonly name = "claude-agent-sdk";
+  private readonly prepared = new Map<string, PreparedTurn>();
 
   constructor(private readonly options: ClaudeRuntimeOptions) {
     mkdirSync(options.workspaceDir, { recursive: true });
@@ -201,26 +229,72 @@ export class ClaudeAgentRuntime implements ModelRuntime {
     }
   }
 
+  prepare(turnId: string, resumeSessionId: string | undefined): void {
+    for (const other of [...this.prepared.keys()]) this.discard(other);
+    const toolset = this.options.toolsetFor(turnId);
+    const abortController = new AbortController();
+    let send: (message: SDKUserMessage) => void = () => {};
+    const first = new Promise<SDKUserMessage>((resolve) => (send = resolve));
+    async function* prompt(): AsyncIterable<SDKUserMessage> {
+      yield await first;
+    }
+    const stream = query({
+      prompt: prompt(),
+      options: { ...this.conversationOptions(toolset, new Set(toolset.allowedTools), abortController), resume: resumeSessionId, maxTurns: this.options.maxTurns, persistSession: true },
+    });
+    const iterator = stream[Symbol.asyncIterator]();
+    const started = iterator.next();
+    started.catch(() => {});
+    const timer = setTimeout(() => this.discard(turnId), PREPARED_TTL_MS);
+    timer.unref();
+    this.prepared.set(turnId, { resumeSessionId, stream, messages: continueFrom(started, iterator), send, abortController, timer });
+  }
+
+  discard(turnId: string): void {
+    const prepared = this.prepared.get(turnId);
+    if (!prepared) return;
+    this.prepared.delete(turnId);
+    clearTimeout(prepared.timer);
+    prepared.abortController.abort();
+    prepared.stream.close();
+  }
+
+  /** The prepared process for this turn, when it resumes the same session the turn needs. */
+  private takePrepared(turnId: string, resumeSessionId: string | undefined): PreparedTurn | undefined {
+    const prepared = this.prepared.get(turnId);
+    if (!prepared || prepared.resumeSessionId !== resumeSessionId) {
+      this.discard(turnId);
+      return undefined;
+    }
+    this.prepared.delete(turnId);
+    clearTimeout(prepared.timer);
+    return prepared;
+  }
+
   async *runTurn(input: RuntimeTurnInput): AsyncIterable<RuntimeEvent> {
     const options = this.options;
     const now = options.now?.() ?? new Date();
     const toolset = options.toolsetFor(input.turnId);
-    const abortController = new AbortController();
+    const prepared = this.takePrepared(input.turnId, input.resumeSessionId);
+    const abortController = prepared?.abortController ?? new AbortController();
     const abort = () => abortController.abort();
     if (input.signal.aborted) abort();
     input.signal.addEventListener("abort", abort, { once: true });
 
     const state = createMapperState(options.allowOverage);
     const allowed = new Set(toolset.allowedTools);
-    const text = composeTurnPrompt(input, now, options.timezone);
-    const stream = query({
-      prompt: input.files?.length ? withFiles(text, input.files) : text,
-      options: { ...this.conversationOptions(toolset, allowed, abortController), resume: input.resumeSessionId, maxTurns: options.maxTurns, persistSession: true },
-    });
+    const message = userMessage(composeTurnPrompt(input, now, options.timezone), input.files);
+    prepared?.send(message);
+    const stream =
+      prepared?.stream ??
+      query({
+        prompt: single(message),
+        options: { ...this.conversationOptions(toolset, allowed, abortController), resume: input.resumeSessionId, maxTurns: options.maxTurns, persistSession: true },
+      });
 
     let finished = false;
     try {
-      for await (const message of untilAborted(stream, input.signal)) {
+      for await (const message of untilAborted(prepared?.messages ?? stream, input.signal)) {
         for (const event of mapSdkMessage(message, state)) {
           yield event;
           if (event.type === "error") {

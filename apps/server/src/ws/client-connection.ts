@@ -181,6 +181,7 @@ export class ClientConnection implements Subscriber {
           this.captures.delete(message.turnId);
           capture.controller.abort();
           capture.capture.cancel();
+          this.deps.orchestrator.discardPrepared(message.turnId);
           if (!capture.dictation) this.send({ type: "state", state: "idle" });
           return;
         }
@@ -382,6 +383,7 @@ export class ClientConnection implements Subscriber {
       replyMode: message.replyMode,
       dictation: message.purpose === "dictation",
     });
+    if (message.purpose !== "dictation") this.deps.orchestrator.prepareTurn(message.conversationId, message.turnId);
   }
 
   private onAudioFrame(data: Buffer): void {
@@ -414,6 +416,7 @@ export class ClientConnection implements Subscriber {
       transcript = await capture.capture.finish();
     } catch (error) {
       if (capture.controller.signal.aborted) return;
+      this.deps.orchestrator.discardPrepared(turnId);
       this.deps.log.warn({ turnId, err: error instanceof Error ? error.message : "unknown" }, "transcription failed");
       this.send({ type: "error", code: "stt_failed", message: "No pude transcribir el audio. Probá de nuevo o escribime.", turnId, retryable: true });
       this.send({ type: "state", state: "idle" });
@@ -423,6 +426,7 @@ export class ClientConnection implements Subscriber {
     const text = isStockPhrase(transcript.text) ? "" : transcript.text.trim();
     const running = this.deps.orchestrator.runningTurn(this.conversationId);
     if (running && running.turnId !== turnId && isFillerTranscript(text)) {
+      this.deps.orchestrator.discardPrepared(turnId);
       this.send({ type: "turn.end", turnId, status: "cancelled" });
       this.send({ type: "state", state: running.replying ? "speaking" : "thinking", turnId: running.turnId });
       return;

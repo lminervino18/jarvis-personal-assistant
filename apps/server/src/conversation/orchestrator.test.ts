@@ -100,6 +100,61 @@ describe("prompt cache warm-up", () => {
   });
 });
 
+describe("prepared turns", () => {
+  function preparedSetup() {
+    const toolRegistry = new TurnToolRegistry();
+    const scripted = new ScriptedRuntime(() => ({ text: "Hola." }));
+    const prepared: { turnId: string; resume: string | undefined }[] = [];
+    const discarded: string[] = [];
+    const usedToolsets: unknown[] = [];
+    const runtime: ModelRuntime = {
+      name: "prepared-fixture",
+      runTurn: (input) => {
+        usedToolsets.push(toolRegistry.require(input.turnId));
+        return scripted.runTurn(input);
+      },
+      prepare: (turnId, resume) => void prepared.push({ turnId, resume }),
+      discard: (turnId) => void discarded.push(turnId),
+    };
+    return { ...setup(40, { runtime, toolRegistry }), toolRegistry, prepared, discarded, usedToolsets };
+  }
+
+  it("starts the turn's process while the owner speaks and runs the turn with the same tools", async () => {
+    const { orchestrator, conversationId, toolRegistry, prepared, discarded, usedToolsets } = preparedSetup();
+    const spoken = { ...turn(conversationId, "qué hora es"), inputMode: "voice" as const };
+    orchestrator.prepareTurn(conversationId, spoken.turnId);
+    const toolset = toolRegistry.require(spoken.turnId);
+    expect(prepared).toEqual([{ turnId: spoken.turnId, resume: undefined }]);
+    await orchestrator.startTurn(spoken);
+    expect(usedToolsets).toEqual([toolset]);
+    expect(discarded).toEqual([]);
+    expect(() => toolRegistry.require(spoken.turnId)).toThrow();
+  });
+
+  it("does not reuse a process prepared before another turn finished", async () => {
+    const { orchestrator, conversationId, prepared, discarded, usedToolsets, toolRegistry } = preparedSetup();
+    const spoken = { ...turn(conversationId, "y mañana?"), inputMode: "voice" as const };
+    orchestrator.prepareTurn(conversationId, spoken.turnId);
+    const stale = toolRegistry.require(spoken.turnId);
+    await orchestrator.startTurn(turn(conversationId, "qué tengo hoy"));
+    await orchestrator.startTurn(spoken);
+    expect(prepared).toHaveLength(1);
+    expect(discarded).toEqual([spoken.turnId]);
+    expect(usedToolsets.at(-1)).not.toBe(stale);
+  });
+
+  it("keeps one prepared turn at a time and drops those that never run", () => {
+    const { orchestrator, conversationId, toolRegistry, discarded } = preparedSetup();
+    const [first, second] = [crypto.randomUUID(), crypto.randomUUID()];
+    orchestrator.prepareTurn(conversationId, first);
+    orchestrator.prepareTurn(conversationId, second);
+    orchestrator.discardPrepared(second);
+    expect(discarded).toEqual([first, second]);
+    expect(() => toolRegistry.require(first)).toThrow();
+    expect(() => toolRegistry.require(second)).toThrow();
+  });
+});
+
 describe("session rotation", () => {
   const say = async (ctx: ReturnType<typeof setup>, text: string) => {
     await ctx.orchestrator.startTurn(turn(ctx.conversationId, text));

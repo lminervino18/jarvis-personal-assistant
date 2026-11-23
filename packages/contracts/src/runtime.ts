@@ -75,4 +75,11 @@ export interface ModelRuntime {
    * toolset registered for `turnId`), so the next real turn reads the prompt cache instead of writing it.
    */
   warm?(turnId: string, signal: AbortSignal): Promise<void>;
+  /**
+   * Starts the model process for a turn that is about to begin (the owner started speaking), so its
+   * start-up overlaps the speech. A later runTurn with the same turn id and session uses it.
+   */
+  prepare?(turnId: string, resumeSessionId: string | undefined): void;
+  /** Drops a prepared turn that will not run. */
+  discard?(turnId: string): void;
 }

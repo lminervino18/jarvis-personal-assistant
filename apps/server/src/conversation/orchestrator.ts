@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Card, ErrorCode, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
 import type { Attachment } from "../attachments/attachment-store.js";
+import type { TurnToolset } from "../runtime/claude-runtime.js";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
 import { decidePendingAction, type PendingActionOutcome } from "../tools/runner.js";
 import type { AnyToolDefinition, ToolContext, ToolServices, TurnSecurityState } from "../tools/types.js";
@@ -50,6 +51,12 @@ export interface StartTurnInput {
   /** Images and PDFs for the model, filled from the attachments when the turn runs. */
   files?: RuntimeFile[];
   createSpeaker?: (signal: AbortSignal) => ReplySpeaker | undefined;
+}
+
+interface TurnTools {
+  toolset: TurnToolset;
+  security: TurnSecurityState;
+  cards: Card[];
 }
 
 interface ActiveTurn {
@@ -158,6 +165,8 @@ function fallbackSummary(previous: string | undefined, lines: string[]): string 
  */
 export class ConversationOrchestrator {
   private readonly active = new Map<string, ActiveTurn>();
+  private readonly prepared = new Map<string, { tools: TurnTools; finishedTurns: number }>();
+  private readonly finishedTurns = new Map<string, number>();
   private readonly byTurn = new Map<string, ActiveTurn>();
   private readonly chains = new Map<string, Promise<void>>();
   /** Voice input whose turn was cut before any reply; it is prepended to the next voice turn. */
@@ -205,6 +214,8 @@ export class ConversationOrchestrator {
         this.deps.log.error({ turnId: input.turnId, err: error instanceof Error ? error.message : "unknown" }, "turn crashed");
       })
       .finally(() => {
+        this.discardPrepared(input.turnId);
+        this.finishedTurns.set(conversationId, (this.finishedTurns.get(conversationId) ?? 0) + 1);
         this.byTurn.delete(input.turnId);
         if (this.active.get(conversationId) === active) this.active.delete(conversationId);
         if (this.chains.get(conversationId) === settled) this.chains.delete(conversationId);
@@ -262,6 +273,67 @@ export class ConversationOrchestrator {
 
   private now(): Date {
     return this.deps.now?.() ?? new Date();
+  }
+
+  /**
+   * The owner started speaking: builds the turn's tools and lets the runtime start its process now,
+   * so the start-up overlaps the speech. The turn uses it if it resumes the same session.
+   */
+  prepareTurn(conversationId: string, turnId: string): void {
+    const { runtime, store, toolRegistry } = this.deps;
+    if (!runtime.prepare || this.prepared.has(turnId) || this.byTurn.has(turnId) || this.active.has(conversationId)) return;
+    const conversation = store.get(conversationId);
+    if (!conversation) return;
+    for (const other of [...this.prepared.keys()]) this.discardPrepared(other);
+    const stale = conversation.claude_session_id ? this.rotationReason(conversationId, conversation.session_turns, 0) : undefined;
+    const tools = this.turnTools(conversationId, turnId);
+    toolRegistry.register(turnId, tools.toolset);
+    this.prepared.set(turnId, { tools, finishedTurns: this.finishedTurns.get(conversationId) ?? 0 });
+    runtime.prepare(turnId, stale ? undefined : (conversation.claude_session_id ?? undefined));
+  }
+
+  /** Drops a prepared turn that will not run (cancelled speech, noise, a confirmation answered without the model). */
+  discardPrepared(turnId: string): void {
+    if (!this.prepared.delete(turnId)) return;
+    this.deps.runtime.discard?.(turnId);
+    this.deps.toolRegistry.release(turnId);
+  }
+
+  /** The prepared tools for this turn, unless another turn finished meanwhile and its process could miss that exchange. */
+  private takePrepared(conversationId: string, turnId: string): TurnTools | undefined {
+    const prepared = this.prepared.get(turnId);
+    if (!prepared) return undefined;
+    if (prepared.finishedTurns !== (this.finishedTurns.get(conversationId) ?? 0)) {
+      this.discardPrepared(turnId);
+      return undefined;
+    }
+    this.prepared.delete(turnId);
+    return prepared.tools;
+  }
+
+  private turnTools(conversationId: string, turnId: string): TurnTools {
+    const emit = (message: OutgoingServerMessage) => this.deps.hub.emit(conversationId, message);
+    const security: TurnSecurityState = { tainted: false, taintSources: new Set() };
+    const cards: Card[] = [];
+    const ctx: ToolContext = {
+      services: this.deps.services,
+      conversationId,
+      turnId,
+      now: () => this.now(),
+      security,
+      emitCard: (card) => {
+        cards.push(card);
+        emit({ type: "card", turnId, card });
+      },
+      updateCard: (card) => emit({ type: "card", card }),
+      emitPlayerCommand: (command) => emit({ type: "player.command", ...command }),
+    };
+    const toolset = {
+      server: createTurnToolServer(ctx, this.deps.tools),
+      allowedTools: [...this.deps.tools.map((tool) => qualifiedToolName(tool.name)), ...this.deps.builtinTools],
+      security,
+    };
+    return { toolset, security, cards };
   }
 
   /**
@@ -506,26 +578,9 @@ export class ConversationOrchestrator {
       emit({ type: "history", conversationId, items: [userItem], hasMore: false });
     }
 
-    const security: TurnSecurityState = { tainted: false, taintSources: new Set() };
-    const cards: Card[] = [];
-    const ctx: ToolContext = {
-      services: this.deps.services,
-      conversationId,
-      turnId,
-      now: () => this.now(),
-      security,
-      emitCard: (card) => {
-        cards.push(card);
-        emit({ type: "card", turnId, card });
-      },
-      updateCard: (card) => emit({ type: "card", card }),
-      emitPlayerCommand: (command) => emit({ type: "player.command", ...command }),
-    };
-    this.deps.toolRegistry.register(turnId, {
-      server: createTurnToolServer(ctx, this.deps.tools),
-      allowedTools: [...this.deps.tools.map((tool) => qualifiedToolName(tool.name)), ...this.deps.builtinTools],
-      security,
-    });
+    const prepared = this.takePrepared(conversationId, turnId);
+    const { security, cards, toolset } = prepared ?? this.turnTools(conversationId, turnId);
+    if (!prepared) this.deps.toolRegistry.register(turnId, toolset);
 
     const voice = { speaker: input.createSpeaker?.(signal) };
     const keepSensitiveAsText = () => {
@@ -633,7 +688,7 @@ export class ConversationOrchestrator {
       },
       timing,
     );
-    this.deps.log.info({ turnId, inputMode: input.inputMode, status, usedTools: outcome.usedTools, sttMs: input.sttMs, ...timing }, "turn timing");
+    this.deps.log.info({ turnId, inputMode: input.inputMode, status, usedTools: outcome.usedTools, prepared: prepared !== undefined, sttMs: input.sttMs, ...timing }, "turn timing");
     emit({ type: "turn.end", turnId, status, ...(status === "failed" && outcome.errorCode ? { errorCode: runtimeErrorToProtocol[outcome.errorCode] } : {}) });
     emit({ type: "state", state: "idle" });
     const rotation = outcome.sessionId ? this.rotationReason(conversationId, sessionTurns, outcome.usage?.contextTokens ?? 0) : undefined;
