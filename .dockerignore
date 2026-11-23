@@ -51,3 +51,6 @@ voice/eval-samples
 **/*.webm
 **/*.mp4
 **/*.mkv
+
+# Synthetic test fixtures are committed on purpose (see .gitignore); the check stage needs them
+!**/fixtures/synthetic/**
