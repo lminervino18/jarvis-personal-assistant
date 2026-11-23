@@ -5,7 +5,7 @@ import type { Card, RuntimeFile } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
 import { safeFileName } from "../tasks/workspace.js";
 
-export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 64 * 1024 * 1024;
 
 /** Types the model can look at: photos it sees as images, PDFs it reads as documents. */
 export const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -43,8 +43,8 @@ export class AttachmentStore {
     private readonly dir: string,
   ) {}
 
-  save(input: { name: string; mediaType: string; data: Buffer }, now: Date): Attachment | undefined {
-    if (input.data.length === 0 || input.data.length > MAX_ATTACHMENT_BYTES) return undefined;
+  save(input: { name: string; mediaType: string; data: Buffer }, now: Date, maxBytes = MAX_ATTACHMENT_BYTES): Attachment | undefined {
+    if (input.data.length === 0 || input.data.length > maxBytes) return undefined;
     const attachment: Attachment = {
       id: randomUUID(),
       name: safeFileName(input.name),

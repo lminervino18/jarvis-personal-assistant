@@ -21,6 +21,9 @@ import { defaultAssistantDir, loadAssistantContext } from "./runtime/system-prom
 import { createLogger } from "./logger.js";
 import { AttachmentStore } from "./attachments/attachment-store.js";
 import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
+import { analyzeFile } from "./files/file-analysis.js";
+import { FileLinks } from "./files/file-links.js";
+import { baileysDownload, WhatsAppFiles } from "./files/whatsapp-files.js";
 import { PageService } from "./pages/page-service.js";
 import { PageStore } from "./pages/page-store.js";
 import { buildPagesServer } from "./pages/pages-server.js";
@@ -136,7 +139,18 @@ const pages = config.pages
   ? new PageService({ store: new PageStore(db), attachments, runtime, outbox: new Outbox(db), baseUrl: config.pages.baseUrl, model: config.pages.model, log: logger })
   : undefined;
 services.pages = pages;
-const pagesServer = pages && config.pages ? buildPagesServer(pages, { trustProxy: config.env === "production" }) : undefined;
+const fileLinks = new FileLinks(db);
+services.fileLinks = fileLinks;
+services.filesBaseUrl = config.pages?.baseUrl;
+services.analyzeFile = (file) => analyzeFile(file, { stt: voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined });
+if (tokenCipher) services.whatsappFiles = new WhatsAppFiles(db, tokenCipher, attachments, baileysDownload);
+setInterval(() => fileLinks.purgeExpired(new Date()), 6 * 3_600_000).unref();
+const sharedFile = (token: string) => {
+  const attachmentId = fileLinks.resolve(token, new Date());
+  const stored = attachmentId ? attachments.read(attachmentId) : undefined;
+  return stored ? { name: stored.attachment.name, mediaType: stored.attachment.mediaType, data: stored.data } : undefined;
+};
+const pagesServer = pages && config.pages ? buildPagesServer(pages, { trustProxy: config.env === "production", sharedFile }) : undefined;
 
 const store = new ConversationStore(db);
 const hub = new ConversationHub();

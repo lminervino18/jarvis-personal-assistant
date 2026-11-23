@@ -19,7 +19,7 @@ const STARTUP_JITTER_MS = 10_000;
 const log = createLogger(process.env.LOG_LEVEL ?? "info").child({ component: "whatsapp-bridge" });
 const dataDir = resolve(process.env.DATA_DIR ?? "./data");
 const db = openMigratedDatabase(resolve(dataDir, "jarvis.db"));
-const store = new WhatsAppStore(db);
+const store = new WhatsAppStore(db, TokenCipher.fromEnv(process.env) ?? undefined);
 
 const idleUntilSignal = (reason: string) => {
   log.warn(reason);

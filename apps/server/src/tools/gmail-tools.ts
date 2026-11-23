@@ -4,6 +4,8 @@ import { clip } from "./digest.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
+const MAX_MAIL_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 const DEFAULT_RESULTS = 10;
 const DEFAULT_THREAD_MESSAGES = 6;
 const DEFAULT_BODY_CHARS = 1000;
@@ -107,6 +109,8 @@ export const gmailSend = defineTool({
     const account = input.account ?? "personal";
     const missing = (input.attachmentIds ?? []).some((id) => !ctx.services.attachments?.get(id));
     if (missing) return { refused: fail("not_found", "Algún adjunto no existe: pedile al dueño que lo vuelva a mandar.") };
+    const total = (input.attachmentIds ?? []).reduce((sum, id) => sum + (ctx.services.attachments?.get(id)?.size ?? 0), 0);
+    if (total > MAX_MAIL_ATTACHMENT_BYTES) return { refused: fail("invalid_input", "Los adjuntos pasan los 20 MB que acepta Gmail: mandá un link con file_share_link en su lugar.") };
     const problem = gmail.cannotSend(account);
     if (!problem) return { input: { ...input, account } };
     reconnectCard(ctx, new GoogleApiError("not_connected", problem, { account }), true);

@@ -39,7 +39,7 @@ class FakeSocket implements BridgeSocket {
       throw new Error("send failed");
     }
     this.contents.push(content);
-    this.sent.push({ jid, text: "text" in content ? content.text : content.caption });
+    this.sent.push({ jid, text: "text" in content ? content.text : "caption" in content ? content.caption : "" });
     return { key: { id: `sent-${this.sent.length}` } };
   }
   emit<E extends keyof BaileysEventMap>(event: E, data: BaileysEventMap[E]) {
@@ -452,6 +452,29 @@ describe("conservative configuration", () => {
       { image: Buffer.from("jpeg"), caption: "mirá", mimetype: "image/jpeg" },
       { document: Buffer.from("pdf"), mimetype: "application/pdf", fileName: "menu.pdf", caption: "el menú" },
     ]);
+  });
+
+  it("forwards a video with its caption, and an audio as a voice note after the text", async () => {
+    const files = new Map([
+      ["video-1", { attachment: { name: "fiesta.mp4", mediaType: "video/mp4" }, data: Buffer.from("mp4") }],
+      ["audio-1", { attachment: { name: "nota.ogg", mediaType: "audio/ogg" }, data: Buffer.from("ogg") }],
+    ]);
+    const { db, outbox, bridge, sockets } = setup({ files });
+    for (const [id, file] of files) {
+      db.prepare("INSERT INTO attachments (id, name, media_type, size, sha256, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(id, file.attachment.name, file.attachment.mediaType, 3, "x", START.toISOString());
+    }
+    bridge.start();
+    sockets[0]?.open();
+    outbox.enqueue({ id: "w1", chatJid: OWN_CHAT, text: "la fiesta", attachmentId: "video-1" }, new Date());
+    outbox.enqueue({ id: "w2", chatJid: OWN_CHAT, text: "te reenvío el audio de Ana", attachmentId: "audio-1" }, new Date(Date.now() + 1));
+    await bridge.sendNextConfirmed();
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.contents).toEqual([
+      { video: Buffer.from("mp4"), caption: "la fiesta", mimetype: "video/mp4" },
+      { text: "te reenvío el audio de Ana" },
+      { audio: Buffer.from("ogg"), mimetype: "audio/ogg", ptt: true },
+    ]);
+    expect(outbox.status("w2")).toMatchObject({ status: "sent" });
   });
 
   it("sends only from the confirmed outbox and never marks as read or announces presence", () => {

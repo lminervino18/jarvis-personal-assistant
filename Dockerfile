@@ -22,7 +22,7 @@ RUN pnpm lint && pnpm typecheck && pnpm test
 
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS runtime
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tini ca-certificates \
+ && apt-get install -y --no-install-recommends tini ca-certificates ffmpeg poppler-utils \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 10001 jarvis \
  && useradd --uid 10001 --gid jarvis --create-home --home-dir /home/jarvis --shell /usr/sbin/nologin jarvis \

@@ -13,12 +13,12 @@ function service(ctx: ToolContext): PageService | undefined {
 }
 
 const unavailable = () => fail("disabled", "Las páginas web no están configuradas en el servidor.");
-const NOT_IMAGES = "Solo se pueden poner fotos (JPG, PNG, WebP o GIF) de los adjuntos del chat.";
+const NOT_IMAGES = "Solo se pueden poner fotos (JPG, PNG, WebP, GIF) y videos (MP4, WebM, MOV) de los adjuntos del chat o de WhatsApp.";
 
 export const pageCreate = defineTool({
   name: "page_create",
   description:
-    "Crea una página web pública (invitación, encuesta, formulario, landing) con el estilo del dueño, optimizada para celular, en p.lminervino18.com. Se arma en segundo plano: devuelve el link al instante y el dueño recibe aviso cuando está lista. Si la página pide respuestas, cada respuesta le llega al dueño como notificación. En 'brief' poné todo lo que el dueño pidió: qué es, para quién, qué preguntar, fechas, lugares y tono. Si mandó fotos en el chat, pasá sus ids en 'attachmentIds' para usarlas en la página.",
+    "Crea una página web pública (invitación, encuesta, formulario, landing) con el estilo del dueño, optimizada para celular, en p.lminervino18.com. Se arma en segundo plano: devuelve el link al instante y el dueño recibe aviso cuando está lista. Si la página pide respuestas, cada respuesta le llega al dueño como notificación. En 'brief' poné todo lo que el dueño pidió: qué es, para quién, qué preguntar, fechas, lugares y tono. Si hay fotos o videos (adjuntos del chat o bajados de WhatsApp), pasá sus ids en 'attachmentIds' para mostrarlos en la página.",
   async execute(ctx, input) {
     const pages = service(ctx);
     if (!pages) return unavailable();

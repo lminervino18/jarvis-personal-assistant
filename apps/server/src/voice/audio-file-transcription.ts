@@ -1,6 +1,5 @@
-import { MAX_ATTACHMENT_BYTES } from "../attachments/attachment-store.js";
-
-export const MAX_AUDIO_BYTES = MAX_ATTACHMENT_BYTES;
+/** The largest file the transcription provider accepts. */
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 const EXTENSIONS: Readonly<Record<string, string>> = {
   "audio/ogg": "ogg",

@@ -1,3 +1,6 @@
+import type { FileAnalysis, FileToAnalyze } from "../files/file-analysis.js";
+import type { FileLinks } from "../files/file-links.js";
+import type { WhatsAppFiles } from "../files/whatsapp-files.js";
 import type { AttachmentStore } from "../attachments/attachment-store.js";
 import type { PageService } from "../pages/page-service.js";
 import type { Card, IntegrationProvider, ToolInput, ToolName, ToolResult } from "@jarvis/contracts";
@@ -37,6 +40,12 @@ export interface ToolServices {
   tasks?: TaskService;
   pages?: PageService;
   attachments?: AttachmentStore;
+  whatsappFiles?: WhatsAppFiles;
+  fileLinks?: FileLinks;
+  /** Origin of public file links (the pages host). */
+  filesBaseUrl?: string;
+  /** Reads any file for the model: images, transcripts, text of documents and sheets. */
+  analyzeFile?: (file: FileToAnalyze) => Promise<FileAnalysis>;
 }
 
 export interface PlayerCommand {

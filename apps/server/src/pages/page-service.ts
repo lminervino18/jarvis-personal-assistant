@@ -29,6 +29,12 @@ export interface PageServiceDeps {
 
 export type ResponseOutcome = { ok: true } | { ok: false; status: 400 | 404 | 409 | 413; message: string };
 
+const VIDEO_TYPES: ReadonlySet<string> = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+
+function showable(mediaType: string): boolean {
+  return IMAGE_TYPES.has(mediaType) || VIDEO_TYPES.has(mediaType);
+}
+
 function slugify(title: string): string {
   const words = title
     .normalize("NFD")
@@ -90,11 +96,11 @@ export class PageService {
     return this.deps.store.responses(page.id, limit);
   }
 
-  /** Attachment ids a page cannot use (missing, or not an image). */
+  /** Attachment ids a page cannot show (missing, or neither a photo nor a video). */
   unusableImages(attachmentIds: readonly string[]): string[] {
     return attachmentIds.filter((id) => {
       const attachment = this.deps.attachments?.get(id);
-      return !attachment || !IMAGE_TYPES.has(attachment.mediaType);
+      return !attachment || !showable(attachment.mediaType);
     });
   }
 
@@ -113,19 +119,23 @@ export class PageService {
     return this.deps.store.require(page.slug);
   }
 
-  /** The image a page may show, with its type, when it belongs to that page. */
+  /** The photo or video a page may show, with its type, when it belongs to that page. */
   asset(slug: string, attachmentId: string): { mediaType: string; data: Buffer } | undefined {
     const page = this.deps.store.get(slug);
     if (!page || !this.deps.store.hasAsset(page.id, attachmentId)) return undefined;
     const stored = this.deps.attachments?.read(attachmentId);
-    return stored && IMAGE_TYPES.has(stored.attachment.mediaType) ? { mediaType: stored.attachment.mediaType, data: stored.data } : undefined;
+    return stored && showable(stored.attachment.mediaType) ? { mediaType: stored.attachment.mediaType, data: stored.data } : undefined;
   }
 
   private images(page: Page, attachmentIds: readonly string[] = []): string {
     if (attachmentIds.length === 0) return "";
     this.deps.store.addAssets(page.id, attachmentIds);
-    const lines = attachmentIds.map((id) => `- /${page.slug}/f/${id} («${this.deps.attachments?.get(id)?.name ?? "foto"}»)`);
-    return `\n\nFotos del dueño para usar en la página (con <img src="…">, en estas rutas relativas exactas, con alt descriptivo, object-fit: cover y loading="lazy" salvo la primera):\n${lines.join("\n")}`;
+    const lines = attachmentIds.map((id) => {
+      const attachment = this.deps.attachments?.get(id);
+      const kind = attachment && VIDEO_TYPES.has(attachment.mediaType) ? "video" : "foto";
+      return `- ${kind}: /${page.slug}/f/${id} («${attachment?.name ?? kind}»)`;
+    });
+    return `\n\nFotos y videos del dueño para usar en la página, en estas rutas relativas exactas. Fotos con <img src="…" alt="…"> (alt descriptivo, object-fit: cover, loading="lazy" salvo la primera). Videos con <video src="…" playsinline controls preload="metadata"> (o autoplay muted loop playsinline si es de fondo), ancho 100 % y bordes redondeados:\n${lines.join("\n")}`;
   }
 
   /** Stores an answer sent from a page and tells the owner. */

@@ -7,10 +7,12 @@ import { OWN_CHAT, type WhatsAppOutbox } from "./outbox.js";
 import type { PairingStore } from "./pairing-store.js";
 import type { CloseDecision, ReconnectPolicy } from "./reconnect-policy.js";
 
-/** What the bridge sends: plain text, or a chat attachment as a photo or a document with a caption. */
+/** What the bridge sends: plain text, or a file as a photo, video, audio or document (with a caption where WhatsApp allows one). */
 export type OutgoingContent =
   | { text: string }
   | { image: Buffer; caption: string; mimetype: string }
+  | { video: Buffer; caption: string; mimetype: string }
+  | { audio: Buffer; mimetype: string; ptt: boolean }
   | { document: Buffer; mimetype: string; fileName: string; caption: string };
 
 /** The owner's own chat id from the paired device id ("5491100000000:12@s.whatsapp.net" → "5491100000000@s.whatsapp.net"). */
@@ -163,7 +165,8 @@ export class WhatsAppBridge {
     try {
       const target = message.chatJid === OWN_CHAT ? ownChat(this.options.auth.state.creds.me?.id) : message.chatJid;
       if (!target) throw new Error("own number unknown");
-      const sent = await socket.sendMessage(target, this.content(message));
+      let sent: Awaited<ReturnType<BridgeSocket["sendMessage"]>>;
+      for (const content of this.contents(message)) sent = await socket.sendMessage(target, content);
       outbox.markSent(message.id, sent?.key?.id ?? undefined, this.now());
       this.options.log.info("whatsapp message sent");
     } catch (error) {
@@ -174,14 +177,19 @@ export class WhatsAppBridge {
     }
   }
 
-  private content(message: { text: string; attachmentId?: string }): OutgoingContent {
-    if (!message.attachmentId) return { text: message.text };
+  /** One message, or the text and then the audio, since WhatsApp audios carry no caption. */
+  private contents(message: { text: string; attachmentId?: string }): OutgoingContent[] {
+    if (!message.attachmentId) return [{ text: message.text }];
     const file = this.options.files?.read(message.attachmentId);
     if (!file) throw new Error("attachment missing");
     const { mediaType, name } = file.attachment;
-    return mediaType.startsWith("image/")
-      ? { image: file.data, caption: message.text, mimetype: mediaType }
-      : { document: file.data, mimetype: mediaType, fileName: name, caption: message.text };
+    if (mediaType.startsWith("image/")) return [{ image: file.data, caption: message.text, mimetype: mediaType }];
+    if (mediaType.startsWith("video/")) return [{ video: file.data, caption: message.text, mimetype: mediaType }];
+    if (mediaType.startsWith("audio/")) {
+      const audio: OutgoingContent = { audio: file.data, mimetype: mediaType, ptt: mediaType.includes("ogg") || mediaType.includes("opus") };
+      return message.text.trim() ? [{ text: message.text }, audio] : [audio];
+    }
+    return [{ document: file.data, mimetype: mediaType, fileName: name, caption: message.text }];
   }
 
   private handleClose(socket: BridgeSocket, error: unknown): void {

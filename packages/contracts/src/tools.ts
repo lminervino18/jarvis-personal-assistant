@@ -190,6 +190,13 @@ export const toolInputs = {
     text: z.string().trim().min(1).max(2000),
     attachmentId: z.uuid().optional(),
   },
+  whatsapp_get_file: {
+    chatId: z.string().min(1).max(128),
+    messageId: z.string().min(1).max(128),
+  },
+  file_share_link: {
+    attachmentId: z.uuid(),
+  },
   page_create: {
     title: z.string().trim().min(1).max(80),
     brief: z.string().trim().min(1).max(4000),
@@ -218,6 +225,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "gmail_get_thread",
   "whatsapp_search",
   "whatsapp_get_messages",
+  "whatsapp_get_file",
   "youtube_search",
   "task_status",
   "task_result",
@@ -250,6 +258,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "page_create",
   "page_update",
   "gmail_send",
+  "file_share_link",
 ]);
 
 /** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */

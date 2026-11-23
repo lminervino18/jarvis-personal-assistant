@@ -1,3 +1,4 @@
+import { fileTools } from "./file-tools.js";
 import type { ToolName } from "@jarvis/contracts";
 import { agreementsTools } from "./agreements-tools.js";
 import { calendarTools } from "./calendar-tools.js";
@@ -27,6 +28,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...taskTools,
   ...displayTools,
   ...pageTools,
+  ...fileTools,
 ];
 
 export const toolsByName: ReadonlyMap<ToolName, AnyToolDefinition> = new Map(allTools.map((tool) => [tool.name, tool]));

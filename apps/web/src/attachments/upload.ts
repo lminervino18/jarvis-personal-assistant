@@ -3,7 +3,7 @@ import type { Card } from "@jarvis/contracts";
 export type AttachmentCard = Extract<Card, { kind: "attachment" }>;
 export type ChatUpload = { ok: true; card: AttachmentCard } | { ok: false; message: string };
 
-const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_SIDE = 1600;
 const SHRINK_ABOVE_BYTES = 1.5 * 1024 * 1024;
 const JPEG_QUALITY = 0.85;
@@ -11,7 +11,7 @@ const SHRINKABLE = new Set(["image/jpeg", "image/png", "image/webp", "image/heic
 
 function uploadMessage(status: number): string {
   if (status === 401) return "La sesión venció. Volvé a entrar.";
-  if (status === 413) return "El archivo es demasiado grande (máximo 10 MB).";
+  if (status === 413) return "El archivo es demasiado grande (máximo 64 MB).";
   return "No pude subir el archivo.";
 }
 

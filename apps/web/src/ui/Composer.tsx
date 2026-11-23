@@ -148,7 +148,7 @@ export function Composer(props: Props) {
       )}
       {onAttach && (
         <>
-          <input ref={picker} type="file" multiple hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" onChange={(event) => void onFiles(event)} />
+          <input ref={picker} type="file" multiple hidden onChange={(event) => void onFiles(event)} />
           <button
             type="button"
             className="glass-button glass"

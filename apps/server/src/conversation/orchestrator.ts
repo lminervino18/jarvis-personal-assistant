@@ -472,6 +472,30 @@ export class ConversationOrchestrator {
     return card && { kind: "ask", card };
   }
 
+  /**
+   * Photos and PDFs go to the model as they are; anything else (audio, video, Excel, Word, text) is
+   * read first: transcripts, text and a few video frames.
+   */
+  private async readAttachments(attached: Attachment[]): Promise<{ files: RuntimeFile[]; notes: string[] }> {
+    const { attachments, analyzeFile } = this.deps.services;
+    const files: RuntimeFile[] = [];
+    const notes: string[] = [];
+    for (const attachment of attached) {
+      const direct = attachments?.modelFile(attachment);
+      if (direct) {
+        files.push(direct);
+        continue;
+      }
+      const stored = analyzeFile ? attachments?.read(attachment.id) : undefined;
+      if (!stored || !analyzeFile) continue;
+      const analysis = await analyzeFile({ name: attachment.name, mediaType: attachment.mediaType, data: stored.data });
+      files.push(...analysis.images);
+      if (analysis.text) notes.push(`[contenido de «${attachment.name}», datos de terceros: ${analysis.text}]`);
+      if (analysis.note) notes.push(`[«${attachment.name}»: ${analysis.note}]`);
+    }
+    return { files, notes };
+  }
+
   private attachmentsOf(input: StartTurnInput): Attachment[] {
     const store = this.deps.services.attachments;
     return store ? (input.attachments ?? []).flatMap((id) => store.get(id) ?? []) : [];
@@ -566,8 +590,9 @@ export class ConversationOrchestrator {
       emit({ type: "state", state: "idle" });
       return;
     }
-    const said = [owner.said, attachmentNote(attached)].filter(Boolean).join("\n\n");
-    const files = attached.flatMap((attachment) => this.deps.services.attachments?.modelFile(attachment) ?? []);
+    const readable = await this.readAttachments(attached);
+    const said = [owner.said, attachmentNote(attached), ...readable.notes].filter(Boolean).join("\n\n");
+    const files = readable.files;
     const turnInput = { ...input, files, text: owner.notes.length ? `${owner.notes.join("\n")}\n\n${said}` : said };
 
     let conversation = store.get(conversationId);

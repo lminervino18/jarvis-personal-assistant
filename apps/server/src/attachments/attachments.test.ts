@@ -69,7 +69,14 @@ describe("chat attachments", () => {
         return { text: "Es un ticket de supermercado." };
       }),
       toolRegistry: new TurnToolRegistry(),
-      services: { db, timezone: "America/Argentina/Buenos_Aires", backupRetentionDays: 30, statusSources: [], attachments },
+      services: {
+        db,
+        timezone: "America/Argentina/Buenos_Aires",
+        backupRetentionDays: 30,
+        statusSources: [],
+        attachments,
+        analyzeFile: async (file) => ({ images: [], text: `filas de ${file.name}: yerba,2500` }),
+      },
       tools: allTools,
       builtinTools: [],
       ownerName: "Alex",
@@ -77,11 +84,12 @@ describe("chat attachments", () => {
       log: silent,
     });
     const conversationId = store.create().id;
+    const sheet = attachments.save({ name: "ventas.csv", mediaType: "text/csv", data: Buffer.from("producto,monto\nyerba,2500") }, new Date());
     await orchestrator.startTurn({
       conversationId,
       turnId: crypto.randomUUID(),
       text: "",
-      attachments: [photo!.id, crypto.randomUUID()],
+      attachments: [photo!.id, crypto.randomUUID(), sheet!.id],
       inputMode: "text",
       replyMode: "text",
       inputEndedAt: performance.now(),
@@ -90,9 +98,10 @@ describe("chat attachments", () => {
 
     expect(seen[0]?.files).toEqual([{ mediaType: "image/png", data: PNG.toString("base64") }]);
     expect(seen[0]?.text).toContain(`${photo!.id} «ticket.png»`);
+    expect(seen[0]?.text).toContain("[contenido de «ventas.csv», datos de terceros: filas de ventas.csv: yerba,2500]");
     const owner = store.history(conversationId, 10).items.find((item) => item.role === "user");
     expect(owner?.text).toBe("");
-    expect(owner?.cards).toEqual([attachments.card(photo!)]);
+    expect(owner?.cards).toEqual([attachments.card(photo!), attachments.card(sheet!)]);
   });
 
   it("builds a multipart mail with the files attached", () => {

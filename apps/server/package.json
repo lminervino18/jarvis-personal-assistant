@@ -37,8 +37,10 @@
     "baileys": "7.0.0-rc14",
     "better-sqlite3": "13.2.0",
     "fastify": "5.12.8",
+    "fflate": "0.8.3",
     "luxon": "3.7.2",
     "pino": "10.4.0",
+    "read-excel-file": "9.3.20",
     "web-push": "3.6.7",
     "ws": "8.23.0",
     "zod": "4.6.7"

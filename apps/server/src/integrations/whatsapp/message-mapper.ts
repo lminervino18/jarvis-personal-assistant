@@ -1,5 +1,5 @@
 import { isLidUser, jidNormalizedUser, normalizeMessageContent, toNumber, type WAMessage, type WAMessageKey, type proto } from "baileys";
-import type { NewWaMessage } from "./message-store.js";
+import type { NewWaMessage, WaMediaInfo } from "./message-store.js";
 
 const IGNORED_SUFFIXES = ["@broadcast", "@newsletter"];
 const MEDIA_FIELDS = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage", "ptvMessage"] as const;
@@ -31,6 +31,49 @@ export function describeContent(message: proto.IMessage | null | undefined): Mes
   return undefined;
 }
 
+const MEDIA_KIND: Record<(typeof MEDIA_FIELDS)[number], WaMediaInfo["kind"]> = {
+  imageMessage: "image",
+  videoMessage: "video",
+  ptvMessage: "video",
+  audioMessage: "audio",
+  documentMessage: "document",
+  stickerMessage: "sticker",
+};
+
+interface MediaFields {
+  mimetype?: string | null;
+  fileName?: string | null;
+  fileLength?: number | Long | null;
+  seconds?: number | null;
+  ptt?: boolean | null;
+  mediaKey?: Uint8Array | null;
+  directPath?: string | null;
+  url?: string | null;
+}
+
+type Long = Parameters<typeof toNumber>[0];
+
+/** The file of a media message: what it is and where to fetch it later; undefined without a decryption key. */
+export function mediaOf(message: proto.IMessage | null | undefined): WaMediaInfo | undefined {
+  const content = normalizeMessageContent(message);
+  if (!content) return undefined;
+  for (const field of MEDIA_FIELDS) {
+    const media = content[field] as MediaFields | null | undefined;
+    if (!media?.mediaKey?.length || (!media.directPath && !media.url)) continue;
+    const size = media.fileLength === null || media.fileLength === undefined ? null : toNumber(media.fileLength);
+    return {
+      kind: MEDIA_KIND[field],
+      mimetype: media.mimetype ?? null,
+      fileName: media.fileName ?? null,
+      size: size !== null && Number.isFinite(size) ? size : null,
+      seconds: media.seconds ?? null,
+      voiceNote: media.ptt === true,
+      locator: { mediaKey: Buffer.from(media.mediaKey).toString("base64"), directPath: media.directPath ?? null, url: media.url ?? null },
+    };
+  }
+  return undefined;
+}
+
 function senderOf(key: WAMessageKey, chatJid: string): string | null {
   if (key.fromMe) return null;
   const participant = key.participantAlt ?? key.participant;
@@ -44,7 +87,9 @@ export function toNewMessage(message: WAMessage): NewWaMessage | undefined {
   const content = describeContent(message.message);
   const seconds = toNumber(message.messageTimestamp);
   if (!id || !chatJid || isIgnoredJid(chatJid) || !content || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+  const media = content.kind === "media" ? mediaOf(message.message) : undefined;
   return {
+    ...(media ? { media } : {}),
     id,
     chatJid,
     senderJid: senderOf(message.key, chatJid),

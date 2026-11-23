@@ -1,4 +1,8 @@
+import type { TokenCipher } from "../../crypto/token-cipher.js";
 import type { Db } from "../../db/database.js";
+
+/** Cipher context of a media locator, so it cannot be swapped with another encrypted value. */
+export const MEDIA_LOCATOR_CONTEXT = "wa-media-locator";
 
 export type WaSource = "baileys" | "import";
 export type WaSyncStatus = "disabled" | "pairing" | "connected" | "disconnected" | "logged_out" | "error" | "imported";
@@ -16,6 +20,19 @@ export interface NewWaMessage {
   deleted?: boolean;
   source: WaSource;
   importBatchId?: string;
+  /** Where to fetch the file of a media message; kept so it can be downloaded later, on request. */
+  media?: WaMediaInfo;
+}
+
+export interface WaMediaInfo {
+  kind: "image" | "video" | "audio" | "document" | "sticker";
+  mimetype: string | null;
+  fileName: string | null;
+  size: number | null;
+  seconds: number | null;
+  voiceNote: boolean;
+  /** Decryption key and CDN path; stored encrypted. */
+  locator: { mediaKey: string; directPath: string | null; url: string | null };
 }
 
 export interface WaChatInfo {
@@ -31,7 +48,11 @@ export interface InsertOutcome {
 
 /** Write side of the WhatsApp tables, shared by the export importer and the Baileys bridge. */
 export class WhatsAppStore {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    /** Encrypts media locators; without it media messages are stored without a way to download them. */
+    private readonly cipher?: TokenCipher,
+  ) {}
 
   upsertChat(chat: WaChatInfo, now: Date): void {
     this.db
@@ -49,9 +70,18 @@ export class WhatsAppStore {
          (id, chat_jid, sender_jid, sender_name, from_me, ts_utc, text, kind, edited, deleted, source, import_batch_id, inserted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const media = this.db.prepare(
+      `INSERT OR IGNORE INTO wa_media (chat_jid, message_id, kind, mimetype, file_name, size, seconds, voice_note, locator_enc, inserted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
     const run = this.db.transaction(() => {
       let inserted = 0;
       for (const message of messages) {
+        if (message.media && this.cipher) {
+          const { kind, mimetype, fileName, size, seconds, voiceNote, locator } = message.media;
+          const sealed = this.cipher.encrypt(JSON.stringify(locator), MEDIA_LOCATOR_CONTEXT);
+          media.run(message.chatJid, message.id, kind, mimetype, fileName, size, seconds, voiceNote ? 1 : 0, sealed, now.toISOString());
+        }
         const result = insert.run(
           message.id,
           message.chatJid,

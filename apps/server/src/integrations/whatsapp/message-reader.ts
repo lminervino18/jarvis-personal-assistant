@@ -55,6 +55,8 @@ export interface WaMessageView {
   edited: boolean;
   deleted: boolean;
   source: "baileys" | "import";
+  /** The file of a media message; `downloadable` when whatsapp_get_file can fetch it. */
+  file?: { kind: string; name: string | null; mediaType: string | null; size: number | null; seconds: number | null; voiceNote: boolean; downloadable: boolean };
 }
 
 export interface SourceCoverage {
@@ -116,11 +118,19 @@ interface MessageRow {
   deleted: number;
   source: WaMessageView["source"];
   score?: number;
+  file_kind: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  file_seconds: number | null;
+  file_voice: number | null;
 }
 
 const COLUMNS = `m.rid AS rid, m.id AS id, m.chat_jid AS chat_jid, c.name AS chat_name, c.is_group AS is_group,
   m.sender_jid AS sender_jid, m.sender_name AS sender_name, m.from_me AS from_me, m.ts_utc AS ts_utc, m.text AS text,
-  m.kind AS kind, m.edited AS edited, m.deleted AS deleted, m.source AS source`;
+  m.kind AS kind, m.edited AS edited, m.deleted AS deleted, m.source AS source,
+  w.kind AS file_kind, w.file_name AS file_name, w.mimetype AS file_type, w.size AS file_size, w.seconds AS file_seconds, w.voice_note AS file_voice`;
+const MEDIA_JOIN = "LEFT JOIN wa_media w ON w.chat_jid = m.chat_jid AND w.message_id = m.id";
 
 const CONTACT_ALIASES = "SELECT alias FROM contact_aliases WHERE contact_id = @contact UNION SELECT display_name FROM contacts WHERE id = @contact";
 const CONTACT_JIDS = "SELECT value FROM contact_identities WHERE contact_id = @contact AND kind = 'whatsapp_jid'";
@@ -159,7 +169,7 @@ export class WhatsAppReader {
       .prepare(
         `SELECT * FROM (
            SELECT ${COLUMNS}, bm25(wa_messages_fts) AS score
-           FROM wa_messages_fts JOIN wa_messages m ON m.rid = wa_messages_fts.rowid LEFT JOIN wa_chats c ON c.jid = m.chat_jid
+           FROM wa_messages_fts JOIN wa_messages m ON m.rid = wa_messages_fts.rowid LEFT JOIN wa_chats c ON c.jid = m.chat_jid ${MEDIA_JOIN}
            WHERE wa_messages_fts MATCH @match AND m.deleted = 0 AND m.kind != 'system' ${filters.sql}
          )
          WHERE @cursorRid IS NULL OR score > @cursorScore OR (score = @cursorScore AND rid > @cursorRid)
@@ -176,7 +186,7 @@ export class WhatsAppReader {
     const oldestFirst = params.after !== undefined && params.before === undefined;
     const rows = this.db
       .prepare(
-        `SELECT ${COLUMNS} FROM wa_messages m LEFT JOIN wa_chats c ON c.jid = m.chat_jid
+        `SELECT ${COLUMNS} FROM wa_messages m LEFT JOIN wa_chats c ON c.jid = m.chat_jid ${MEDIA_JOIN}
          WHERE m.chat_jid = @chat AND (@before IS NULL OR m.ts_utc <= @before) AND (@after IS NULL OR m.ts_utc >= @after)
          ORDER BY m.ts_utc ${oldestFirst ? "ASC" : "DESC"}, m.rid ${oldestFirst ? "ASC" : "DESC"} LIMIT @limit`,
       )
@@ -341,6 +351,19 @@ export class WhatsAppReader {
       edited: row.edited === 1,
       deleted: row.deleted === 1,
       source: row.source,
+      ...(row.file_kind
+        ? {
+            file: {
+              kind: row.file_kind,
+              name: row.file_name,
+              mediaType: row.file_type,
+              size: row.file_size,
+              seconds: row.file_seconds,
+              voiceNote: row.file_voice === 1,
+              downloadable: row.deleted !== 1,
+            },
+          }
+        : {}),
     };
   }
 }

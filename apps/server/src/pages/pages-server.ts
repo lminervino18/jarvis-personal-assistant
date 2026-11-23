@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ALLOWED_SCRIPTS } from "./design-guide.js";
 import { withRuntime } from "./page-html.js";
 import type { PageService } from "./page-service.js";
@@ -13,6 +13,7 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'unsafe-inline' https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com data:",
   "img-src data: blob: https:",
+  "media-src 'self'",
   "connect-src 'self'",
   "form-action 'none'",
   "base-uri 'none'",
@@ -38,6 +39,26 @@ function shell(title: string, text: string, refreshSeconds?: number): string {
 <body><p>${text}</p></body></html>`;
 }
 
+const PREVIEWABLE = /^(image\/(jpeg|png|webp|gif)|video\/(mp4|webm|quicktime)|audio\/(ogg|mpeg|mp4|aac|wav)|application\/pdf)$/;
+
+export interface SharedFile {
+  name: string;
+  mediaType: string;
+  data: Buffer;
+}
+
+/** Sends a file honoring a single byte range, which iPhones need to play video and audio. */
+function sendFile(request: FastifyRequest, reply: FastifyReply, file: { mediaType: string; data: Buffer }): FastifyReply {
+  const size = file.data.length;
+  reply.header("accept-ranges", "bytes").type(file.mediaType);
+  const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers.range ?? ""));
+  if (!range || (!range[1] && !range[2])) return reply.send(file.data);
+  const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+  if (start > end || start >= size) return reply.code(416).header("content-range", `bytes */${size}`).send();
+  return reply.code(206).header("content-range", `bytes ${start}-${end}/${size}`).send(file.data.subarray(start, end + 1));
+}
+
 /** Counts recent answers per visitor so one person cannot flood a page. */
 class AnswerLimiter {
   private readonly recent = new Map<string, number[]>();
@@ -59,7 +80,7 @@ class AnswerLimiter {
  * The public host for generated pages, on its own origin so page scripts never share cookies or
  * storage with the assistant. It only serves pages and accepts their answers.
  */
-export function buildPagesServer(pages: PageService, options: { trustProxy: boolean }): FastifyInstance {
+export function buildPagesServer(pages: PageService, options: { trustProxy: boolean; sharedFile?: (token: string) => SharedFile | undefined }): FastifyInstance {
   const app = Fastify({ logger: false, trustProxy: options.trustProxy, bodyLimit: MAX_ANSWER_BYTES });
   const limiter = new AnswerLimiter();
 
@@ -81,7 +102,18 @@ export function buildPagesServer(pages: PageService, options: { trustProxy: bool
     const asset = pages.asset(request.params.slug, request.params.id);
     reply.headers({ "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" });
     if (!asset) return reply.code(404).send();
-    return reply.header("cache-control", "public, max-age=31536000, immutable").type(asset.mediaType).send(asset.data);
+    reply.header("cache-control", "public, max-age=31536000, immutable");
+    return sendFile(request, reply, asset);
+  });
+
+  app.get<{ Params: { token: string } }>("/d/:token", async (request, reply) => {
+    const file = /^[A-Za-z0-9_-]{16,64}$/.test(request.params.token) ? options.sharedFile?.(request.params.token) : undefined;
+    reply.headers({ "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-robots-tag": "noindex", "cache-control": "private, max-age=3600" });
+    if (!file) return reply.headers(SECURITY_HEADERS).type("text/html; charset=utf-8").code(404).send(shell("Link vencido", "Este link venció o no existe."));
+    const previewable = PREVIEWABLE.test(file.mediaType);
+    const name = encodeURIComponent(file.name);
+    reply.header("content-security-policy", "sandbox").header("content-disposition", `${previewable ? "inline" : "attachment"}; filename*=UTF-8''${name}`);
+    return sendFile(request, reply, { mediaType: previewable ? file.mediaType : "application/octet-stream", data: file.data });
   });
 
   app.post<{ Params: { slug: string } }>("/r/:slug", async (request, reply) => {
