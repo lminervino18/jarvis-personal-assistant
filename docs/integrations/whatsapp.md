@@ -85,3 +85,19 @@ Residual risk, honestly stated:
 ## Validation status
 
 Importer, search tools, event handlers, reconnection policy, auth state and status are implemented and tested with synthetic fixtures (`fixtures/synthetic/whatsapp`). The bridge has never connected to WhatsApp: pending owner pairing. Re-run the manual checks (pairing card, first history sync, reconnection after a network drop) when the owner pairs.
+
+## Reading whole chats
+
+Paging 50 messages at a time cannot cover a group: BBG alone has about 15,000 messages. `whatsapp_study` reads up to 8 chats in the background instead (`integrations/whatsapp/chat-study.ts`, table `wa_studies`, migration 9).
+
+1. The text messages of each chat, oldest first, become lines `[date time] Name: text`, each clipped to 600 characters.
+2. The lines are cut into blocks of 40,000 characters, never splitting a message.
+3. Each block goes to the summary model (`CLAUDE_SUMMARY_MODEL`, Haiku) through `runtime.complete`, with no tools and no session. It returns notes on people, humor, topics, dated moments, and the owner's role.
+4. One more call merges the notes into a profile of at most 40 lines per chat.
+5. When the batch ends, the chat gets a notice and a push without content.
+
+Details:
+- Reading runs in the server process, one chat at a time with a short pause between calls. Notes are saved after every block, so a restart resumes where it stopped (`resume()` at boot).
+- `whatsapp_study_result` returns the profiles as untrusted content. Saving anything to memory afterwards needs the owner's confirmation card, and the assistant asks what to keep first.
+- Cost: about 11k input tokens per block plus one merge per chat. All synced text, about 2.7 million characters, is roughly 70 blocks.
+- Delegated agents never get chats; this stays on the personal side.
