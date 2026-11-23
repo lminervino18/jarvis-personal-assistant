@@ -11,7 +11,7 @@
     "@jarvis/contracts": "workspace:*",
     "@types/better-sqlite3": "9.6.0",
     "@types/ws": "8.18.2",
-    "better-sqlite3": "13.0.3",
-    "ws": "8.22.0"
+    "better-sqlite3": "13.2.0",
+    "ws": "8.23.0"
   }
 }
