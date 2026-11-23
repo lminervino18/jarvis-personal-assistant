@@ -583,6 +583,18 @@ button {
   background: var(--cyan);
 }
 
+.video-send {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 0.5px solid rgba(255, 255, 255, 0.12);
+}
+
+.video-send .button {
+  justify-self: start;
+}
+
 .video-player {
   display: block;
   width: 100%;

@@ -8,6 +8,8 @@ const VideoPreview = lazy(() => import("./VideoPreview.js"));
 const POLL_MS = 4000;
 const WORKING = new Set<VideoCardData["status"]>(["queued", "voice", "render", "verify"]);
 
+const CHANNEL = { whatsapp: "WhatsApp", email: "mail" } as const;
+
 const STATUS: Record<VideoCardData["status"], string> = {
   queued: "En cola",
   voice: "Grabando la voz",
@@ -41,6 +43,8 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
   const [card, setCard] = useState(initial);
   const [timeline, setTimeline] = useState<VideoTimeline | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const working = WORKING.has(card.status);
 
   useEffect(() => setCard(initial), [initial]);
@@ -64,7 +68,28 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
       .catch(() => setTimeline(null));
   };
 
+  const sendNow = async () => {
+    setSending(true);
+    setSendError(null);
+    try {
+      const response = await fetch(`/api/videos/${card.videoId}/send`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: card.version }) });
+      const body = (await response.json()) as VideoCardData | { error?: string; card?: VideoCardData };
+      if (response.ok) setCard(body as VideoCardData);
+      else {
+        const failure = body as { error?: string; card?: VideoCardData };
+        setSendError(failure.error ?? "No se pudo enviar.");
+        if (failure.card) setCard(failure.card);
+      }
+    } catch {
+      setSendError("No se pudo enviar. Probá de nuevo.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const { full, light, thumbnail, srt } = card.files;
+  const send = card.send;
+  const awaitingTap = send !== undefined && (send.status === "pending" || send.status === "failed");
   const vertical = card.format === "vertical";
   return (
     <section className="card card-video" aria-label="Video">
@@ -102,6 +127,24 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
           )}
         </div>
       ) : null}
+      {send && (
+        <div className="video-send">
+          <p className="card-meta">
+            Para {send.recipient} por {CHANNEL[send.channel]}
+            {send.text ? ` · «${send.text}»` : " · sin texto"}
+          </p>
+          {awaitingTap ? (
+            <button type="button" className="button primary" disabled={card.status !== "ready" || sending} onClick={() => void sendNow()}>
+              {sending ? "Enviando…" : card.status === "ready" ? `Enviar a ${send.recipient}` : "Enviar cuando esté listo"}
+            </button>
+          ) : (
+            <p className="card-status" data-status="sent">
+              {send.status === "queued" ? "Enviado: sale en unos segundos" : "Enviado"}
+            </p>
+          )}
+          {(sendError ?? (send.status === "failed" ? send.error : undefined)) && <p className="card-meta">{sendError ?? send.error}</p>}
+        </div>
+      )}
       <div className="card-actions">
         {working && !previewing && (card.status === "render" || card.status === "verify") && (
           <button type="button" className="button" onClick={openPreview}>
@@ -110,7 +153,7 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
         )}
         {card.status === "ready" && full && (
           <>
-            <button type="button" className="button primary" onClick={() => void share(card).catch(() => undefined)}>
+            <button type="button" className={awaitingTap ? "button" : "button primary"} onClick={() => void share(card).catch(() => undefined)}>
               Compartir
             </button>
             <a className="button" href={`/api/attachments/${full.attachmentId}`} download>

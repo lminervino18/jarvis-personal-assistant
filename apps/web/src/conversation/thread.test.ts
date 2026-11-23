@@ -201,6 +201,17 @@ describe("thread cards", () => {
     expect(updated.messages[0]?.cards[0]).toMatchObject({ status: "accepted" });
   });
 
+  it("shows a video once, at its newest mention, so the «listo» notice carries the card", () => {
+    const video = (status: "queued" | "ready"): Card => ({
+      kind: "video", videoId: "55555555-5555-4555-8555-555555555555", version: 1, title: "Asado", format: "vertical", status, progress: status === "ready" ? 1 : 0, files: {}, updatedAt: NOW,
+    });
+    const first = item("m1", "assistant", "lo armo", NOW, T1, [video("queued")]);
+    const second = item("m2", "system", "Listo el video", NOW, null, [video("ready")]);
+    const view = threadView(attached([first, second]).messages);
+    expect(view[0]?.cards).toEqual([]);
+    expect(view[1]?.cards).toEqual([video("ready")]);
+  });
+
   it("keeps confirm and player cards in the place where they first appeared with the latest version", () => {
     const first = item("m1", "assistant", "mirá", NOW, T1, [confirm("pending"), youtube("Uno")]);
     const second = item("m2", "assistant", "listo", NOW, T2, [confirm("confirmed"), youtube("Dos")]);

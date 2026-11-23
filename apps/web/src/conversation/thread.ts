@@ -214,6 +214,8 @@ export function cardIdentity(card: Card): string | null {
       return `event:${card.eventId}`;
     case "task":
       return `task:${card.taskId}`;
+    case "video":
+      return `video:${card.videoId}`;
     default:
       return null;
   }
@@ -263,27 +265,33 @@ function settleTurn(state: ThreadState, turnId: string): ThreadState {
   return { ...state, transcript, messages: replaceAt(state.messages, index, { ...message, streaming: false }) };
 }
 
-const SINGLE_INSTANCE_KINDS = new Set<Card["kind"]>(["confirm", "youtube", "task"]);
+const SINGLE_INSTANCE_KINDS = new Set<Card["kind"]>(["confirm", "youtube", "task", "video"]);
+/** Kinds shown at their newest mention instead of their first (a video moves down to its «listo» notice). */
+const FOLLOW_LATEST_KINDS = new Set<Card["kind"]>(["video"]);
 
 /**
- * Confirmation, player and task cards are shown once, where they first appeared, with the latest
- * version received (e.g. a confirmation that later became "confirmed", a task that got published).
+ * Confirmation, player, task and video cards are shown once with the latest version received (e.g. a
+ * confirmation that later became "confirmed", a task that got published). Most stay where they first
+ * appeared; videos move to their newest mention.
  */
 export function threadView(messages: ThreadMessage[]): ThreadMessage[] {
   const latest = new Map<string, Card>();
-  for (const message of messages) {
+  const lastMessage = new Map<string, number>();
+  for (const [index, message] of messages.entries()) {
     for (const card of message.cards) {
       const identity = cardIdentity(card);
-      if (identity && SINGLE_INSTANCE_KINDS.has(card.kind)) latest.set(identity, card);
+      if (!identity || !SINGLE_INSTANCE_KINDS.has(card.kind)) continue;
+      latest.set(identity, card);
+      lastMessage.set(identity, index);
     }
   }
   const shown = new Set<string>();
-  return messages.map((message) => {
+  return messages.map((message, index) => {
     let changed = false;
     const cards = message.cards.flatMap((card) => {
       const identity = cardIdentity(card);
       if (!identity || !SINGLE_INSTANCE_KINDS.has(card.kind)) return [card];
-      if (shown.has(identity)) {
+      if (shown.has(identity) || (FOLLOW_LATEST_KINDS.has(card.kind) && lastMessage.get(identity) !== index)) {
         changed = true;
         return [];
       }
