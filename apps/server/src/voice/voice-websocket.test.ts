@@ -139,8 +139,8 @@ class VoiceClient {
     return this.waitFor("ready");
   }
 
-  speak(conversationId: string, turnId: string, seconds = 1): void {
-    this.send({ type: "audio.begin", conversationId, turnId, format: MIC_FORMAT, replyMode: "voice" });
+  speak(conversationId: string, turnId: string, seconds = 1, purpose?: "dictation"): void {
+    this.send({ type: "audio.begin", conversationId, turnId, format: MIC_FORMAT, replyMode: "voice", ...(purpose ? { purpose } : {}) });
     const chunk = toBytes(new Int16Array(MIC_FORMAT.sampleRate * 0.1).fill(1000));
     for (let i = 0; i < seconds * 10; i++) this.socket.send(encodeAudioFrame(BinaryFrameKind.micAudio, turnId, chunk));
     this.send({ type: "audio.end", turnId });
@@ -175,6 +175,19 @@ describe("voice over the WebSocket with fixture providers", () => {
     const row = db.prepare("SELECT stt_ms, first_text_ms, first_audio_ms FROM turns WHERE id = ?").get(turnId) as Record<string, number | null>;
     expect(row.stt_ms).not.toBeNull();
     expect(row.first_audio_ms as number).toBeGreaterThanOrEqual(row.first_text_ms as number);
+  });
+
+  it("only transcribes a dictation: no turn, no state change, nothing stored", async () => {
+    const { db, port } = await startServer();
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const turnId = crypto.randomUUID();
+    client.speak(conversationId, turnId, 1, "dictation");
+    const final = await client.waitFor("transcript", (m) => m.final && m.turnId === turnId);
+    expect(final.text).toBe("¿Qué hora es?");
+    await new Promise((resolveTick) => setTimeout(resolveTick, 100));
+    expect(client.messages.some((m) => (m.type === "state" || m.type === "turn.end") && "turnId" in m && m.turnId === turnId)).toBe(false);
+    expect(db.prepare("SELECT count(*) AS n FROM turns WHERE id = ?").get(turnId)).toEqual({ n: 0 });
   });
 
   it("stops speaking right away when the owner interrupts", async () => {

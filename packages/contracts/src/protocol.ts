@@ -42,6 +42,8 @@ export const AudioBeginMessage = z.object({
   turnId: Id,
   format: AudioFormat,
   replyMode: ReplyMode,
+  /** `dictation` only transcribes: the server answers with the final transcript and starts no turn. */
+  purpose: z.enum(["turn", "dictation"]).optional(),
 });
 
 export const AudioEndMessage = z.object({

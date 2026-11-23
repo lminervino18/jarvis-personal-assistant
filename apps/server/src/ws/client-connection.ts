@@ -65,6 +65,7 @@ interface Capture {
   bytes: number;
   maxBytes: number;
   replyMode: ReplyMode;
+  dictation: boolean;
 }
 
 /** One authenticated WebSocket client (browser or device) speaking the J.A.R.V.IS protocol. */
@@ -180,7 +181,7 @@ export class ClientConnection implements Subscriber {
           this.captures.delete(message.turnId);
           capture.controller.abort();
           capture.capture.cancel();
-          this.send({ type: "state", state: "idle" });
+          if (!capture.dictation) this.send({ type: "state", state: "idle" });
           return;
         }
         this.deps.orchestrator.cancel(message.turnId, message.reason);
@@ -374,6 +375,7 @@ export class ClientConnection implements Subscriber {
       bytes: 0,
       maxBytes: message.format.sampleRate * 2 * MAX_CAPTURE_SECONDS,
       replyMode: message.replyMode,
+      dictation: message.purpose === "dictation",
     });
   }
 
@@ -399,6 +401,7 @@ export class ClientConnection implements Subscriber {
     const capture = this.captures.get(turnId);
     if (!capture || !this.conversationId) return;
     this.captures.delete(turnId);
+    if (capture.dictation) return this.finishDictation(turnId, capture);
     const inputEndedAt = performance.now();
     this.send({ type: "state", state: "transcribing", turnId });
     let transcript;
@@ -430,5 +433,17 @@ export class ClientConnection implements Subscriber {
       sttMs: Math.round(transcript.latencyMs),
       createSpeaker: this.speakerFactory(turnId, capture.replyMode),
     });
+  }
+
+  private async finishDictation(turnId: string, capture: Capture): Promise<void> {
+    try {
+      const transcript = await capture.capture.finish();
+      if (capture.controller.signal.aborted) return;
+      this.send({ type: "transcript", turnId, text: isStockPhrase(transcript.text) ? "" : transcript.text.trim(), final: true });
+    } catch (error) {
+      if (capture.controller.signal.aborted) return;
+      this.deps.log.warn({ turnId, err: error instanceof Error ? error.message : "unknown" }, "dictation failed");
+      this.send({ type: "error", code: "stt_failed", message: "No pude transcribir el audio. Probá de nuevo o escribime.", turnId, retryable: true });
+    }
   }
 }
