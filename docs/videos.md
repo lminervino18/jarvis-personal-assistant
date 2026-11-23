@@ -32,6 +32,14 @@ The app shows progress live. While the video renders, "Ver vista previa" plays t
 | Tools | `tools/video-tools.ts`: `video_create`, `video_status`, `video_revise`, `video_send`, `video_page` |
 | Owner API | `GET /api/videos/:id`, `/v/:version/timeline`, `/v/:version/files/:name`, `/v/:version/watch` |
 
+## No repeated scenes
+
+`videos/video-script.ts` rejects a brief in two cases:
+- a scene whose narration or title only says again what the spoken intro («Este mensaje es para …») already says;
+- a scene that repeats an earlier one.
+
+The check compares content words, ignoring accents, short words and common words. The model gets the reason and rewrites the brief: the purpose stays general, and the scenes carry the concrete part.
+
 ## Look
 
 The reference is the "Estilos de páginas JARVIS" artifact, style B "Pulso", which the pages already use (`pages/design-guide.ts`). The video tokens live in `packages/video/src/tokens.ts`:
@@ -73,7 +81,11 @@ Formats: vertical 1080×1920 at 30 fps by default, landscape 1920×1080 with its
 
 ## Sending
 
-- `video_send` always waits for the owner's confirmation card. It picks the file the channel can carry:
+- When the owner names the recipient while asking for the video, `video_create` takes `sendTo`. The recipient is resolved right away, and the video card shows «Enviar a …».
+  - Tapping it posts `/api/videos/:id/send` with the version on screen, so the exact version the owner watched is the one that goes out.
+  - A send already made is never repeated, whether it comes from the button or from `video_send`.
+- Each video shows a single card in the chat, at its newest mention (the «listo» notice), with live status.
+- `video_send` (text optional) always waits for the owner's confirmation card. Both paths share `videos/video-delivery.ts` and pick the file the channel can carry:
   - WhatsApp: up to 16 MB, full copy, then the light copy, otherwise a 7-day link;
   - Gmail: up to 20 MB.
 - Mail always includes a 7-day link to watch or download the video. When only a link fits, the thumbnail is attached.
