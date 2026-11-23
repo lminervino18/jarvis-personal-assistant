@@ -44,7 +44,15 @@ export const AudioBeginMessage = z.object({
   replyMode: ReplyMode,
   /** `dictation` only transcribes: the server answers with the final transcript and starts no turn. */
   purpose: z.enum(["turn", "dictation"]).optional(),
+  /** Speech heard while the assistant's reply was playing: a barge-in candidate the server may discard as backchannel. */
+  duringPlayback: z.boolean().optional(),
 });
+
+/** The owner went quiet inside an utterance; the server decides with the words whether the turn ended. */
+export const AudioPauseMessage = z.object({ type: z.literal("audio.pause"), turnId: Id });
+
+/** The owner kept talking after a pause, so the same turn continues. */
+export const AudioResumeMessage = z.object({ type: z.literal("audio.resume"), turnId: Id });
 
 export const AudioEndMessage = z.object({
   type: z.literal("audio.end"),
@@ -157,6 +165,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HelloMessage,
   UserTextMessage,
   AudioBeginMessage,
+  AudioPauseMessage,
+  AudioResumeMessage,
   AudioEndMessage,
   TurnCancelMessage,
   ActionDecisionMessage,

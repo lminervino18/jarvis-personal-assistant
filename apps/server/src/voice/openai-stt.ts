@@ -19,8 +19,8 @@ export interface OpenAiSttOptions {
 
 /**
  * File-based transcription against an OpenAI-compatible `/audio/transcriptions` endpoint
- * (OpenAI, Groq, or a local faster-whisper server). The whole turn is uploaded as one WAV
- * when the client finishes speaking, so it never produces partial transcripts.
+ * (OpenAI, Groq, or a local faster-whisper server). The audio so far is uploaded as one WAV at each
+ * pause (to judge whether the owner finished) and when the turn ends; there are no partial transcripts.
  */
 export class OpenAiCompatibleStt implements SpeechToTextService {
   readonly provider: string;
@@ -37,6 +37,7 @@ export class OpenAiCompatibleStt implements SpeechToTextService {
     const chunks: Uint8Array[] = [];
     return {
       push: (pcm) => chunks.push(pcm.slice()),
+      peek: () => this.transcribe(concatBytes(chunks), options.format, options.signal),
       finish: () => this.transcribe(concatBytes(chunks), options.format, options.signal),
       cancel: () => {
         chunks.length = 0;

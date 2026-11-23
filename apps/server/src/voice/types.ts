@@ -11,6 +11,8 @@ export interface TranscriptResult {
 /** One capture of the owner's speech for one turn. */
 export interface SpeechCapture {
   push(pcm: Uint8Array): void;
+  /** Transcribes what arrived so far without ending the capture (used at pauses to decide the end of turn). */
+  peek?(): Promise<TranscriptResult>;
   finish(): Promise<TranscriptResult>;
   cancel(): void;
 }

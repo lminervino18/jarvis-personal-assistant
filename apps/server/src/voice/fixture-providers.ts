@@ -28,19 +28,22 @@ export class FixtureStt implements SpeechToTextService {
     const { transcript, partials = [], latencyMs = 0 } = this.options;
     let bytes = 0;
     let pushes = 0;
+    const transcribe = async (): Promise<TranscriptResult> => {
+      const startedAt = performance.now();
+      const heard = bytes;
+      if (latencyMs > 0) await sleep(latencyMs, options.signal);
+      if (options.signal.aborted) throw new Error("capture cancelled");
+      const text = typeof transcript === "string" ? transcript : transcript(heard);
+      return { text, provider: "fixture", latencyMs: performance.now() - startedAt, audioMs: pcmDurationMs(heard, options.format.sampleRate) };
+    };
     return {
       push: (pcm) => {
         bytes += pcm.byteLength;
         const partial = partials[pushes++];
         if (partial !== undefined) options.onPartial?.(partial);
       },
-      finish: async (): Promise<TranscriptResult> => {
-        const startedAt = performance.now();
-        if (latencyMs > 0) await sleep(latencyMs, options.signal);
-        if (options.signal.aborted) throw new Error("capture cancelled");
-        const text = typeof transcript === "string" ? transcript : transcript(bytes);
-        return { text, provider: "fixture", latencyMs: performance.now() - startedAt, audioMs: pcmDurationMs(bytes, options.format.sampleRate) };
-      },
+      peek: () => transcribe(),
+      finish: () => transcribe(),
       cancel: () => {},
     };
   }

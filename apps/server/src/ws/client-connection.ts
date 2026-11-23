@@ -15,14 +15,17 @@ import type { WebSocket } from "ws";
 import type { ConversationStore } from "../conversation/conversation-store.js";
 import type { ConversationHub, Subscriber } from "../conversation/hub.js";
 import type { ConversationOrchestrator, Logger } from "../conversation/orchestrator.js";
-import { isFillerTranscript, isStockPhrase } from "../voice/filler.js";
-import type { AudioSink, SpeechCapture, SpeechToTextService, TextToSpeechService } from "../voice/types.js";
+import { turnLooksComplete } from "../voice/end-of-turn.js";
+import { isBackchannel, isFillerTranscript, isStockPhrase } from "../voice/filler.js";
+import type { AudioSink, SpeechCapture, SpeechToTextService, TextToSpeechService, TranscriptResult } from "../voice/types.js";
 import type { z } from "zod";
 
 const HELLO_TIMEOUT_MS = 10_000;
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 const AUDIO_HIGH_WATER_BYTES = 256 * 1024;
 const MAX_CAPTURE_SECONDS = 120;
+/** After a pause whose words sound unfinished, how long the server waits for the owner to go on. */
+const END_OF_TURN_WAIT_MS = 1800;
 const MAX_MESSAGES_PER_SECOND = 40;
 const REAUTH_INTERVAL_MS = 5 * 60 * 1000;
 const HISTORY_PAGE = 40;
@@ -66,6 +69,14 @@ interface Capture {
   maxBytes: number;
   replyMode: ReplyMode;
   dictation: boolean;
+  /** Heard while the reply was playing: dropped if it turns out to be a backchannel. */
+  provisional: boolean;
+  paused: boolean;
+  /** Bumped by every pause and resume, so a late decision about an older pause is ignored. */
+  generation: number;
+  pausedAt?: number;
+  checkpoint?: { generation: number; result: Promise<TranscriptResult | undefined> };
+  timer?: NodeJS.Timeout;
 }
 
 /** One authenticated WebSocket client (browser or device) speaking the J.A.R.V.IS protocol. */
@@ -108,6 +119,7 @@ export class ClientConnection implements Subscriber {
     clearInterval(this.reauthTimer);
     this.unsubscribe?.();
     for (const capture of this.captures.values()) {
+      clearTimeout(capture.timer);
       capture.controller.abort();
       capture.capture.cancel();
     }
@@ -175,10 +187,15 @@ export class ClientConnection implements Subscriber {
         return this.onAudioBegin(message);
       case "audio.end":
         return this.onAudioEnd(message.turnId);
+      case "audio.pause":
+        return this.onAudioPause(message.turnId);
+      case "audio.resume":
+        return this.onAudioResume(message.turnId);
       case "turn.cancel": {
         const capture = this.captures.get(message.turnId);
         if (capture) {
           this.captures.delete(message.turnId);
+          clearTimeout(capture.timer);
           capture.controller.abort();
           capture.capture.cancel();
           this.deps.orchestrator.discardPrepared(message.turnId);
@@ -382,6 +399,9 @@ export class ClientConnection implements Subscriber {
       maxBytes: message.format.sampleRate * 2 * MAX_CAPTURE_SECONDS,
       replyMode: message.replyMode,
       dictation: message.purpose === "dictation",
+      provisional: message.duringPlayback === true,
+      paused: false,
+      generation: 0,
     });
     if (message.purpose !== "dictation") this.deps.orchestrator.prepareTurn(message.conversationId, message.turnId);
   }
@@ -404,16 +424,55 @@ export class ClientConnection implements Subscriber {
     capture.capture.push(frame.payload);
   }
 
-  private async onAudioEnd(turnId: string): Promise<void> {
+  /**
+   * A pause inside an utterance: transcribes what was said and closes the turn right away when it
+   * sounds finished; otherwise waits a little for the owner to go on. The server is the only one
+   * that confirms the end of a turn.
+   */
+  private onAudioPause(turnId: string): void {
+    const capture = this.captures.get(turnId);
+    if (!capture || capture.dictation) return;
+    if (capture.provisional) return void this.onAudioEnd(turnId);
+    clearTimeout(capture.timer);
+    const generation = ++capture.generation;
+    capture.paused = true;
+    capture.pausedAt = performance.now();
+    const result = capture.capture.peek ? capture.capture.peek().catch(() => undefined) : Promise.resolve(undefined);
+    capture.checkpoint = { generation, result };
+    capture.timer = setTimeout(() => this.closeTurn(turnId, generation, "silence"), END_OF_TURN_WAIT_MS);
+    void result.then((transcript) => {
+      if (transcript && turnLooksComplete(transcript.text)) this.closeTurn(turnId, generation, "complete");
+    });
+  }
+
+  private onAudioResume(turnId: string): void {
+    const capture = this.captures.get(turnId);
+    if (!capture) return;
+    clearTimeout(capture.timer);
+    capture.paused = false;
+    capture.generation += 1;
+  }
+
+  private closeTurn(turnId: string, generation: number, reason: "complete" | "silence"): void {
+    const capture = this.captures.get(turnId);
+    if (!capture || !capture.paused || capture.generation !== generation) return;
+    const checkpoint = capture.checkpoint?.generation === generation ? capture.checkpoint.result : undefined;
+    this.deps.log.info({ turnId, reason, pauseMs: Math.round(performance.now() - (capture.pausedAt ?? 0)) }, "turn endpoint");
+    void this.onAudioEnd(turnId, checkpoint);
+  }
+
+  /** Ends a capture: transcribes it (or reuses the transcript taken at the pause) and starts the turn. */
+  private async onAudioEnd(turnId: string, ready?: Promise<TranscriptResult | undefined>): Promise<void> {
     const capture = this.captures.get(turnId);
     if (!capture || !this.conversationId) return;
     this.captures.delete(turnId);
+    clearTimeout(capture.timer);
     if (capture.dictation) return this.finishDictation(turnId, capture);
     const inputEndedAt = performance.now();
-    this.send({ type: "state", state: "transcribing", turnId });
+    if (!capture.provisional) this.send({ type: "state", state: "transcribing", turnId });
     let transcript;
     try {
-      transcript = await capture.capture.finish();
+      transcript = (await ready) ?? (await capture.capture.finish());
     } catch (error) {
       if (capture.controller.signal.aborted) return;
       this.deps.orchestrator.discardPrepared(turnId);
@@ -425,10 +484,13 @@ export class ClientConnection implements Subscriber {
     if (capture.controller.signal.aborted) return;
     const text = isStockPhrase(transcript.text) ? "" : transcript.text.trim();
     const running = this.deps.orchestrator.runningTurn(this.conversationId);
-    if (running && running.turnId !== turnId && isFillerTranscript(text)) {
+    const noise = running !== undefined && running.turnId !== turnId && isFillerTranscript(text);
+    const backchannel = capture.provisional && (isFillerTranscript(text) || isBackchannel(text));
+    if (noise || backchannel) {
       this.deps.orchestrator.discardPrepared(turnId);
+      if (backchannel) this.deps.log.info({ turnId, words: text.split(/\s+/).filter(Boolean).length }, "backchannel kept the reply playing");
       this.send({ type: "turn.end", turnId, status: "cancelled" });
-      this.send({ type: "state", state: running.replying ? "speaking" : "thinking", turnId: running.turnId });
+      this.send(running ? { type: "state", state: running.replying ? "speaking" : "thinking", turnId: running.turnId } : { type: "state", state: "idle" });
       return;
     }
     this.send({ type: "transcript", turnId, text, final: true });

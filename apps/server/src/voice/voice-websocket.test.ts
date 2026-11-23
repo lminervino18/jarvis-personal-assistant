@@ -139,6 +139,15 @@ class VoiceClient {
     return this.waitFor("ready");
   }
 
+  begin(conversationId: string, turnId: string, extra: object = {}): void {
+    this.send({ type: "audio.begin", conversationId, turnId, format: MIC_FORMAT, replyMode: "voice", ...extra });
+  }
+
+  sendFrames(turnId: string, seconds: number): void {
+    const chunk = toBytes(new Int16Array(MIC_FORMAT.sampleRate * 0.1).fill(1000));
+    for (let i = 0; i < seconds * 10; i++) this.socket.send(encodeAudioFrame(BinaryFrameKind.micAudio, turnId, chunk));
+  }
+
   speak(conversationId: string, turnId: string, seconds = 1, purpose?: "dictation"): void {
     this.send({ type: "audio.begin", conversationId, turnId, format: MIC_FORMAT, replyMode: "voice", ...(purpose ? { purpose } : {}) });
     const chunk = toBytes(new Int16Array(MIC_FORMAT.sampleRate * 0.1).fill(1000));
@@ -175,6 +184,59 @@ describe("voice over the WebSocket with fixture providers", () => {
     const row = db.prepare("SELECT stt_ms, first_text_ms, first_audio_ms FROM turns WHERE id = ?").get(turnId) as Record<string, number | null>;
     expect(row.stt_ms).not.toBeNull();
     expect(row.first_audio_ms as number).toBeGreaterThanOrEqual(row.first_text_ms as number);
+  });
+
+  it("closes the turn at a pause as soon as the words sound finished, without waiting for more silence", async () => {
+    const stt = new FixtureStt({ transcript: "¿Qué hora es?" });
+    const { port } = await startServer({}, undefined, { stt });
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const turnId = crypto.randomUUID();
+    client.begin(conversationId, turnId);
+    client.sendFrames(turnId, 1);
+    const pausedAt = Date.now();
+    client.send({ type: "audio.pause", turnId });
+    const final = await client.waitFor("transcript", (m) => m.final && m.turnId === turnId);
+    expect(final.text).toBe("¿Qué hora es?");
+    expect(Date.now() - pausedAt).toBeLessThan(1000);
+    await client.waitFor("turn.end", (m) => m.turnId === turnId && m.status === "completed");
+  });
+
+  it("waits through a pause when the sentence hangs, and keeps it as one turn when the owner goes on", async () => {
+    const second = MIC_FORMAT.sampleRate * 2;
+    const stt = new FixtureStt({ transcript: (bytes) => (bytes <= second * 1.2 ? "Quiero que..." : "Quiero que revises el correo.") });
+    const scripted = new ScriptedRuntime(() => ({ text: "Dale, lo reviso." }));
+    const { port } = await startServer({}, undefined, { stt, runtime: scripted });
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const turnId = crypto.randomUUID();
+    client.begin(conversationId, turnId);
+    client.sendFrames(turnId, 1);
+    client.send({ type: "audio.pause", turnId });
+    await new Promise((resolveTick) => setTimeout(resolveTick, 400));
+    expect(client.messages.some((m) => m.type === "transcript" && m.turnId === turnId)).toBe(false);
+    client.send({ type: "audio.resume", turnId });
+    client.sendFrames(turnId, 1);
+    client.send({ type: "audio.pause", turnId });
+    const final = await client.waitFor("transcript", (m) => m.final && m.turnId === turnId);
+    expect(final.text).toBe("Quiero que revises el correo.");
+    await client.waitFor("turn.end", (m) => m.turnId === turnId);
+    expect(scripted.calls.map((call) => call.text.split("\n\n").at(-1))).toEqual(["Quiero que revises el correo."]);
+  });
+
+  it("keeps the reply playing when the owner only says a backchannel over it", async () => {
+    const stt = new FixtureStt({ transcript: "Ajá." });
+    const scripted = new ScriptedRuntime(() => ({ text: "No debería correr." }));
+    const { port } = await startServer({}, undefined, { stt, runtime: scripted });
+    const client = await VoiceClient.connect(port);
+    const { conversationId } = await client.hello();
+    const turnId = crypto.randomUUID();
+    client.begin(conversationId, turnId, { duringPlayback: true });
+    client.sendFrames(turnId, 0.4);
+    client.send({ type: "audio.pause", turnId });
+    expect(await client.waitFor("turn.end", (m) => m.turnId === turnId)).toMatchObject({ status: "cancelled" });
+    expect(scripted.calls).toHaveLength(0);
+    expect(client.messages.some((m) => m.type === "state" && m.state === "transcribing" && m.turnId === turnId)).toBe(false);
   });
 
   it("only transcribes a dictation: no turn, no state change, nothing stored", async () => {
