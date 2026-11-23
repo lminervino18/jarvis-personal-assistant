@@ -23,8 +23,7 @@
     "@types/web-push": "3.6.4",
     "@types/ws": "8.18.2",
     "esbuild": "0.28.2",
-    "tsx": "4.23.15",
-    "ws": "8.23.0"
+    "tsx": "4.23.15"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.329",
@@ -41,6 +40,7 @@
     "luxon": "3.7.2",
     "pino": "10.4.0",
     "web-push": "3.6.7",
+    "ws": "8.23.0",
     "zod": "4.6.7"
   }
 }
