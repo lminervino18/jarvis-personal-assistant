@@ -111,6 +111,8 @@ export const TaskCard = z.object({
   budgetUsd: z.number().nonnegative(),
   /** A change to JARVIS itself, which the owner can publish. */
   build: z.boolean().optional(),
+  /** The owner removed it from build mode. */
+  archived: z.boolean().optional(),
   publication: z
     .object({ status: PublicationStatus, step: z.string().max(40).optional(), commit: z.string().max(40).optional(), message: z.string().max(600).optional() })
     .optional(),

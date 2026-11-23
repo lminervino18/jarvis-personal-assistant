@@ -90,7 +90,7 @@ export function BuildScreen(props: Props) {
             </ol>
           </div>
         )}
-        {tasks?.map((task) => (
+        {tasks?.filter((task) => !task.archived).map((task) => (
           <div key={task.taskId} className="build-item">
             <CardView card={task} actions={actions} />
             {task.status !== "cancelled" && (

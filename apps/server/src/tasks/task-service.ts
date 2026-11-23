@@ -61,6 +61,7 @@ export function taskCard(task: Task, publication?: Publication): TaskCard {
           },
         }
       : {}),
+    ...(task.archivedAt ? { archived: true } : {}),
     updatedAt: task.updatedAt,
   };
 }
@@ -178,7 +179,19 @@ export class TaskService {
     }
     if (action === "approve" || action === "reject") return this.decideApproval(task, action, approvalId, now);
     if (action === "publish") return this.publish(task.id, now);
+    if (action === "archive") return this.archive(task, now);
     return this.apply(task, action, now);
+  }
+
+  /** Removes a task from build mode for good; one still alive is cancelled first. */
+  private archive(task: Task, now: Date): TaskOutcome {
+    if (task.status === "running") return this.invalid("La tarea está trabajando: cancelala primero y después borrala.");
+    if (!finalTaskStatuses.has(task.status)) {
+      const cancelled = this.apply(task, "cancel", now);
+      if (!cancelled.ok) return cancelled;
+    }
+    this.store.archive(task.id, now);
+    return this.done(task.id, `Borraste la tarea #${task.ref} de la lista.`);
   }
 
   /** The current card of a task, for refreshing cards stored in the chat history. */

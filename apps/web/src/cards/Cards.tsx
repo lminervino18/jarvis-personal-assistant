@@ -260,16 +260,16 @@ function publicationLine(publication: NonNullable<Of<"task">["publication"]>): s
   }
 }
 
+const ARCHIVE = { action: "archive", label: "Borrar" } as const;
+
 function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: string; primary?: boolean }[] {
+  if (card.archived) return [];
   if (card.status === "ready" && card.build) {
-    return [
-      { action: "publish", label: "Publicar", primary: true },
-      { action: "cancel", label: "Descartar" },
-    ];
+    return [{ action: "publish", label: "Publicar", primary: true }, ARCHIVE];
   }
   if (card.status === "ready") return [{ action: "accept", label: "Aceptar entrega", primary: true }];
-  if (card.build && card.status === "accepted" && card.publication?.status === "failed") return [{ action: "publish", label: "Publicar de nuevo", primary: true }];
-  if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return [];
+  if (card.build && card.status === "accepted" && card.publication?.status === "failed") return [{ action: "publish", label: "Publicar de nuevo", primary: true }, ARCHIVE];
+  if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return card.build ? [ARCHIVE] : [];
   if (card.blocker?.kind === "approval") {
     return [
       { action: "approve", label: "Aprobar", primary: true },
@@ -279,7 +279,7 @@ function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: stri
   }
   if (card.status === "awaiting_owner") {
     const resumable = card.blocker && ["usage_limit", "error", "review_limit"].includes(card.blocker.kind);
-    return [...(resumable ? [{ action: "resume" as const, label: "Reintentar" }] : []), { action: "cancel", label: "Cancelar tarea" }];
+    return [...(resumable ? [{ action: "resume" as const, label: "Reintentar" }] : []), card.build ? ARCHIVE : { action: "cancel", label: "Cancelar tarea" }];
   }
   return [card.paused ? { action: "resume", label: "Reanudar" } : { action: "pause", label: "Pausar" }, { action: "cancel", label: "Cancelar tarea" }];
 }

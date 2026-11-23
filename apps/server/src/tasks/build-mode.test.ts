@@ -58,6 +58,20 @@ describe("build mode", () => {
     expect(service.buildCards()).toMatchObject([{ build: true, status: "queued" }]);
   });
 
+  it("lets the owner remove tasks from build mode, cancelling the ones still waiting and keeping their history", () => {
+    const { service, store, now, readyBuild } = setup();
+    const ready = readyBuild();
+    const queued = service.createBuild("Otro cambio que nunca voy a hacer", now);
+    if (!queued.ok) throw new Error(queued.message);
+    store.update(queued.task.id, { status: "running", phase: "execute" }, now);
+    expect(service.decide(queued.task.id, "archive", undefined, now)).toMatchObject({ ok: false, message: expect.stringContaining("cancelala primero") });
+
+    expect(service.decide(ready.id, "archive", undefined, now)).toMatchObject({ ok: true, task: { status: "cancelled", archivedAt: now.toISOString() } });
+    expect(service.buildCards().map((card) => card.taskId)).toEqual([queued.task.id]);
+    expect(service.cardFor(ready.id)).toMatchObject({ archived: true, status: "cancelled" });
+    expect(store.get(ready.id)?.title).toBe("Agregá un saludo en el README");
+  });
+
   it("refuses build requests while the jarvis project is not installed", () => {
     const { service } = setup({ project: false });
     expect(service.createBuild("algo", new Date())).toMatchObject({ ok: false });

@@ -31,6 +31,7 @@ interface TaskRow {
   created_at: string;
   updated_at: string;
   finished_at: string | null;
+  archived_at: string | null;
 }
 
 export interface Task {
@@ -61,6 +62,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   finishedAt?: string;
+  /** Hidden from build mode by the owner; the task and its history stay. */
+  archivedAt?: string;
 }
 
 /** A build task's way to production after the owner tapped Publish. */
@@ -208,6 +211,7 @@ function toTask(row: TaskRow): Task {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finishedAt: row.finished_at ?? undefined,
+    archivedAt: row.archived_at ?? undefined,
   };
 }
 
@@ -301,7 +305,7 @@ export class TaskStore {
 
   /** The latest tasks of one project, most recently updated first. */
   listByProject(project: string, limit: number): Task[] {
-    const rows = this.db.prepare("SELECT * FROM tasks WHERE project = ? ORDER BY updated_at DESC LIMIT ?").all(project, limit) as TaskRow[];
+    const rows = this.db.prepare("SELECT * FROM tasks WHERE project = ? AND archived_at IS NULL ORDER BY updated_at DESC LIMIT ?").all(project, limit) as TaskRow[];
     return rows.map(toTask);
   }
 
@@ -309,6 +313,11 @@ export class TaskStore {
    * Applies a patch. With `expect`, the update only happens while the task is still in
    * one of those statuses, so concurrent owner and runner decisions never overwrite each other.
    */
+  archive(id: string, now: Date): void {
+    const at = now.toISOString();
+    this.db.prepare("UPDATE tasks SET archived_at = ?, updated_at = ? WHERE id = ?").run(at, at, id);
+  }
+
   update(id: string, patch: TaskPatch, now: Date, expect?: readonly TaskStatus[]): boolean {
     const columns = { ...toColumns(patch), updated_at: now.toISOString() };
     const assignments = Object.keys(columns).map((column) => `${column} = @${column}`);
