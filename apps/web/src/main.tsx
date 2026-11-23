@@ -9,9 +9,11 @@ import { Session } from "./conversation/session.js";
 import { demoTransport } from "./demo/demo-server.js";
 import { Conversation } from "./ui/Conversation.js";
 import { registerServiceWorker } from "./pwa/register.js";
+import { preventZoom } from "./pwa/no-zoom.js";
 import { subscribeToPush } from "./pwa/push.js";
 import "./styles.css";
 
+preventZoom(document);
 const root = createRoot(document.getElementById("root") as HTMLElement);
 
 const demo = new URLSearchParams(window.location.search).has("demo");
