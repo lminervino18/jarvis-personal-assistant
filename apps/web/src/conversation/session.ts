@@ -84,6 +84,7 @@ interface TurnTiming {
 }
 
 const MAX_VIEWPORT_REPORTS = 6;
+const MAX_CAPTURE_REPORTS = 3;
 const INITIAL_LISTEN_MS = 12_000;
 const CALL_LISTEN_MS = 5 * 60_000;
 const SPEAKER_KEY = "jarvis.speaker";
@@ -129,6 +130,7 @@ export class Session {
   private notice: Notice | null = null;
   private buildTasks: BuildTask[] | null = null;
   private viewportReports = 0;
+  private captureReports = 0;
   private noticeCount = 0;
   private inputLevel = 0;
   private readonly levels: Levels = { input: 0, output: 0 };
@@ -284,6 +286,7 @@ export class Session {
         this.inputLevel = levelFromDbfs(rmsDbfs(pcm));
         this.sendFrame(pcm);
       });
+      this.reportCapture();
       if (!this.dictationWanted) {
         engine.stopMicrophone();
         return;
@@ -364,6 +367,12 @@ export class Session {
   }
 
   /** Sends layout measurements for diagnosis, a few times per page load at most. */
+  private reportCapture(): void {
+    const report = this.engine?.captureReport?.();
+    if (!report || this.captureReports >= MAX_CAPTURE_REPORTS) return;
+    if (this.client.send({ type: "client.audio", ...report })) this.captureReports += 1;
+  }
+
   reportViewport(report: ViewportReport): void {
     if (this.viewportReports >= MAX_VIEWPORT_REPORTS) return;
     if (this.client.send({ type: "client.viewport", ...report })) this.viewportReports += 1;
@@ -703,6 +712,7 @@ export class Session {
       const engine = this.ensureEngine();
       await engine.resume();
       await engine.startMicrophone((pcm) => this.voice.push(pcm));
+      this.reportCapture();
       this.micOpen = true;
       this.voice.startWindow(windowMs);
     } catch (error) {

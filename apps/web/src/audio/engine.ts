@@ -1,3 +1,4 @@
+import type { CaptureReport } from "@jarvis/contracts";
 import { levelFromDbfs } from "./pcm.js";
 import { PcmPlayer, type PcmPlayerOptions } from "./playback.js";
 import captureWorkletUrl from "./capture.worklet.ts?worker&url";
@@ -23,6 +24,8 @@ export interface AudioEngine {
   startMicrophone(onFrame: (pcm: Int16Array) => void): Promise<void>;
   stopMicrophone(): void;
   onRunningChange(listener: () => void): void;
+  /** What the browser applied to the last microphone it opened. */
+  captureReport?(): CaptureReport | null;
 }
 
 interface Microphone {
@@ -32,6 +35,22 @@ interface Microphone {
   sink: GainNode;
 }
 
+function describeCapture(stream: MediaStream, contextSampleRate: number): CaptureReport {
+  const supported = navigator.mediaDevices.getSupportedConstraints();
+  const settings = stream.getAudioTracks()[0]?.getSettings() ?? {};
+  return {
+    supported: { echoCancellation: supported.echoCancellation, noiseSuppression: supported.noiseSuppression, autoGainControl: supported.autoGainControl },
+    applied: {
+      echoCancellation: typeof settings.echoCancellation === "boolean" ? settings.echoCancellation : undefined,
+      noiseSuppression: settings.noiseSuppression,
+      autoGainControl: settings.autoGainControl,
+      sampleRate: settings.sampleRate,
+      channelCount: settings.channelCount,
+    },
+    contextSampleRate,
+  };
+}
+
 export class WebAudioEngine implements AudioEngine {
   readonly player: PcmPlayer;
   private readonly context = new AudioContext({ latencyHint: "interactive" });
@@ -39,6 +58,7 @@ export class WebAudioEngine implements AudioEngine {
   private readonly samples: Float32Array<ArrayBuffer>;
   private workletLoaded: Promise<void> | null = null;
   private microphone: Microphone | null = null;
+  private lastCapture: CaptureReport | null = null;
 
   constructor(playerOptions: PcmPlayerOptions) {
     this.analyser.fftSize = 1024;
@@ -75,6 +95,7 @@ export class WebAudioEngine implements AudioEngine {
   async startMicrophone(onFrame: (pcm: Int16Array) => void): Promise<void> {
     if (this.microphone) return;
     const stream = await this.openStream();
+    this.lastCapture = describeCapture(stream, this.context.sampleRate);
     try {
       this.workletLoaded ??= this.context.audioWorklet.addModule(captureWorkletUrl);
       await this.workletLoaded;
@@ -92,6 +113,10 @@ export class WebAudioEngine implements AudioEngine {
     node.connect(sink);
     sink.connect(this.context.destination);
     this.microphone = { stream, source, node, sink };
+  }
+
+  captureReport(): CaptureReport | null {
+    return this.lastCapture;
   }
 
   stopMicrophone(): void {

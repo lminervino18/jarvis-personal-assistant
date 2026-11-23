@@ -617,6 +617,10 @@ export class ConversationOrchestrator {
       }
     }
 
+    const timing = {
+      firstTextMs: outcome.firstTextAt !== undefined ? Math.round(outcome.firstTextAt - input.inputEndedAt) : undefined,
+      firstAudioMs: speaker?.firstAudioAt !== undefined ? Math.round(speaker.firstAudioAt - input.inputEndedAt) : undefined,
+    };
     store.finishTurn(
       turnId,
       {
@@ -627,11 +631,9 @@ export class ConversationOrchestrator {
         usedTools: outcome.usedTools,
         usage: outcome.usage,
       },
-      {
-        firstTextMs: outcome.firstTextAt !== undefined ? Math.round(outcome.firstTextAt - input.inputEndedAt) : undefined,
-        firstAudioMs: speaker?.firstAudioAt !== undefined ? Math.round(speaker.firstAudioAt - input.inputEndedAt) : undefined,
-      },
+      timing,
     );
+    this.deps.log.info({ turnId, inputMode: input.inputMode, status, usedTools: outcome.usedTools, sttMs: input.sttMs, ...timing }, "turn timing");
     emit({ type: "turn.end", turnId, status, ...(status === "failed" && outcome.errorCode ? { errorCode: runtimeErrorToProtocol[outcome.errorCode] } : {}) });
     emit({ type: "state", state: "idle" });
     const rotation = outcome.sessionId ? this.rotationReason(conversationId, sessionTurns, outcome.usage?.contextTokens ?? 0) : undefined;

@@ -1,4 +1,4 @@
-import { BinaryFrameKind, decodeAudioFrame, encodeAudioFrame } from "@jarvis/contracts";
+import { BinaryFrameKind, decodeAudioFrame, encodeAudioFrame, type CaptureReport } from "@jarvis/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MicError, type AudioEngine } from "../audio/engine.js";
 import { pcm16ToBytes } from "../audio/pcm.js";
@@ -37,7 +37,12 @@ class FakeEngine implements AudioEngine {
   running = true;
   frames: ((pcm: Int16Array) => void) | null = null;
   micError: Error | null = null;
+  report: CaptureReport | null = null;
   listener: () => void = () => {};
+
+  captureReport(): CaptureReport | null {
+    return this.report;
+  }
 
   constructor(options: PcmPlayerOptions) {
     this.player = new PcmPlayer(this.context, {}, options);
@@ -445,6 +450,15 @@ describe("speaker, voice notes and calls", () => {
     session.cancelDictation();
     await pending;
     expect(socket().json().filter((message) => message.type === "audio.begin")).toHaveLength(1);
+  });
+
+  it("reports what the browser really applied to the microphone", async () => {
+    const { session, socket, engine, connect } = setup();
+    connect(true);
+    await session.enableAudio();
+    engine().report = { supported: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, applied: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, sampleRate: 48000, channelCount: 1 }, contextSampleRate: 48000 };
+    await session.startCall();
+    expect(socket().last("client.audio")).toEqual({ type: "client.audio", ...engine().report });
   });
 
   it("tells the server when a call starts and ends, so it can speak background news", async () => {

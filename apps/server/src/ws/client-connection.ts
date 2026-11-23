@@ -227,6 +227,11 @@ export class ClientConnection implements Subscriber {
       case "warm":
         if (this.conversationId) this.deps.orchestrator.warm(this.conversationId);
         return;
+      case "client.audio": {
+        const { type: _type, ...audio } = message;
+        this.deps.log.info({ audio }, "client audio");
+        return;
+      }
       case "client.viewport": {
         const { type: _type, ...viewport } = message;
         this.deps.log.info({ viewport }, "client viewport");

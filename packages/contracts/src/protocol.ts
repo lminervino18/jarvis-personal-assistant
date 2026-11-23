@@ -129,6 +129,22 @@ export const ClientViewportMessage = z.object({
 });
 export type ViewportReport = Omit<z.infer<typeof ClientViewportMessage>, "type">;
 
+const AudioProcessing = z.object({
+  echoCancellation: z.boolean().optional(),
+  noiseSuppression: z.boolean().optional(),
+  autoGainControl: z.boolean().optional(),
+});
+
+/** Microphone processing the browser supports and what it actually applied, so requested is not mistaken for effective. */
+export const ClientAudioMessage = z.object({
+  type: z.literal("client.audio"),
+  supported: AudioProcessing,
+  applied: AudioProcessing.extend({ sampleRate: z.number().optional(), channelCount: z.number().optional() }),
+  contextSampleRate: z.number(),
+});
+
+export type CaptureReport = Omit<z.infer<typeof ClientAudioMessage>, "type">;
+
 /** Whether this client is in a voice call, so the server can say background news aloud. */
 export const CallStateMessage = z.object({ type: z.literal("call.state"), active: z.boolean() });
 
@@ -154,6 +170,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   BuildRequestMessage,
   BuildFeedbackMessage,
   ClientViewportMessage,
+  ClientAudioMessage,
   WarmMessage,
   CallStateMessage,
   PingMessage,

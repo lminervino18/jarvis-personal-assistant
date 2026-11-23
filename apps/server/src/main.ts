@@ -1,3 +1,4 @@
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
@@ -216,6 +217,14 @@ const shutdown = async (signal: string) => {
 };
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
+
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+setInterval(() => {
+  const ms = (nanoseconds: number) => Math.round(nanoseconds / 1e6);
+  logger.info({ p50: ms(loopDelay.percentile(50)), p99: ms(loopDelay.percentile(99)), max: ms(loopDelay.max), rssMb: Math.round(process.memoryUsage().rss / 1048576) }, "event loop");
+  loopDelay.reset();
+}, 60_000).unref();
 
 await app.listen({ host: config.host, port: config.port });
 if (pagesServer && config.pages) await pagesServer.listen({ host: config.host, port: config.pages.port });
