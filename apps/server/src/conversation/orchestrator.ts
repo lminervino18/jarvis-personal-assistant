@@ -65,6 +65,8 @@ interface ActiveTurn {
   controller: AbortController;
   reason?: string;
   replying?: boolean;
+  /** The model is still writing this turn (its session on disk is not final yet). */
+  generating?: boolean;
 }
 
 interface TurnOutcome {
@@ -165,8 +167,8 @@ function fallbackSummary(previous: string | undefined, lines: string[]): string 
  */
 export class ConversationOrchestrator {
   private readonly active = new Map<string, ActiveTurn>();
-  private readonly prepared = new Map<string, { tools: TurnTools; finishedTurns: number }>();
-  private readonly finishedTurns = new Map<string, number>();
+  private readonly prepared = new Map<string, { tools: TurnTools; modelCalls: number }>();
+  private readonly modelCalls = new Map<string, number>();
   private readonly byTurn = new Map<string, ActiveTurn>();
   private readonly chains = new Map<string, Promise<void>>();
   /** Voice input whose turn was cut before any reply; it is prepended to the next voice turn. */
@@ -215,7 +217,6 @@ export class ConversationOrchestrator {
       })
       .finally(() => {
         this.discardPrepared(input.turnId);
-        this.finishedTurns.set(conversationId, (this.finishedTurns.get(conversationId) ?? 0) + 1);
         this.byTurn.delete(input.turnId);
         if (this.active.get(conversationId) === active) this.active.delete(conversationId);
         if (this.chains.get(conversationId) === settled) this.chains.delete(conversationId);
@@ -281,14 +282,14 @@ export class ConversationOrchestrator {
    */
   prepareTurn(conversationId: string, turnId: string): void {
     const { runtime, store, toolRegistry } = this.deps;
-    if (!runtime.prepare || this.prepared.has(turnId) || this.byTurn.has(turnId) || this.active.has(conversationId)) return;
+    if (!runtime.prepare || this.prepared.has(turnId) || this.byTurn.has(turnId) || this.active.get(conversationId)?.generating) return;
     const conversation = store.get(conversationId);
     if (!conversation) return;
     for (const other of [...this.prepared.keys()]) this.discardPrepared(other);
     const stale = conversation.claude_session_id ? this.rotationReason(conversationId, conversation.session_turns, 0) : undefined;
     const tools = this.turnTools(conversationId, turnId);
     toolRegistry.register(turnId, tools.toolset);
-    this.prepared.set(turnId, { tools, finishedTurns: this.finishedTurns.get(conversationId) ?? 0 });
+    this.prepared.set(turnId, { tools, modelCalls: this.modelCalls.get(conversationId) ?? 0 });
     runtime.prepare(turnId, stale ? undefined : (conversation.claude_session_id ?? undefined));
   }
 
@@ -299,11 +300,11 @@ export class ConversationOrchestrator {
     this.deps.toolRegistry.release(turnId);
   }
 
-  /** The prepared tools for this turn, unless another turn finished meanwhile and its process could miss that exchange. */
+  /** The prepared tools for this turn, unless the model wrote another turn meanwhile and the process could miss that exchange. */
   private takePrepared(conversationId: string, turnId: string): TurnTools | undefined {
     const prepared = this.prepared.get(turnId);
     if (!prepared) return undefined;
-    if (prepared.finishedTurns !== (this.finishedTurns.get(conversationId) ?? 0)) {
+    if (prepared.modelCalls !== (this.modelCalls.get(conversationId) ?? 0)) {
       this.discardPrepared(turnId);
       return undefined;
     }
@@ -598,6 +599,7 @@ export class ConversationOrchestrator {
     emit({ type: "state", state: "thinking", turnId });
 
     let outcome: TurnOutcome;
+    active.generating = true;
     try {
       outcome = await this.consume(turnInput, resumeSessionId, seedContext, signal, emit, voice, keepSensitiveAsText);
       if (outcome.errorCode === "resume_failed" && !outcome.text && !signal.aborted) {
@@ -607,6 +609,8 @@ export class ConversationOrchestrator {
         outcome = await this.consume(turnInput, undefined, seedContext, signal, emit, voice, keepSensitiveAsText);
       }
     } finally {
+      active.generating = false;
+      this.modelCalls.set(conversationId, (this.modelCalls.get(conversationId) ?? 0) + 1);
       this.deps.toolRegistry.release(turnId);
       this.lastModelCallAt = this.now().getTime();
     }

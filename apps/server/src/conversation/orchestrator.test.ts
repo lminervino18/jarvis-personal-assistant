@@ -143,6 +143,33 @@ describe("prepared turns", () => {
     expect(usedToolsets.at(-1)).not.toBe(stale);
   });
 
+  it("does not prepare while the model is still writing the previous turn", async () => {
+    const toolRegistry = new TurnToolRegistry();
+    const scripted = new ScriptedRuntime(() => ({ text: "Listo." }));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const prepared: string[] = [];
+    const runtime: ModelRuntime = {
+      name: "slow-fixture",
+      async *runTurn(input) {
+        await gate;
+        yield* scripted.runTurn(input);
+      },
+      prepare: (turnId) => void prepared.push(turnId),
+      discard: () => {},
+    };
+    const { orchestrator, conversationId } = setup(40, { runtime, toolRegistry });
+    const writing = orchestrator.startTurn(turn(conversationId, "buscá algo largo"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    orchestrator.prepareTurn(conversationId, crypto.randomUUID());
+    expect(prepared).toEqual([]);
+    release();
+    await writing;
+    const next = crypto.randomUUID();
+    orchestrator.prepareTurn(conversationId, next);
+    expect(prepared).toEqual([next]);
+  });
+
   it("keeps one prepared turn at a time and drops those that never run", () => {
     const { orchestrator, conversationId, toolRegistry, discarded } = preparedSetup();
     const [first, second] = [crypto.randomUUID(), crypto.randomUUID()];
