@@ -50,6 +50,21 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --start-interval=2s -
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/main.js"]
 
+FROM runtime AS video
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libnss3 libdbus-1-3 libatk1.0-0t64 libatk-bridge2.0-0t64 libgbm1 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libpango-1.0-0 libcairo2 libcups2t64 fonts-noto-color-emoji fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/*
+RUN node -e "import('@remotion/renderer').then((renderer) => renderer.ensureBrowser())"
+COPY --from=build /src/packages/video/dist/bundle ./video-bundle
+COPY infra/scripts/verify-video-render.mjs ./scripts/
+ENV VIDEO_BUNDLE_DIR=/app/video-bundle \
+    VIDEO_HEARTBEAT_FILE=/tmp/video-heartbeat
+USER jarvis
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "const t=Number(require('fs').readFileSync(process.env.VIDEO_HEARTBEAT_FILE,'utf8'));process.exit(Date.now()-t<120000?0:1)"]
+CMD ["node", "dist/video-worker.js"]
+
 FROM runtime AS agent-runner
 USER root
 RUN apt-get update \

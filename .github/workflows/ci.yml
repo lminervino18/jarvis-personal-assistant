@@ -44,6 +44,10 @@ jobs:
           persist-credentials: false
       - name: Build the application image
         run: docker build --target runtime --tag jarvis:ci .
+      - name: Build the video image and render a smoke frame
+        run: |
+          docker build --target video --tag jarvis-video:ci .
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/jarvis:uid=10001,gid=10001 jarvis-video:ci node scripts/verify-video-render.mjs /app/video-bundle
       - name: Publisher check stage (the same gate build mode uses)
         run: docker build --target check .
       - name: Build the backup image
