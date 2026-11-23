@@ -212,7 +212,7 @@ export const toolInputs = {
     videoId: z.uuid(),
     channel: z.enum(["whatsapp", "email"]),
     to: z.string().trim().min(1).max(254).describe("WhatsApp: id, número o nombre del chat. Email: la dirección"),
-    text: z.string().trim().min(1).max(1500),
+    text: z.string().trim().max(1500).optional().describe("Texto corto que acompaña al video; omitilo si el dueño lo quiere sin texto"),
     subject: z.string().trim().min(1).max(200).optional(),
     account: GmailAccountLabel.optional(),
   },

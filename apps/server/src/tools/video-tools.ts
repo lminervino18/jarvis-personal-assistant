@@ -145,7 +145,7 @@ function pageUrl(ctx: ToolContext, videoId: string): string | undefined {
 export const videoSend = defineTool({
   name: "video_send",
   description:
-    "Manda la última versión lista de un video por WhatsApp (a un chat por id, número o nombre) o por mail, con un texto corto. Elige solo el archivo que entra en el canal (el completo, el liviano o, si no entra, un link de 7 días) y suma el link de la versión interactiva si existe. Siempre queda pendiente hasta que el dueño confirma la tarjeta. Usala solo cuando el dueño dice a quién mandarlo; «armá un video para mandar» no autoriza el envío.",
+    "Manda la última versión lista de un video por WhatsApp (a un chat por id, número o nombre) o por mail, con un texto corto opcional (sin texto si el dueño lo pide así). Elige solo el archivo que entra en el canal (el completo, el liviano o, si no entra, un link de 7 días) y suma el link de la versión interactiva si existe. Siempre queda pendiente hasta que el dueño confirma la tarjeta. Usala solo cuando el dueño dice a quién mandarlo; «armá un video para mandar» no autoriza el envío.",
   prepare(ctx, input) {
     const version = readyVersion(ctx, input.videoId);
     if (typeof version === "string") return { refused: fail("not_found", version) };
@@ -170,7 +170,7 @@ export const videoSend = defineTool({
     const version = readyVersion(ctx, input.videoId);
     const recipient =
       input.channel === "whatsapp" ? (new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(input.to, { liveOnly: true }).name?.trim() ?? input.to) : input.to;
-    if (typeof version === "string") return { title: "Enviar video", summary: `Para ${recipient}`, details: [{ label: "Mensaje", value: input.text }] };
+    if (typeof version === "string") return { title: "Enviar video", summary: `Para ${recipient}`, details: [{ label: "Mensaje", value: input.text || "Sin texto" }] };
     const delivery = deliveryFor(version, input.channel);
     const file = delivery.file === "link" ? `Link que vence en ${LINK_DAYS} días (el archivo no entra en ${CHANNEL_NAME[input.channel]})` : `${delivery.file === "full" ? "Completo" : "Liviano"}, ${megabytes(delivery.size)}`;
     return {
@@ -180,7 +180,7 @@ export const videoSend = defineTool({
         { label: "Video", value: `«${version.brief.title}» · versión ${version.version} · ${formatDuration(version.durationMs ?? 0)}` },
         { label: "Archivo", value: file },
         ...(input.channel === "email" ? [{ label: "Asunto", value: input.subject ?? version.brief.title }] : []),
-        { label: "Mensaje", value: input.text },
+        { label: "Mensaje", value: input.text || "Sin texto" },
       ],
     };
   },
@@ -188,7 +188,7 @@ export const videoSend = defineTool({
     const store = ctx.services.videos;
     const version = readyVersion(ctx, input.videoId);
     if (!store || typeof version === "string") return fail("not_found", typeof version === "string" ? version : DISABLED);
-    const dedupeKey = createHash("sha256").update(JSON.stringify([input.videoId, version.version, input.channel, input.to, input.text])).digest("hex");
+    const dedupeKey = createHash("sha256").update(JSON.stringify([input.videoId, version.version, input.channel, input.to, input.text ?? ""])).digest("hex");
     const previous = store.findDelivery(dedupeKey);
     if (previous) return ok(SOURCE, [{ deliveryId: previous.id, status: previous.status }], { note: "Ese mismo envío ya se había hecho; no lo repetí." });
     const delivery = deliveryFor(version, input.channel);
@@ -201,7 +201,7 @@ export const videoSend = defineTool({
       if (full && base && ctx.services.fileLinks) links.push(`Ver o bajar el video: ${base}/d/${ctx.services.fileLinks.create(full.attachmentId, ctx.now()).token}`);
     }
     if (delivery.file === "link" && links.length === 0) return fail("disabled", "El video no entra en ese canal y los links públicos no están configurados.");
-    const text = [input.text, ...links].join("\n\n");
+    const text = [input.text, ...links].filter(Boolean).join("\n\n");
     const base = { videoId: input.videoId, version: version.version, channel: input.channel, recipient: input.to, file: delivery.file, dedupeKey } as const;
     if (input.channel === "whatsapp") {
       if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", "WhatsApp no está conectado ahora: el video no se envió.");
@@ -218,7 +218,7 @@ export const videoSend = defineTool({
       const sent = await gmail.send(input.account ?? "personal", {
         to: [input.to],
         subject: input.subject ?? version.brief.title,
-        body: text,
+        body: text || version.brief.title,
         files: stored ? [{ name: stored.attachment.name, mediaType: stored.attachment.mediaType, data: stored.data }] : [],
       });
       const saved = store.addDelivery({ ...base, status: "sent", providerId: sent.id }, ctx.now());
