@@ -191,6 +191,13 @@ export const toolInputs = {
     text: z.string().trim().min(1).max(2000),
     attachmentId: z.uuid().optional(),
   },
+  whatsapp_study: {
+    chatIds: z.array(z.string().min(1).max(128)).min(1).max(8).describe("Chats a leer enteros: id, número o nombre"),
+    focus: z.string().trim().max(300).optional().describe("En qué fijarse especialmente, si el dueño lo dijo"),
+  },
+  whatsapp_study_result: {
+    batchId: z.uuid().optional(),
+  },
   whatsapp_get_file: {
     chatId: z.string().min(1).max(128),
     messageId: z.string().min(1).max(128),
@@ -248,6 +255,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "whatsapp_search",
   "whatsapp_get_messages",
   "whatsapp_get_file",
+  "whatsapp_study_result",
   "youtube_search",
   "task_status",
   "task_result",

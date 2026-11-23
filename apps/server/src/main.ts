@@ -23,6 +23,7 @@ import { AttachmentStore } from "./attachments/attachment-store.js";
 import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
 import { registerVideoRoutes } from "./videos/video-routes.js";
 import { VideoStore } from "./videos/video-store.js";
+import { ChatStudies } from "./integrations/whatsapp/chat-study.js";
 import { analyzeFile } from "./files/file-analysis.js";
 import { FileLinks } from "./files/file-links.js";
 import { baileysDownload, WhatsAppFiles } from "./files/whatsapp-files.js";
@@ -148,6 +149,10 @@ const videos = new VideoStore(db);
 const videosDir = join(config.dataDir, "videos");
 services.videos = videos;
 services.ownerName = config.ownerDisplayName;
+if (runtime.complete) {
+  services.chatStudies = new ChatStudies({ db, runtime, outbox: new Outbox(db), ownerName: config.ownerDisplayName, timezone: config.timezone, model: config.claude.summaryModel, log: logger });
+  services.chatStudies.resume();
+}
 services.analyzeFile = (file) => analyzeFile(file, { stt: voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined });
 if (tokenCipher) services.whatsappFiles = new WhatsAppFiles(db, tokenCipher, attachments, baileysDownload);
 setInterval(() => fileLinks.purgeExpired(new Date()), 6 * 3_600_000).unref();

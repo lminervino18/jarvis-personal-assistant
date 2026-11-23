@@ -11,6 +11,7 @@ import { pageTools } from "./page-tools.js";
 import { remindersTools } from "./reminders-tools.js";
 import { taskTools } from "./task-tools.js";
 import { videoTools } from "./video-tools.js";
+import { chatStudyTools } from "./chat-study-tools.js";
 import { whatsappTools } from "./whatsapp-tools.js";
 import { youtubeTools } from "./youtube-tools.js";
 import type { AnyToolDefinition } from "./types.js";
@@ -31,6 +32,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...pageTools,
   ...fileTools,
   ...videoTools,
+  ...chatStudyTools,
 ];
 
 export const toolsByName: ReadonlyMap<ToolName, AnyToolDefinition> = new Map(allTools.map((tool) => [tool.name, tool]));
