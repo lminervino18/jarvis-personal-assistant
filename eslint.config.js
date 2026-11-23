@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/.vite/**", "firmware/**", "voice/**", ".worktrees/**"],
+    ignores: ["**/dist/**", "**/node_modules/**", "**/coverage/**", "**/.vite/**", "firmware/**", "voice/**", ".worktrees/**", ".agents/**"],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
