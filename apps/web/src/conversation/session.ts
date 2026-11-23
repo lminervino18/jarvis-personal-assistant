@@ -37,11 +37,13 @@ export interface SessionSnapshot {
   capabilities: Capabilities | null;
   ownerName: string | null;
   micOpen: boolean;
-  /** Replies to typed messages and voice notes are spoken. A call always speaks. */
+  /** Replies to typed and dictated messages are spoken. A call always speaks. */
   speakerOn: boolean;
   callActive: boolean;
   callMuted: boolean;
-  recordingNote: boolean;
+  dictation: "idle" | "recording" | "transcribing";
+  /** The latest dictated text; `id` changes with every new transcript. */
+  dictated: { id: number; text: string } | null;
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
@@ -117,8 +119,11 @@ export class Session {
   private speakerOn = readSpeakerPreference();
   private callActive = false;
   private callMuted = false;
-  private noteHeld = false;
-  private recordingNote = false;
+  private dictationWanted = false;
+  private dictation: SessionSnapshot["dictation"] = "idle";
+  private dictationTurn: string | null = null;
+  private readonly dictationTurns = new Set<string>();
+  private dictated: SessionSnapshot["dictated"] = null;
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
@@ -159,7 +164,7 @@ export class Session {
   getSnapshot = (): SessionSnapshot => this.snapshot;
 
   getLevels = (): Levels => {
-    this.levels.input = this.micOpen || this.recordingNote ? this.inputLevel : 0;
+    this.levels.input = this.micOpen || this.dictation === "recording" ? this.inputLevel : 0;
     this.levels.output = this.engine?.outputLevel() ?? 0;
     return this.levels;
   };
@@ -258,20 +263,19 @@ export class Session {
     this.emit();
   }
 
-  /** Press-and-hold voice message: everything recorded until release is one turn, without voice detection. */
-  async startVoiceNote(): Promise<void> {
-    if (this.micOpen || this.recordingNote || this.micStarting) return;
+  /** Dictation: records until stopped and writes the transcript into the composer instead of sending a turn. */
+  async startDictation(): Promise<void> {
+    if (this.micOpen || this.dictation !== "idle" || this.micStarting) return;
     if (!this.capabilities?.stt) {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
       return;
     }
-    this.warm();
     const conversationId = this.client.conversationId;
     if (!conversationId || this.status !== "ready") {
-      this.refuse("No hay conexión: el audio no se envió.");
+      this.refuse("No hay conexión: no puedo escucharte.");
       return;
     }
-    this.noteHeld = true;
+    this.dictationWanted = true;
     this.micStarting = true;
     try {
       const engine = this.ensureEngine();
@@ -280,19 +284,21 @@ export class Session {
         this.inputLevel = levelFromDbfs(rmsDbfs(pcm));
         this.sendFrame(pcm);
       });
-      if (!this.noteHeld) {
+      if (!this.dictationWanted) {
         engine.stopMicrophone();
         return;
       }
-      this.interruptAssistant("superseded");
       const turnId = this.newId();
-      if (!this.client.send({ type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode() })) {
+      const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode(), purpose: "dictation" } as const;
+      if (!this.client.send(begin)) {
         engine.stopMicrophone();
-        this.refuse("No hay conexión: el audio no se envió.");
+        this.refuse("No hay conexión: no puedo escucharte.");
         return;
       }
       this.captureTurn = turnId;
-      this.recordingNote = true;
+      this.dictationTurn = turnId;
+      this.dictationTurns.add(turnId);
+      this.dictation = "recording";
     } catch (error) {
       this.setNotice("warning", micMessage(error));
     } finally {
@@ -301,21 +307,44 @@ export class Session {
     }
   }
 
-  /** Ends the voice note: sends it for transcription, or discards it. */
-  finishVoiceNote(send: boolean): void {
-    this.noteHeld = false;
-    if (!this.recordingNote) return;
-    this.recordingNote = false;
+  /** Stops dictating; the transcript arrives later in the snapshot's `dictated`. */
+  stopDictation(): void {
+    this.dictationWanted = false;
+    if (this.dictation !== "recording" || !this.dictationTurn) return;
+    this.closeDictationMicrophone();
+    this.client.send({ type: "audio.end", turnId: this.dictationTurn });
+    this.dictation = "transcribing";
+    this.emit();
+  }
+
+  /** Throws the dictation away, including a transcript still on its way. */
+  cancelDictation(): void {
+    this.dictationWanted = false;
+    if (this.dictation === "recording" && this.dictationTurn) {
+      this.client.send({ type: "turn.cancel", turnId: this.dictationTurn, reason: "user_stop" });
+      this.closeDictationMicrophone();
+    }
+    this.dictation = "idle";
+    this.dictationTurn = null;
+    this.emit();
+  }
+
+  private closeDictationMicrophone(): void {
     this.engine?.stopMicrophone();
     this.inputLevel = 0;
-    const turnId = this.captureTurn;
     this.captureTurn = null;
-    if (turnId && send) {
-      this.client.send({ type: "audio.end", turnId });
-      this.markTurnSent(turnId, "transcribing", this.replyMode() === "voice");
-    } else if (turnId) {
-      this.client.send({ type: "turn.cancel", turnId, reason: "user_stop" });
-    }
+  }
+
+  private onDictationMessage(message: ServerMessage & { turnId: string }): void {
+    if (message.type === "transcript" && !message.final) return;
+    this.dictationTurns.delete(message.turnId);
+    if (message.turnId !== this.dictationTurn) return;
+    if (this.dictation === "recording") this.closeDictationMicrophone();
+    this.dictation = "idle";
+    this.dictationTurn = null;
+    if (message.type === "transcript" && message.text) this.dictated = { id: (this.dictated?.id ?? 0) + 1, text: message.text };
+    else if (message.type === "transcript") this.setNotice("info", "No te escuché. Probá de nuevo.");
+    else if (message.type === "error") this.setNotice("warning", message.message);
     this.emit();
   }
 
@@ -461,6 +490,9 @@ export class Session {
   private onStatus(status: ConnectionStatus): void {
     this.status = status;
     if (status !== "ready") {
+      if (this.dictation === "recording") this.engine?.stopMicrophone();
+      this.dictation = "idle";
+      this.dictationTurn = null;
       this.voice.cancel();
       this.captureTurn = null;
       this.engine?.player.stop();
@@ -477,6 +509,10 @@ export class Session {
   }
 
   private onMessage(message: ServerMessage): void {
+    if ("turnId" in message && message.turnId && this.dictationTurns.has(message.turnId)) {
+      this.onDictationMessage(message as ServerMessage & { turnId: string });
+      return;
+    }
     if (threadEventTypes.has(message.type)) this.thread = reduceThread(this.thread, message as ThreadEvent, this.isoNow());
     if (message.type === "history") this.flushLocalCards();
     switch (message.type) {
@@ -714,7 +750,8 @@ export class Session {
       speakerOn: this.speakerOn,
       callActive: this.callActive,
       callMuted: this.callMuted,
-      recordingNote: this.recordingNote,
+      dictation: this.dictation,
+      dictated: this.dictated,
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,

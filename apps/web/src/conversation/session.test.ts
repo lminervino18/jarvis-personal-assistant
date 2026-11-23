@@ -408,34 +408,43 @@ describe("speaker, voice notes and calls", () => {
     session.toggleSpeaker();
   });
 
-  it("records a voice note while held and sends it for transcription on release", async () => {
+  it("dictates into the composer: records until stopped and returns the text without sending a turn", async () => {
     const { session, socket, engine, connect } = setup();
     connect(true);
-    await session.startVoiceNote();
-    expect(session.getSnapshot()).toMatchObject({ recordingNote: true, state: "listening" });
-    const turnId = socket().last("audio.begin")?.turnId as string;
+    await session.startDictation();
+    expect(session.getSnapshot()).toMatchObject({ dictation: "recording", state: "listening" });
+    const begin = socket().last("audio.begin");
+    expect(begin).toMatchObject({ purpose: "dictation" });
+    const turnId = begin?.turnId as string;
     engine().feed(0.1, 10);
     expect(socket().binaryFrames().filter((frame) => frame.turnId === turnId)).toHaveLength(10);
-    session.finishVoiceNote(true);
+    session.stopDictation();
     expect(socket().last("audio.end")).toEqual({ type: "audio.end", turnId });
-    expect(session.getSnapshot()).toMatchObject({ recordingNote: false, state: "transcribing" });
+    expect(session.getSnapshot()).toMatchObject({ dictation: "transcribing" });
     expect(engine().frames).toBeNull();
+
+    socket().server({ type: "transcript", turnId, text: "comprar", final: false });
+    socket().server({ type: "transcript", turnId, text: "comprar pan", final: true });
+    expect(session.getSnapshot()).toMatchObject({ dictation: "idle", dictated: { id: 1, text: "comprar pan" } });
+    expect(session.getSnapshot().thread.messages).toHaveLength(0);
+    expect(socket().last("user.text")).toBeUndefined();
   });
 
-  it("discards a cancelled voice note and ignores a release before the microphone opened", async () => {
+  it("drops a cancelled dictation, even when its transcript arrives later", async () => {
     const { session, socket, connect } = setup();
     connect(true);
-    await session.startVoiceNote();
+    await session.startDictation();
     const turnId = socket().last("audio.begin")?.turnId as string;
-    session.finishVoiceNote(false);
+    session.cancelDictation();
     expect(socket().last("turn.cancel")).toMatchObject({ turnId, reason: "user_stop" });
-    expect(socket().last("audio.end")).toBeUndefined();
+    socket().server({ type: "transcript", turnId, text: "esto no", final: true });
+    expect(session.getSnapshot()).toMatchObject({ dictation: "idle", dictated: null });
+    expect(session.getSnapshot().thread.messages).toHaveLength(0);
 
-    const pending = session.startVoiceNote();
-    session.finishVoiceNote(true);
+    const pending = session.startDictation();
+    session.cancelDictation();
     await pending;
     expect(socket().json().filter((message) => message.type === "audio.begin")).toHaveLength(1);
-    expect(session.getSnapshot().recordingNote).toBe(false);
   });
 
   it("tells the server when a call starts and ends, so it can speak background news", async () => {

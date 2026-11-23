@@ -738,42 +738,8 @@ button {
   transition: transform 0.15s ease;
 }
 
-.field-button.note {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: none;
-}
-
-.field-button[aria-pressed="true"] {
-  background: var(--red);
-  color: #fff;
-  transform: scale(1.15);
-  box-shadow: 0 0 0 8px rgba(255, 69, 58, 0.2);
-}
-
 .field-button:disabled {
   opacity: 0.4;
-}
-
-.recording {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-  margin: 0;
-  font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
-
-.recording-dot {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--red);
-  animation: pulse 1s ease-in-out infinite;
 }
 
 .round-button {
@@ -1356,52 +1322,85 @@ button {
   }
 }
 
-.note-wrap {
+.field-button.mic {
   position: relative;
-  display: flex;
-}
-
-.note-lock {
-  position: absolute;
-  left: 50%;
-  bottom: calc(100% + 16px);
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  width: 40px;
-  padding: 10px 0 8px;
-  border-radius: 20px;
-  background: rgba(28, 28, 30, 0.94);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  width: 38px;
+  height: 38px;
+  margin: 3px 0;
+  background: rgba(255, 255, 255, 0.1);
   color: var(--label);
-  transform: translate(-50%, calc(var(--lift, 0) * -40px));
-  pointer-events: none;
-  animation: note-lock-in 0.18s ease-out;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.note-lock svg:last-child {
+.field-button.mic::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+}
+
+.field-button.mic:active {
+  transform: scale(0.9);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.field.dictation {
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.waveform {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 0;
+  height: 28px;
+  overflow: hidden;
+}
+
+.waveform span {
+  flex: none;
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--label);
+  transform: scaleY(0.12);
+  transition: transform 70ms linear;
+}
+
+.dictation-clock {
+  flex: none;
+  min-width: 36px;
   color: var(--secondary);
-  animation: nudge-up 1.2s ease-in-out infinite;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.recording-hint {
+.dictation-busy {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--secondary);
+  font-size: 15px;
 }
 
-.field-button.discard {
-  color: var(--red);
-  margin-left: -10px;
+.spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--label);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
 }
 
-@keyframes note-lock-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 12px);
-  }
-}
-
-@keyframes nudge-up {
-  50% {
-    transform: translateY(-3px);
-  }
+.round-button.dictation-done {
+  background: var(--label);
+  color: #000;
 }

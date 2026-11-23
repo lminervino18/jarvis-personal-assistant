@@ -153,10 +153,13 @@ export function Conversation({ session, onLogout, demo }: Props) {
         <Composer
           online={online}
           busy={snapshot.busy}
-          recording={snapshot.recordingNote}
+          dictation={snapshot.dictation}
+          dictated={snapshot.dictated}
+          levels={session.getLevels}
           onSend={(text, attachments) => session.sendText(text, attachments)}
-          onNoteStart={() => void session.startVoiceNote()}
-          onNoteEnd={(send) => session.finishVoiceNote(send)}
+          onDictate={() => void session.startDictation()}
+          onDictationStop={() => session.stopDictation()}
+          onDictationCancel={() => session.cancelDictation()}
           onStop={() => session.stopAll()}
           onCall={startCall}
           onAttach={demo ? undefined : uploadChatAttachment}
