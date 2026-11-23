@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { AttachmentCard, ChatUpload } from "../attachments/upload.js";
 import type { SessionSnapshot } from "../conversation/session.js";
+import { appendDictation } from "./dictation.js";
 import { DictationBar } from "./DictationBar.js";
 
 interface Props {
@@ -33,11 +34,6 @@ interface Pending {
 
 function revoke(items: readonly Pending[]): void {
   for (const item of items) if (item.preview) URL.revokeObjectURL(item.preview);
-}
-
-function appendDictation(current: string, addition: string): string {
-  if (!current.trim()) return addition;
-  return /\s$/.test(current) ? `${current}${addition}` : `${current} ${addition}`;
 }
 
 export function Composer(props: Props) {

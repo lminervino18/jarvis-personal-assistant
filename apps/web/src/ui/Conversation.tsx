@@ -187,6 +187,12 @@ export function Conversation({ session, onLogout, demo }: Props) {
           online={online}
           notice={notice}
           actions={session}
+          dictation={snapshot.dictation}
+          dictated={snapshot.dictated}
+          levels={session.getLevels}
+          onDictate={() => void session.startDictation()}
+          onDictationStop={() => session.stopDictation()}
+          onDictationCancel={() => session.cancelDictation()}
           onRefresh={refreshBuild}
           onRequest={(text) => session.requestBuild(text)}
           onReply={(taskId, text) => session.buildFeedback(taskId, text)}

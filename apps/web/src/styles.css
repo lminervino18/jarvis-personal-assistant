@@ -36,6 +36,28 @@ body,
 html,
 body {
   overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
+.app,
+.build {
+  overscroll-behavior: none;
+}
+
+.thread {
+  overscroll-behavior: contain;
+}
+
+.build-dictation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 html,

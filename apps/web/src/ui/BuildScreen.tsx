@@ -1,13 +1,21 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { CardActions } from "../cards/actions.js";
 import { CardView } from "../cards/Cards.js";
-import type { BuildTask, Notice } from "../conversation/session.js";
+import type { BuildTask, Notice, SessionSnapshot } from "../conversation/session.js";
+import { DictationBar } from "./DictationBar.js";
+import { appendDictation } from "./dictation.js";
 
 interface Props {
   tasks: BuildTask[] | null;
   online: boolean;
   notice: Notice | null;
   actions: CardActions;
+  dictation: SessionSnapshot["dictation"];
+  dictated: SessionSnapshot["dictated"];
+  levels: () => { input: number };
+  onDictate(): void;
+  onDictationStop(): void;
+  onDictationCancel(): void;
   onRefresh(): void;
   onRequest(text: string): boolean;
   onReply(taskId: string, text: string): boolean;
@@ -26,9 +34,17 @@ function replyLabel(task: BuildTask): string {
  * Build mode: changes to JARVIS itself. Each request becomes a task an agent programs and
  * another one reviews; the owner answers questions here and decides whether to publish.
  */
-export function BuildScreen({ tasks, online, notice, actions, onRefresh, onRequest, onReply, onClose }: Props) {
+export function BuildScreen(props: Props) {
+  const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose } = props;
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<BuildTask | null>(null);
+  const appliedDictation = useRef(dictated?.id ?? 0);
+
+  useEffect(() => {
+    if (!dictated || dictated.id === appliedDictation.current) return;
+    appliedDictation.current = dictated.id;
+    setText((current) => appendDictation(current, dictated.text));
+  }, [dictated]);
 
   useEffect(() => {
     onRefresh();
@@ -102,6 +118,11 @@ export function BuildScreen({ tasks, online, notice, actions, onRefresh, onReque
             </button>
           </p>
         )}
+        {dictation !== "idle" ? (
+          <div className="build-dictation">
+            <DictationBar state={dictation} levels={levels} onStop={onDictationStop} onCancel={onDictationCancel} />
+          </div>
+        ) : (
         <div className="build-field field glass">
           <textarea
             value={text}
@@ -111,12 +132,18 @@ export function BuildScreen({ tasks, online, notice, actions, onRefresh, onReque
             placeholder={replyTo ? "Tu respuesta o los cambios que querés" : "¿Qué querés que construya?"}
             onChange={(event) => setText(event.target.value)}
           />
+          <button type="button" className="field-button mic" aria-label="Dictar: hablá y lo escribo" disabled={!online} onClick={onDictate}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+              <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z" />
+            </svg>
+          </button>
           <button type="submit" className="round-button" aria-label="Enviar" disabled={!online || !text.trim()}>
             <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
               <path fill="currentColor" d="M12 4 5 11l1.4 1.4L11 7.8V20h2V7.8l4.6 4.6L19 11z" />
             </svg>
           </button>
         </div>
+        )}
       </form>
     </section>
   );
