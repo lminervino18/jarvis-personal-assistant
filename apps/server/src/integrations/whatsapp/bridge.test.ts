@@ -477,6 +477,17 @@ describe("conservative configuration", () => {
     expect(outbox.status("w2")).toMatchObject({ status: "sent" });
   });
 
+  it("sends a voice note without text as a single fresh recording", async () => {
+    const files = new Map([["voz-1", { attachment: { name: "nota-de-voz.ogg", mediaType: "audio/ogg; codecs=opus" }, data: Buffer.from("opus") }]]);
+    const { db, outbox, bridge, sockets } = setup({ files });
+    db.prepare("INSERT INTO attachments (id, name, media_type, size, sha256, created_at) VALUES ('voz-1', 'nota-de-voz.ogg', 'audio/ogg; codecs=opus', 4, 'x', ?)").run(START.toISOString());
+    bridge.start();
+    sockets[0]?.open();
+    outbox.enqueue({ id: "v1", chatJid: OWN_CHAT, text: "", attachmentId: "voz-1" }, new Date());
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.contents).toEqual([{ audio: Buffer.from("opus"), mimetype: "audio/ogg; codecs=opus", ptt: true }]);
+  });
+
   it("sends only from the confirmed outbox and never marks as read or announces presence", () => {
     const sendCalls = readFileSync(new URL("bridge.ts", import.meta.url), "utf8").match(/\.sendMessage\(/g) ?? [];
     expect(sendCalls).toHaveLength(1);

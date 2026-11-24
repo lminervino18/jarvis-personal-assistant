@@ -24,6 +24,9 @@ import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
 import { registerVideoRoutes } from "./videos/video-routes.js";
 import { VideoStore } from "./videos/video-store.js";
 import { sendVideo } from "./videos/video-delivery.js";
+import { narratorFromEnv } from "./videos/narrator.js";
+import { defaultExec } from "./videos/video-qa.js";
+import { VoiceNoteMaker } from "./voice/voice-note.js";
 import { ChatStudies } from "./integrations/whatsapp/chat-study.js";
 import { analyzeFile } from "./files/file-analysis.js";
 import { FileLinks } from "./files/file-links.js";
@@ -150,6 +153,8 @@ const videos = new VideoStore(db);
 const videosDir = join(config.dataDir, "videos");
 services.videos = videos;
 services.ownerName = config.ownerDisplayName;
+const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
+if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {
   services.chatStudies = new ChatStudies({ db, runtime, outbox: new Outbox(db), ownerName: config.ownerDisplayName, timezone: config.timezone, model: config.claude.summaryModel, log: logger });
   services.chatStudies.resume();

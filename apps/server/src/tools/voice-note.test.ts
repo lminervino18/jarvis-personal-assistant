@@ -1,0 +1,93 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Card } from "@jarvis/contracts";
+import { afterEach, describe, expect, it } from "vitest";
+import { AttachmentStore } from "../attachments/attachment-store.js";
+import { openMigratedDatabase } from "../db/database.js";
+import type { Narration } from "../videos/narrator.js";
+import { VOICE_NOTE_TYPE, VoiceNoteMaker } from "../voice/voice-note.js";
+import { toolsByName } from "./index.js";
+import { decidePendingAction, runTool } from "./runner.js";
+import type { AnyToolDefinition, ToolContext } from "./types.js";
+
+const NOW = new Date("2026-11-23T20:00:00Z");
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function setup() {
+  const db = openMigratedDatabase(":memory:");
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-voice-note-"));
+  dirs.push(dir);
+  const at = NOW.toISOString();
+  db.prepare("INSERT INTO conversations (id, created_at, updated_at) VALUES ('c1', ?, ?)").run(at, at);
+  db.prepare("INSERT INTO wa_sync_state (source, status, last_event_at) VALUES ('baileys', 'connected', ?)").run(at);
+  db.prepare("INSERT INTO wa_chats (jid, name, is_group, updated_at) VALUES ('5490000000002@s.whatsapp.net', 'Carme', 0, ?)").run(at);
+  const spoken: string[] = [];
+  const cards: Card[] = [];
+  const ctx: ToolContext = {
+    services: {
+      db,
+      timezone: "America/Argentina/Buenos_Aires",
+      backupRetentionDays: 30,
+      statusSources: [],
+      attachments: new AttachmentStore(db, dir),
+      ownerName: "Loren",
+      voiceNotes: {
+        make: async (text) => {
+          spoken.push(text);
+          return { data: Buffer.from("OggS-opus"), seconds: 6 };
+        },
+      },
+    },
+    conversationId: "c1",
+    turnId: "t1",
+    now: () => NOW,
+    security: { tainted: false, taintSources: new Set() },
+    emitCard: (card) => cards.push(card),
+    emitPlayerCommand: () => {},
+  };
+  const call = (input: object) => runTool(ctx, toolsByName.get("whatsapp_voice_note") as AnyToolDefinition, input);
+  return { db, ctx, call, spoken, cards };
+}
+
+describe("whatsapp voice notes", () => {
+  it("records nothing until the owner confirms, then queues the voice note alone, as a fresh recording", async () => {
+    const { db, ctx, call, spoken, cards } = setup();
+    const text = "Hola Carme, soy Jarvis, el asistente de Loren. Me dijo que te avise que llega a las nueve.";
+    const pending = await call({ chatId: "Carme", text });
+    expect(pending).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
+    expect(cards[0]).toMatchObject({ kind: "confirm", title: "Enviar nota de voz", summary: "Para Carme", details: [{ label: "Dice", value: text }, { label: "Duración" }] });
+    expect(spoken).toEqual([]);
+
+    const sent = await decidePendingAction(ctx, toolsByName, (pending as { error: { actionId: string } }).error.actionId, "confirm");
+    expect(sent).toMatchObject({ status: "executed", result: { ok: true } });
+    expect(spoken).toEqual([text]);
+    const row = db.prepare("SELECT o.chat_jid, o.text, a.name, a.media_type FROM wa_outbox o JOIN attachments a ON a.id = o.attachment_id").get();
+    expect(row).toEqual({ chat_jid: "5490000000002@s.whatsapp.net", text: "", name: "nota-de-voz.ogg", media_type: VOICE_NOTE_TYPE });
+  });
+
+  it("insists that the note starts by saying it is Jarvis, the owner's assistant", async () => {
+    const { call, cards } = setup();
+    const result = await call({ chatId: "Carme", text: "Hola Carme, llego a las nueve." });
+    expect(result).toMatchObject({ ok: false, error: { code: "invalid_input", message: expect.stringContaining("soy Jarvis, el asistente de Loren") } });
+    expect(cards).toEqual([]);
+  });
+
+  it("encodes the narration as mono Opus at 48 kHz, the format of WhatsApp voice notes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-voice-note-"));
+    dirs.push(dir);
+    const narration: Narration = { file: "n.wav", path: join(dir, "n.wav"), durationMs: 5400, words: [], characters: 40, cached: false };
+    const calls: string[][] = [];
+    const maker = new VoiceNoteMaker({ narrate: async () => narration }, async (command, args) => {
+      calls.push([command, ...args]);
+      writeFileSync(args.at(-1) as string, "OggS");
+      return { stdout: "", stderr: "" };
+    });
+    const note = await maker.make("Hola, soy Jarvis.");
+    expect(note).toEqual({ data: Buffer.from("OggS"), seconds: 5 });
+    expect(calls[0]).toEqual(expect.arrayContaining(["ffmpeg", narration.path, "-ac", "1", "-ar", "48000", "-c:a", "libopus"]));
+  });
+});

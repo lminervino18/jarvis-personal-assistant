@@ -10,6 +10,7 @@ import type { YoutubeService } from "../integrations/youtube/youtube-service.js"
 import type { TaskService } from "../tasks/task-service.js";
 import type { VideoStore } from "../videos/video-store.js";
 import type { ChatStudies } from "../integrations/whatsapp/chat-study.js";
+import type { VoiceNoteMaker } from "../voice/voice-note.js";
 
 /** Per-turn security state. Once tainted, state-changing tools need owner confirmation. */
 export interface TurnSecurityState {
@@ -50,6 +51,8 @@ export interface ToolServices {
   analyzeFile?: (file: FileToAnalyze) => Promise<FileAnalysis>;
   videos?: VideoStore;
   chatStudies?: ChatStudies;
+  /** Speaks a text with JARVIS's voice as a WhatsApp voice note. */
+  voiceNotes?: Pick<VoiceNoteMaker, "make">;
   /** The name the videos' spoken intro uses («el asistente personal de …»). */
   ownerName?: string;
 }

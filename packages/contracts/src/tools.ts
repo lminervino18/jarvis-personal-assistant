@@ -187,6 +187,10 @@ export const toolInputs = {
     body: z.string().trim().min(1).max(20000),
     attachmentIds: z.array(z.uuid()).max(5).optional(),
   },
+  whatsapp_voice_note: {
+    chatId: z.string().min(1).max(128).describe("Id, número o nombre del chat; «me» para el propio dueño"),
+    text: z.string().trim().min(1).max(700).describe("Lo que dice Jarvis, empezando por presentarse: «Hola Carme, soy Jarvis, el asistente de Loren…»"),
+  },
   whatsapp_to_me: {
     text: z.string().trim().min(1).max(2000),
     attachmentId: z.uuid().optional(),
@@ -286,6 +290,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "task_feedback",
   "task_control",
   "whatsapp_send",
+  "whatsapp_voice_note",
   "page_create",
   "page_update",
   "gmail_send",
@@ -297,7 +302,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
 ]);
 
 /** State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or not. */
-export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send", "gmail_send", "video_send"]);
+export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["whatsapp_send", "whatsapp_voice_note", "gmail_send", "video_send"]);
 
 export const ToolErrorCode = z.enum([
   "not_connected",

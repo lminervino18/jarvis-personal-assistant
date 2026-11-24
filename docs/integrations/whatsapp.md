@@ -101,3 +101,11 @@ Details:
 - `whatsapp_study_result` returns the profiles as untrusted content. Saving anything to memory afterwards needs the owner's confirmation card, and the assistant asks what to keep first.
 - Cost: about 11k input tokens per block plus one merge per chat. All synced text, about 2.7 million characters, is roughly 70 blocks.
 - Delegated agents never get chats; this stays on the personal side.
+
+## Voice notes
+
+`whatsapp_voice_note` sends a voice note in JARVIS's voice that arrives like a fresh recording (microphone, waveform, duration), not like an audio file.
+- The model writes what JARVIS says. The server refuses a note that does not open by naming JARVIS and the owner («Hola Carme, soy Jarvis, el asistente de Loren…»), so whoever listens knows it is the assistant's voice.
+- It always waits for the owner's confirmation card. The audio is only made after the tap.
+- `voice/voice-note.ts` narrates with the call voice and effect through the same `Narrator` as the videos (ElevenLabs `/with-timestamps`, cached under `DATA_DIR/voice-notes/cache`). ffmpeg then encodes it as mono Opus at 48 kHz in Ogg, saved as an attachment of type `audio/ogg; codecs=opus`.
+- The outbox entry has no text, so the bridge sends only the audio with `ptt: true`. Baileys computes the duration with `music-metadata`.

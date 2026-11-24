@@ -4,7 +4,8 @@ import { OWN_CHAT, WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { clip, withinBudget } from "./digest.js";
 import { fail, ok } from "./envelope.js";
-import { defineTool } from "./types.js";
+import { VOICE_NOTE_TYPE } from "../voice/voice-note.js";
+import { defineTool, type ToolContext } from "./types.js";
 
 const SOURCE = { provider: "whatsapp" };
 const DEFAULT_SEARCH_LIMIT = 10;
@@ -117,6 +118,76 @@ export const whatsappSend = defineTool({
   },
 });
 
+const VOICE_CHARS_PER_SECOND = 15;
+
+function normalized(text: string): string {
+  return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
+function voiceTarget(ctx: ToolContext, chatId: string): { jid: string; name: string } {
+  if (chatId === OWN_CHAT) return { jid: OWN_CHAT, name: "vos" };
+  const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(chatId, { liveOnly: true });
+  return { jid: chat.jid, name: chat.name?.trim() || chat.jid };
+}
+
+export const whatsappVoiceNote = defineTool({
+  name: "whatsapp_voice_note",
+  description:
+    "Le manda a un chat de WhatsApp una nota de voz con la voz de Jarvis, que llega como un audio recién grabado (no como archivo). Usala cuando el dueño pide «mandale un audio a…». Escribí lo que vas a decir: empezá siempre presentándote («Hola Carme, soy Jarvis, el asistente de Loren…») y después el mensaje del dueño, corto, natural y en rioplatense, como se habla, sin emojis ni links. Siempre queda pendiente hasta que el dueño la confirma.",
+  prepare(ctx, input) {
+    if (!ctx.services.voiceNotes) return { refused: fail("disabled", "Las notas de voz no están configuradas en el servidor (falta la voz de ElevenLabs).") };
+    const owner = ctx.services.ownerName ?? "";
+    const opening = normalized(input.text.slice(0, 160));
+    if (!opening.includes("jarvis") || (owner && !opening.includes(normalized(owner)))) {
+      return { refused: fail("invalid_input", `Empezá la nota presentándote, por ejemplo: «Hola, soy Jarvis, el asistente de ${owner || "tu dueño"}…».`) };
+    }
+    let chat: { jid: string };
+    try {
+      chat = voiceTarget(ctx, input.chatId);
+    } catch (error) {
+      return { refused: queryFailure(error) };
+    }
+    if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", NOT_CONNECTED) };
+    return { input: { ...input, chatId: chat.jid } };
+  },
+  replaces: (pending, next) => pending.chatId === next.chatId,
+  describe(ctx, input) {
+    const chat = voiceTarget(ctx, input.chatId);
+    return {
+      title: "Enviar nota de voz",
+      summary: `Para ${chat.name}`,
+      details: [
+        { label: "Dice", value: input.text },
+        { label: "Duración", value: `unos ${Math.max(2, Math.round(input.text.length / VOICE_CHARS_PER_SECOND))} segundos, con la voz de Jarvis` },
+      ],
+    };
+  },
+  async execute(ctx, input) {
+    const { voiceNotes, attachments } = ctx.services;
+    if (!voiceNotes || !attachments) return fail("disabled", "Las notas de voz no están configuradas en el servidor.");
+    if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", NOT_CONNECTED);
+    let chat: { jid: string; name: string };
+    try {
+      chat = voiceTarget(ctx, input.chatId);
+    } catch (error) {
+      return queryFailure(error);
+    }
+    let note: { data: Buffer; seconds: number };
+    try {
+      note = await voiceNotes.make(input.text);
+    } catch {
+      return fail("upstream_error", "No pude grabar la nota de voz; probá de nuevo en un rato.", true);
+    }
+    const saved = attachments.save({ name: "nota-de-voz.ogg", mediaType: VOICE_NOTE_TYPE, data: note.data }, ctx.now());
+    if (!saved) return fail("internal", "No pude guardar la nota de voz.");
+    const id = randomUUID();
+    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: "", attachmentId: saved.id }, ctx.now());
+    return ok(SOURCE, [{ outboxId: id, chat: chat.name, seconds: note.seconds, status: "queued" }], {
+      note: "La nota de voz quedó en cola y sale en unos segundos. No afirmes que llegó ni que la escucharon.",
+    });
+  },
+});
+
 export const whatsappToMe = defineTool({
   name: "whatsapp_to_me",
   description:
@@ -130,4 +201,4 @@ export const whatsappToMe = defineTool({
   },
 });
 
-export const whatsappTools = [whatsappSearch, whatsappGetMessages, whatsappSend, whatsappToMe] as const;
+export const whatsappTools = [whatsappSearch, whatsappGetMessages, whatsappSend, whatsappVoiceNote, whatsappToMe] as const;
