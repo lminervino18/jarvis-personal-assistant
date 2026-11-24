@@ -44,6 +44,31 @@ function refused(code: ToolErrorCode, message: string, retryable = false): SendO
 }
 
 /**
+ * Sends the videos the owner asked to send together with the video, as soon as each is ready.
+ * `inFlight` keeps a slow send (a mail) from starting twice.
+ */
+export async function sendRequestedVideos(services: ToolServices, inFlight: Set<string>, now: Date): Promise<void> {
+  const pending = services.videos?.pendingSends() ?? [];
+  await Promise.all(
+    pending
+      .filter((item) => !inFlight.has(item.videoId))
+      .map(async ({ videoId, version, send }) => {
+        inFlight.add(videoId);
+        try {
+          const outcome = await sendVideo(
+            services,
+            { videoId, version, channel: send.channel, to: send.to, ...(send.text ? { text: send.text } : {}), ...(send.subject ? { subject: send.subject } : {}), ...(send.account ? { account: send.account } : {}) },
+            now,
+          );
+          if (!outcome.ok) services.videos?.setSendStatus(videoId, "failed", now, outcome.message);
+        } finally {
+          inFlight.delete(videoId);
+        }
+      }),
+  );
+}
+
+/**
  * Sends a ready video once: picks the file the channel carries, adds the interactive page and a
  * 7-day link when needed, records the delivery, and never repeats the same send.
  */

@@ -9,7 +9,7 @@ import { FileLinks } from "../files/file-links.js";
 import type { GmailService } from "../integrations/gmail/gmail-service.js";
 import type { ToolContext } from "../tools/types.js";
 import { videoCreate, videoSend, videoStatus } from "../tools/video-tools.js";
-import { deliveryFor, sendVideo } from "./video-delivery.js";
+import { deliveryFor, sendRequestedVideos, sendVideo } from "./video-delivery.js";
 import { encodeWav } from "../voice/pcm.js";
 import { Narrator, type Narration } from "./narrator.js";
 import { videoPageHtml } from "./video-page.js";
@@ -290,21 +290,23 @@ describe("video tools", () => {
     expect(full.size).toBe(2000);
   });
 
-  it("keeps the send the owner asked for in the video card and sends it once from there", async () => {
+  it("sends a video the owner asked to send as soon as it is ready, only once", async () => {
     const { ctx, store, attachments, cards, sent } = toolContext();
     const created = await videoCreate.execute(ctx, { brief: BRIEF, sendTo: { channel: "email", to: "ana@example.test", text: "Mirá esto" } });
-    expect(created.ok && created.note).toContain("Enviar a ana@example.test");
+    expect(created.ok && created.note).toContain("se lo manda solo a ana@example.test");
     expect(cards[0]).toMatchObject({ kind: "video", send: { channel: "email", recipient: "ana@example.test", text: "Mirá esto", status: "pending" } });
     const videoId = (cards[0] as { videoId: string }).videoId;
     store.claimNext(NOW, 60_000);
     const full = attachments.save({ name: "torneo.mp4", mediaType: "video/mp4", data: Buffer.alloc(500) }, NOW)!;
     store.finish(videoId, 1, { files: { full: { attachmentId: full.id, size: full.size } }, qa: { passed: true, checks: [] }, usage: { ttsCharacters: 0, ttsCachedCharacters: 0, renderSeconds: 0, bytes: 0 } }, NOW);
 
-    const request = store.get(videoId)!.send!;
-    const input = { videoId, version: 1, channel: request.channel, to: request.to, text: request.text! };
-    expect(await sendVideo(ctx.services, input, NOW)).toMatchObject({ ok: true, status: "sent", repeated: false });
+    const inFlight = new Set<string>();
+    await sendRequestedVideos(ctx.services, inFlight, NOW);
     expect(store.card(videoId)?.send?.status).toBe("sent");
-    expect(await sendVideo(ctx.services, input, NOW)).toMatchObject({ ok: true, repeated: true });
+    expect(sent).toHaveLength(1);
+    await sendRequestedVideos(ctx.services, inFlight, NOW);
+    const request = store.get(videoId)!.send!;
+    expect(await sendVideo(ctx.services, { videoId, version: 1, channel: request.channel, to: request.to, text: request.text! }, NOW)).toMatchObject({ ok: true, repeated: true });
     expect(sent).toHaveLength(1);
   });
 

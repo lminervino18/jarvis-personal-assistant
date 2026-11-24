@@ -86,7 +86,7 @@ const RENDER_NOTE =
 export const videoCreate = defineTool({
   name: "video_create",
   description:
-    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y las escenas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración por escena que nombre lo que se ve. Estándar: unos 10 segundos, o sea la presentación más 1 o 2 escenas de una sola oración corta (unos 60 caracteres cada una); más escenas y más largo solo si el dueño lo pide. No repitas: «purpose» es el tema general y cada escena suma algo nuevo (un dato, las opciones, qué hacer), nunca lo mismo con otras palabras; el servidor rechaza escenas que repiten. Si el dueño ya dijo a quién mandarlo («mandale a Juan un video…»), pasalo en sendTo: la tarjeta del video trae el botón para enviarlo y no hace falta video_send.",
+    "Arma un video narrado con la voz de Jarvis (vertical por defecto), con animaciones, diagramas, emojis y subtítulos, para explicar algo, anunciar, pedir una respuesta o contar un resultado. Escribí el guion vos: para quién es, objetivo, mensaje, datos confirmados (nada inventado), «purpose» que completa «Este mensaje es para …» (la presentación «Hola, soy Jarvis, el asistente personal de …» la agrega el servidor), y las escenas (title, compare, stat, steps, result, question, closing, media con fotos o videos del dueño) con una narración por escena que nombre lo que se ve. Estándar: unos 10 segundos, o sea la presentación más 1 o 2 escenas de una sola oración corta (unos 60 caracteres cada una); más escenas y más largo solo si el dueño lo pide. No repitas: «purpose» es el tema general y cada escena suma algo nuevo (un dato, las opciones, qué hacer), nunca lo mismo con otras palabras; el servidor rechaza escenas que repiten. Si el dueño ya dijo a quién mandarlo («mandale a Juan un video…»), pasalo en sendTo: se lo manda solo apenas está listo, sin video_send.",
   async execute(ctx, input) {
     const store = ctx.services.videos;
     if (!store) return fail("disabled", DISABLED);
@@ -97,7 +97,7 @@ export const videoCreate = defineTool({
     const version = store.create(input.brief, ctx.services.ownerName ?? "su dueño", ctx.now(), send);
     const card = store.card(version.videoId);
     if (card) ctx.emitCard(card);
-    const sendNote = send ? ` La tarjeta muestra «Enviar a ${send.recipient}»: el dueño lo toca cuando el video está listo. No llames video_send para este envío.` : "";
+    const sendNote = send ? ` Apenas esté listo se lo manda solo a ${send.recipient}; no llames video_send para este envío.` : "";
     return ok(SOURCE, [{ videoId: version.videoId, version: version.version, status: version.status, ...(send ? { sendTo: send.recipient } : {}) }], { note: RENDER_NOTE + sendNote });
   },
 });
@@ -148,7 +148,7 @@ function readyVersion(ctx: ToolContext, videoId: string): VideoVersion | string 
 export const videoSend = defineTool({
   name: "video_send",
   description:
-    "Manda la última versión lista de un video por WhatsApp (a un chat por id, número o nombre) o por mail, con un texto corto opcional (sin texto si el dueño lo pide así). Elige solo el archivo que entra en el canal (el completo, el liviano o, si no entra, un link de 7 días) y suma el link de la versión interactiva si existe. Siempre queda pendiente hasta que el dueño confirma la tarjeta. Usala solo cuando el dueño dice a quién mandarlo; «armá un video para mandar» no autoriza el envío.",
+    "Manda la última versión lista de un video por WhatsApp (a un chat por id, número o nombre) o por mail, con un texto corto opcional (sin texto si el dueño lo pide así). Elige solo el archivo que entra en el canal (el completo, el liviano o, si no entra, un link de 7 días) y suma el link de la versión interactiva si existe. Se manda directo cuando el dueño dice a quién; «armá un video para mandar» sin destinatario no autoriza el envío.",
   prepare(ctx, input) {
     const version = readyVersion(ctx, input.videoId);
     if (typeof version === "string") return { refused: fail("not_found", version) };

@@ -23,7 +23,7 @@ import { AttachmentStore } from "./attachments/attachment-store.js";
 import { registerAttachmentRoutes } from "./attachments/attachment-routes.js";
 import { registerVideoRoutes } from "./videos/video-routes.js";
 import { VideoStore } from "./videos/video-store.js";
-import { sendVideo } from "./videos/video-delivery.js";
+import { sendRequestedVideos, sendVideo } from "./videos/video-delivery.js";
 import { narratorFromEnv } from "./videos/narrator.js";
 import { defaultExec } from "./videos/video-qa.js";
 import { VoiceNoteMaker } from "./voice/voice-note.js";
@@ -153,6 +153,10 @@ const videos = new VideoStore(db);
 const videosDir = join(config.dataDir, "videos");
 services.videos = videos;
 services.ownerName = config.ownerDisplayName;
+const videoSendsInFlight = new Set<string>();
+setInterval(() => {
+  sendRequestedVideos(services, videoSendsInFlight, new Date()).catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "video auto-send failed"));
+}, 5000).unref();
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {

@@ -46,11 +46,12 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const working = WORKING.has(card.status);
+  const awaitingSend = card.send?.status === "pending";
 
   useEffect(() => setCard(initial), [initial]);
 
   useEffect(() => {
-    if (!working) return;
+    if (!working && !awaitingSend) return;
     const timer = setInterval(() => {
       fetch(`/api/videos/${card.videoId}`)
         .then((response) => (response.ok ? (response.json() as Promise<VideoCardData>) : undefined))
@@ -58,7 +59,7 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
         .catch(() => undefined);
     }, POLL_MS);
     return () => clearInterval(timer);
-  }, [working, card.videoId, card.version]);
+  }, [working, awaitingSend, card.videoId, card.version]);
 
   const openPreview = () => {
     setPreviewing(true);
@@ -89,7 +90,7 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
 
   const { full, light, thumbnail, srt } = card.files;
   const send = card.send;
-  const awaitingTap = send !== undefined && (send.status === "pending" || send.status === "failed");
+  const retry = send?.status === "failed";
   const vertical = card.format === "vertical";
   return (
     <section className="card card-video" aria-label="Video">
@@ -133,13 +134,13 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
             Para {send.recipient} por {CHANNEL[send.channel]}
             {send.text ? ` · «${send.text}»` : " · sin texto"}
           </p>
-          {awaitingTap ? (
+          {retry ? (
             <button type="button" className="button primary" disabled={card.status !== "ready" || sending} onClick={() => void sendNow()}>
-              {sending ? "Enviando…" : card.status === "ready" ? `Enviar a ${send.recipient}` : "Enviar cuando esté listo"}
+              {sending ? "Enviando…" : "Reintentar envío"}
             </button>
           ) : (
-            <p className="card-status" data-status="sent">
-              {send.status === "queued" ? "Enviado: sale en unos segundos" : "Enviado"}
+            <p className="card-status" data-status={send.status === "pending" ? "running" : "sent"}>
+              {send.status === "pending" ? (card.status === "ready" ? "Enviando…" : "Se manda solo cuando esté listo") : send.status === "queued" ? "Enviado: sale en unos segundos" : "Enviado"}
             </p>
           )}
           {(sendError ?? (send.status === "failed" ? send.error : undefined)) && <p className="card-meta">{sendError ?? send.error}</p>}
@@ -153,7 +154,7 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
         )}
         {card.status === "ready" && full && (
           <>
-            <button type="button" className={awaitingTap ? "button" : "button primary"} onClick={() => void share(card).catch(() => undefined)}>
+            <button type="button" className="button primary" onClick={() => void share(card).catch(() => undefined)}>
               Compartir
             </button>
             <a className="button" href={`/api/attachments/${full.attachmentId}`} download>

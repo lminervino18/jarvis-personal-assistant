@@ -199,7 +199,9 @@ export class VideoPipeline {
 
   private notifyReady(version: VideoVersion, durationMs: number): void {
     const card = this.deps.store.card(version.videoId, version.version);
-    const text = `Listo el video «${version.brief.title}» (${formatDuration(durationMs)}). Miralo en la tarjeta; para mandarlo, decime a quién.`;
+    const send = this.deps.store.get(version.videoId)?.send;
+    const next = send?.status === "pending" ? `Se lo mando a ${send.recipient} por ${send.channel === "email" ? "mail" : "WhatsApp"}.` : "Miralo en la tarjeta; para mandarlo, decime a quién.";
+    const text = `Listo el video «${version.brief.title}» (${formatDuration(durationMs)}). ${next}`;
     this.notify(version, "ready", text, card ? [card] : []);
   }
 

@@ -194,7 +194,7 @@ export class VideoStore {
         .run(at, videoId);
       this.insertVersion(videoId, version, brief, at);
       this.db.prepare("UPDATE videos SET title = ?, current_version = ?, updated_at = ? WHERE id = ?").run(brief.title, version, at, videoId);
-      if (video.send && video.send.status !== "queued") this.setSendStatus(videoId, "pending", now);
+      if (video.send?.status === "failed") this.setSendStatus(videoId, "pending", now);
     })();
     return this.require(videoId, version);
   }
@@ -306,6 +306,20 @@ export class VideoStore {
     if (!send) return;
     const { error: _previous, ...rest } = send;
     this.db.prepare("UPDATE videos SET send_json = ?, updated_at = ? WHERE id = ?").run(JSON.stringify({ ...rest, status, ...(error ? { error } : {}) }), now.toISOString(), videoId);
+  }
+
+  /** Videos the owner asked to send whose newest version is ready and not sent yet. */
+  pendingSends(): { videoId: string; version: number; send: VideoSend }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT v.id, v.current_version, v.send_json FROM videos v
+         JOIN video_versions vv ON vv.video_id = v.id AND vv.version = v.current_version
+         WHERE vv.status = 'ready' AND v.send_json IS NOT NULL`,
+      )
+      .all() as { id: string; current_version: number; send_json: string }[];
+    return rows
+      .map((row) => ({ videoId: row.id, version: row.current_version, send: JSON.parse(row.send_json) as VideoSend }))
+      .filter((item) => item.send.status === "pending");
   }
 
   setPageSlug(videoId: string, slug: string, now: Date): void {
