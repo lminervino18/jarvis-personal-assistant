@@ -437,6 +437,90 @@ button {
   overflow-wrap: anywhere;
 }
 
+.markdown {
+  white-space: normal;
+}
+
+.markdown > * {
+  margin: 0;
+}
+
+.markdown > * + * {
+  margin-top: 10px;
+}
+
+.markdown > .sr-only + * {
+  margin-top: 0;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+
+.markdown ul {
+  list-style: disc;
+}
+
+.markdown li + li {
+  margin-top: 4px;
+}
+
+.markdown strong {
+  font-weight: 650;
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font: 0.88em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.markdown pre {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.markdown blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--separator);
+  color: var(--secondary);
+}
+
+.markdown a {
+  color: var(--cyan);
+}
+
+.md-heading {
+  font-weight: 650;
+}
+
+.md-h1 {
+  font-size: 1.15em;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.md-table th,
+.md-table td {
+  padding: 6px 10px;
+  border-bottom: 0.5px solid var(--separator);
+  text-align: left;
+  white-space: nowrap;
+}
+
 .message-meta {
   margin-top: 3px;
   color: var(--tertiary);
