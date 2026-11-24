@@ -54,8 +54,19 @@ function setup() {
 }
 
 describe("whatsapp voice notes", () => {
-  it("records nothing until the owner confirms, then queues the voice note alone, as a fresh recording", async () => {
+  it("sends the voice note right away when the owner asks, alone, as a fresh recording", async () => {
+    const { db, call, spoken, cards } = setup();
+    const text = "Hola Carme, soy Jarvis, el asistente de Loren. Me dijo que te avise que llega a las nueve.";
+    expect(await call({ chatId: "Carme", text })).toMatchObject({ ok: true, items: [{ chat: "Carme", seconds: 6, status: "queued" }] });
+    expect(cards).toEqual([]);
+    expect(spoken).toEqual([text]);
+    const row = db.prepare("SELECT o.chat_jid, o.text, a.name, a.media_type FROM wa_outbox o JOIN attachments a ON a.id = o.attachment_id").get();
+    expect(row).toEqual({ chat_jid: "5490000000002@s.whatsapp.net", text: "", name: "nota-de-voz.ogg", media_type: VOICE_NOTE_TYPE });
+  });
+
+  it("after reading third-party content, records nothing until the owner confirms", async () => {
     const { db, ctx, call, spoken, cards } = setup();
+    ctx.security.tainted = true;
     const text = "Hola Carme, soy Jarvis, el asistente de Loren. Me dijo que te avise que llega a las nueve.";
     const pending = await call({ chatId: "Carme", text });
     expect(pending).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });

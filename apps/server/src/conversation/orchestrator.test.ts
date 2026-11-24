@@ -445,6 +445,7 @@ describe("confirmations by reply", () => {
           const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair();
           const client = new Client({ name: "test", version: "0.0.0" });
           await Promise.all([server.instance.connect(serverTransport), client.connect(clientTransport)]);
+          await client.callTool({ name: "whatsapp_search", arguments: { query: "llego" } });
           await client.callTool({ name: "whatsapp_send", arguments: { chatId: "Ana Vivo", text: "llego en 10" } });
           await client.close();
           yield { type: "text_delta", text: "Te lo preparo." };

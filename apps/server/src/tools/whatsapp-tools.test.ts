@@ -195,12 +195,25 @@ describe("whatsapp_send", () => {
   const confirm = async (ctx: ToolContext, result: ToolResult<unknown>) =>
     decidePendingAction(ctx, toolsByName, (result as { error: { actionId: string } }).error.actionId, "confirm");
 
-  it("always waits for the owner's tap and queues the exact text only after it", async () => {
+  it("sends right away when the owner asks, without a card", async () => {
     const { db, ctx } = setup();
     const cards: unknown[] = [];
     ctx.emitCard = (card) => cards.push(card);
     connect(db);
     liveChat(db);
+    const result = await runTool(ctx, tool("whatsapp_send"), { chatId: "Ana Vivo", text: "llego en 10" });
+    expect(result).toMatchObject({ ok: true, items: [{ chat: "Ana Vivo", status: "queued" }] });
+    expect(cards).toEqual([]);
+    expect(outboxRows(db)).toEqual([{ chat_jid: "5490000000001@s.whatsapp.net", text: "llego en 10", status: "pending" }]);
+  });
+
+  it("waits for the owner's tap after the turn read third-party content, and queues the exact text only after it", async () => {
+    const { db, ctx } = setup();
+    const cards: unknown[] = [];
+    ctx.emitCard = (card) => cards.push(card);
+    connect(db);
+    liveChat(db);
+    ctx.security.tainted = true;
     const result = await runTool(ctx, tool("whatsapp_send"), { chatId: "Ana Vivo", text: "llego en 10" });
     expect(result).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
     expect(cards[0]).toMatchObject({ kind: "confirm", title: "Enviar WhatsApp", summary: "Para Ana Vivo", details: [{ label: "Mensaje", value: "llego en 10" }] });
@@ -237,8 +250,8 @@ describe("whatsapp_send", () => {
     expect(message).toContain("«santi heller» (id 5490000000002@s.whatsapp.net");
 
     const exact = await runTool(ctx, tool("whatsapp_send"), { chatId: "mono", text: "hola" });
-    expect(exact).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
-    expect(JSON.parse((db.prepare("SELECT input_json FROM pending_actions").get() as { input_json: string }).input_json)).toEqual({ chatId: "100@lid", text: "hola" });
+    expect(exact).toMatchObject({ ok: true });
+    expect(outboxRows(db)).toEqual([{ chat_jid: "100@lid", text: "hola", status: "pending" }]);
   });
 
   it("lists at most five chats that share a name and says how many more there are", async () => {
@@ -267,6 +280,7 @@ describe("whatsapp_send", () => {
     const { db, ctx } = setup();
     const updated: unknown[] = [];
     ctx.updateCard = (card) => updated.push(card);
+    ctx.security.tainted = true;
     connect(db);
     liveChat(db);
     db.prepare("INSERT INTO wa_chats (jid, name, is_group, updated_at) VALUES ('5490000000009@s.whatsapp.net', 'Otro Vivo', 0, ?)").run(now.toISOString());
@@ -292,8 +306,8 @@ describe("whatsapp_send", () => {
       "INSERT INTO wa_messages (id, chat_jid, sender_jid, sender_name, from_me, ts_utc, text, kind, edited, deleted, source, inserted_at) VALUES ('m1', '200@lid', NULL, NULL, 1, ?, 'hola', 'text', 0, 0, 'baileys', ?)",
     ).run(stamp, stamp);
     const result = await runTool(ctx, tool("whatsapp_send"), { chatId: "Juli", text: "hola" });
-    expect(result).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
-    expect((await confirm(ctx, result)).status).toBe("executed");
+    expect(result).toMatchObject({ ok: true });
+    expect(cards).toEqual([]);
     expect(outboxRows(db)).toEqual([{ chat_jid: "200@lid", text: "hola", status: "pending" }]);
   });
 });
