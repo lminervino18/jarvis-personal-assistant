@@ -81,11 +81,12 @@ Formats: vertical 1080×1920 at 30 fps by default, landscape 1920×1080 with its
 
 ## Sending
 
-- When the owner names the recipient while asking for the video, `video_create` takes `sendTo`. The recipient is resolved right away, and the video card shows «Enviar a …».
-  - Tapping it posts `/api/videos/:id/send` with the version on screen, so the exact version the owner watched is the one that goes out.
-  - A send already made is never repeated, whether it comes from the button or from `video_send`.
+- When the owner names the recipient while asking for the video, `video_create` takes `sendTo`. The recipient is resolved right away.
+  - The server sends the video by itself as soon as the newest version is ready (`sendRequestedVideos`, every 5 s), and the «listo» notice says to whom.
+  - If that send fails, the card offers «Reintentar envío», which posts `/api/videos/:id/send` with the version on screen.
+  - A send already made is never repeated: a revision does not resend it, and a later `video_send` of the same version is ignored.
 - Each video shows a single card in the chat, at its newest mention (the «listo» notice), with live status.
-- `video_send` (text optional) always waits for the owner's confirmation card. Both paths share `videos/video-delivery.ts` and pick the file the channel can carry:
+- `video_send` (text optional) goes out directly when the owner asks, or after a confirmation card when the turn read third-party content. Both paths share `videos/video-delivery.ts` and pick the file the channel can carry:
   - WhatsApp: up to 16 MB, full copy, then the light copy, otherwise a 7-day link;
   - Gmail: up to 20 MB.
 - Mail always includes a 7-day link to watch or download the video. When only a link fits, the thumbnail is attached.
