@@ -4,11 +4,10 @@ import { z } from "zod";
 import { AttachmentStore } from "./attachments/attachment-store.js";
 import { openMigratedDatabase } from "./db/database.js";
 import { createLogger } from "./logger.js";
-import { Narrator } from "./videos/narrator.js";
+import { narratorFromEnv } from "./videos/narrator.js";
 import { LEASE_MS, VideoPipeline } from "./videos/video-pipeline.js";
 import { defaultExec } from "./videos/video-qa.js";
 import { VideoStore } from "./videos/video-store.js";
-import { DEFAULT_ROBOTIC_INTENSITY } from "./voice/engine-tts.js";
 import { OpenAiCompatibleStt } from "./voice/openai-stt.js";
 import { createVoiceServices } from "./voice/providers.js";
 
@@ -17,11 +16,6 @@ const Env = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   VIDEO_BUNDLE_DIR: z.string().default("/app/video-bundle"),
   VIDEO_POLL_SECONDS: z.coerce.number().int().min(1).max(60).default(3),
-  ELEVENLABS_API_KEY: z.string().optional(),
-  ELEVENLABS_VOICE_ID: z.string().optional(),
-  ELEVENLABS_MODEL: z.string().default("eleven_flash_v2_5"),
-  VOICE_LANGUAGE: z.string().default("es"),
-  VOICE_ROBOTIC_INTENSITY: z.coerce.number().min(0).max(1).default(DEFAULT_ROBOTIC_INTENSITY),
 });
 
 const env = Env.parse(process.env);
@@ -31,28 +25,23 @@ const db = openMigratedDatabase(join(dataDir, "jarvis.db"));
 const store = new VideoStore(db);
 const heartbeat = process.env.VIDEO_HEARTBEAT_FILE ?? "/tmp/video-heartbeat";
 
-if (!env.ELEVENLABS_API_KEY || !env.ELEVENLABS_VOICE_ID) {
-  logger.error("video worker needs ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID; videos stay queued");
-}
+const narrator = narratorFromEnv(process.env, join(dataDir, "videos", "cache", "tts"));
+if (!narrator) logger.error("video worker needs ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID; videos stay queued");
 
 const stt = createVoiceServices(process.env, { allowFixtures: false }).stt;
-const pipeline =
-  env.ELEVENLABS_API_KEY && env.ELEVENLABS_VOICE_ID
-    ? new VideoPipeline({
-        db,
-        store,
-        attachments: new AttachmentStore(db, join(dataDir, "attachments")),
-        narrator: new Narrator(
-          { apiKey: env.ELEVENLABS_API_KEY, voiceId: env.ELEVENLABS_VOICE_ID, model: env.ELEVENLABS_MODEL, languageCode: env.VOICE_LANGUAGE, effectIntensity: env.VOICE_ROBOTIC_INTENSITY },
-          join(dataDir, "videos", "cache", "tts"),
-        ),
-        ...(stt instanceof OpenAiCompatibleStt ? { stt } : {}),
-        exec: defaultExec,
-        bundleDir: env.VIDEO_BUNDLE_DIR,
-        videosDir: join(dataDir, "videos"),
-        log: logger,
-      })
-    : undefined;
+const pipeline = narrator
+  ? new VideoPipeline({
+      db,
+      store,
+      attachments: new AttachmentStore(db, join(dataDir, "attachments")),
+      narrator,
+      ...(stt instanceof OpenAiCompatibleStt ? { stt } : {}),
+      exec: defaultExec,
+      bundleDir: env.VIDEO_BUNDLE_DIR,
+      videosDir: join(dataDir, "videos"),
+      log: logger,
+    })
+  : undefined;
 
 let stopping = false;
 let timer: NodeJS.Timeout | undefined;
@@ -90,5 +79,5 @@ const shutdown = async (signal: string) => {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
-logger.info({ bundle: env.VIDEO_BUNDLE_DIR, model: env.ELEVENLABS_MODEL }, "video worker started");
+logger.info({ bundle: env.VIDEO_BUNDLE_DIR }, "video worker started");
 cycle = runCycle().then(schedule);

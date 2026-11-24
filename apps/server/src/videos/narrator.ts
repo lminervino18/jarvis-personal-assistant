@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { wordsFromCharacters, type TimedWord } from "@jarvis/video/timeline";
+import { DEFAULT_ROBOTIC_INTENSITY } from "../voice/engine-tts.js";
 import { encodeWav, toBytes, toSamples } from "../voice/pcm.js";
 import { RoboticEffect } from "../voice/robotic-effect.js";
 import { sanitizeForSpeech } from "../voice/sanitizer.js";
@@ -29,6 +30,22 @@ export interface Narration {
   words: TimedWord[];
   characters: number;
   cached: boolean;
+}
+
+/** JARVIS's ElevenLabs voice from the environment (same voice, model and effect as calls), or nothing when it is not configured. */
+export function narratorFromEnv(env: NodeJS.ProcessEnv, cacheDir: string): Narrator | undefined {
+  if (!env.ELEVENLABS_API_KEY || !env.ELEVENLABS_VOICE_ID) return undefined;
+  const intensity = Number(env.VOICE_ROBOTIC_INTENSITY ?? DEFAULT_ROBOTIC_INTENSITY);
+  return new Narrator(
+    {
+      apiKey: env.ELEVENLABS_API_KEY,
+      voiceId: env.ELEVENLABS_VOICE_ID,
+      model: env.ELEVENLABS_MODEL || "eleven_flash_v2_5",
+      languageCode: env.VOICE_LANGUAGE || "es",
+      effectIntensity: Number.isFinite(intensity) ? Math.min(Math.max(intensity, 0), 1) : DEFAULT_ROBOTIC_INTENSITY,
+    },
+    cacheDir,
+  );
 }
 
 interface Alignment {
