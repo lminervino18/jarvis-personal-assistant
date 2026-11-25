@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState } from "react";
 import type { CardActions } from "../cards/actions.js";
 import { CardView } from "../cards/Cards.js";
 import type { BuildTask, Notice, SessionSnapshot } from "../conversation/session.js";
-import { DictationBar } from "./DictationBar.js";
-import { appendDictation } from "./dictation.js";
+import { Composer } from "./Composer.js";
 
 interface Props {
   tasks: BuildTask[] | null;
@@ -38,24 +37,14 @@ function replyLabel(task: BuildTask): string {
  */
 export function BuildScreen(props: Props) {
   const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose, embedded } = props;
-  const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<BuildTask | null>(null);
-  const appliedDictation = useRef(dictated?.id ?? 0);
 
   const send = (value: string): boolean => {
     const sent = replyTo ? onReply(replyTo.taskId, value) : onRequest(value);
     if (!sent) return false;
-    setText("");
     setReplyTo(null);
     return true;
   };
-
-  useEffect(() => {
-    if (!dictated || dictated.id === appliedDictation.current) return;
-    appliedDictation.current = dictated.id;
-    const next = appendDictation(text, dictated.text);
-    if (!dictated.send || !send(next)) setText(next);
-  }, [dictated]);
 
   useEffect(() => {
     onRefresh();
@@ -69,10 +58,6 @@ export function BuildScreen(props: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    send(text);
-  };
 
   return (
     <section className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true })} aria-labelledby="build-title">
@@ -112,7 +97,7 @@ export function BuildScreen(props: Props) {
         ))}
       </div>
 
-      <form className="build-composer" onSubmit={submit}>
+      <div className="build-composer">
         {notice && (
           <p className={`build-notice build-notice-${notice.level}`} role={notice.level === "error" ? "alert" : "status"}>
             {notice.text}
@@ -128,33 +113,20 @@ export function BuildScreen(props: Props) {
             </button>
           </p>
         )}
-        {dictation !== "idle" ? (
-          <div className="build-dictation">
-            <DictationBar state={dictation} levels={levels} onStop={onDictationStop} onCancel={onDictationCancel} />
-          </div>
-        ) : (
-        <div className="build-field field glass">
-          <textarea
-            value={text}
-            rows={2}
-            maxLength={4000}
-            aria-label={replyTo ? "Respuesta para la tarea" : "Pedido de construcción"}
-            placeholder={replyTo ? "Tu respuesta o los cambios que querés" : "¿Qué querés que construya?"}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <button type="button" className="field-button mic" aria-label="Dictar: hablá y lo escribo" disabled={!online} onClick={onDictate}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
-              <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z" />
-            </svg>
-          </button>
-          <button type="submit" className="round-button" aria-label="Enviar" disabled={!online || !text.trim()}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
-              <path fill="currentColor" d="M12 4 5 11l1.4 1.4L11 7.8V20h2V7.8l4.6 4.6L19 11z" />
-            </svg>
-          </button>
-        </div>
-        )}
-      </form>
+        <Composer
+          online={online}
+          busy={false}
+          dictation={dictation}
+          dictated={dictated}
+          levels={levels}
+          onSend={(value) => send(value)}
+          onDictate={onDictate}
+          onDictationStop={onDictationStop}
+          onDictationCancel={onDictationCancel}
+          onStop={() => {}}
+          placeholder={replyTo ? "Tu respuesta o los cambios que querés" : "¿Qué querés que construya?"}
+        />
+      </div>
     </section>
   );
 }

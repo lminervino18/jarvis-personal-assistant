@@ -45,7 +45,7 @@ Status vocabulary: *implemented*, *tested with fixtures*, *validated with real s
 | Delegated work with real Claude agents (Haiku 5.5 planner, Sonnet 5.5 executor and reviewer, on the subscription) | validated with real service on the VPS, with Bash in the sandbox and the runner as a host service |
 | Build mode: change JARVIS from the app, reviewed by agents, published by a signed deterministic publisher with rollback | tested with fixtures, see [docs/build-mode.md](docs/build-mode.md) |
 | Web pages: invitations and surveys at p.lminervino18.com, written in the background, answers notified | tested with fixtures; generator validated with real service, see [docs/pages.md](docs/pages.md) |
-| Phone tabs (Llamada and Chat), hold-to-talk voice notes, dictation that writes or sends, wide layout with a sidebar, speaker toggle, HUD core, chart and table cards | tested with fixtures; pending the owner's use on the iPhone |
+| Chat-centered app with a voice-mode call button, full-screen call, dictation that writes or sends, wide layout with a sidebar, HUD core, chart and table cards | tested with fixtures; pending the owner's use on the iPhone |
 
 ## Screenshots
 

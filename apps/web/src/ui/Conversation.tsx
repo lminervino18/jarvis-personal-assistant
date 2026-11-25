@@ -5,11 +5,11 @@ import type { Session, SessionSnapshot } from "../conversation/session.js";
 import { voiceSubtitle } from "../conversation/subtitle.js";
 import { measureViewport, useAssistantAnnouncement, useElapsed, useElementHeight, useMediaQuery, useSnapshot, useViewportRecovery, useVisibleViewport } from "../hooks.js";
 import { BuildScreen } from "./BuildScreen.js";
-import { ChatView, Notices } from "./ChatView.js";
-import { ChatIcon, GearIcon, HammerIcon, HangUpIcon, MicIcon, PhoneIcon, SpeakerIcon, WaveIcon } from "./icons.js";
+import { CallScreen } from "./CallScreen.js";
+import { ChatView } from "./ChatView.js";
 import { GlassLens } from "./GlassLens.js";
+import { GearIcon, HammerIcon, HangUpIcon, MicIcon } from "./icons.js";
 import { Settings, SettingsSheet } from "./SettingsSheet.js";
-import { VoicePanel } from "./VoicePanel.js";
 
 interface Props {
   session: Session;
@@ -17,7 +17,6 @@ interface Props {
   demo?: boolean;
 }
 
-type Tab = "voice" | "chat";
 type Panel = "jarvis" | "build" | "settings";
 
 const WIDE_QUERY = "(min-width: 900px)";
@@ -29,28 +28,6 @@ function StatusLine({ snapshot, label }: { snapshot: SessionSnapshot; label: str
     <p role="status" data-state={snapshot.state} data-online={online}>
       {online ? label : "Sin conexión"}
     </p>
-  );
-}
-
-function SpeakerToggle({ session, on }: { session: Session; on: boolean }) {
-  return (
-    <button
-      type="button"
-      className="glass-button glass"
-      aria-pressed={on}
-      aria-label={on ? "Respuestas en voz alta: tocá para silenciar" : "Respuestas en silencio: tocá para escucharlas"}
-      onClick={() => session.toggleSpeaker()}
-    >
-      <SpeakerIcon on={on} />
-    </button>
-  );
-}
-
-function CallPill({ onOpen }: { onOpen(): void }) {
-  return (
-    <button type="button" className="call-pill" aria-label="En llamada: volver a la llamada" onClick={onOpen}>
-      <PhoneIcon size={14} /> {useElapsed()}
-    </button>
   );
 }
 
@@ -81,7 +58,7 @@ function NavButton({ active, label, icon, onClick }: { active: boolean; label: s
   );
 }
 
-/** The signed-in app: voice and chat tabs on a phone, a sidebar with Jarvis, Construir and Configuración on a wide screen. */
+/** The signed-in app: the chat in the middle, with Construir and Configuración one tap away; a sidebar on wide screens. */
 export function Conversation({ session, onLogout, demo }: Props) {
   const snapshot = useSnapshot(session);
   const wide = useMediaQuery(WIDE_QUERY);
@@ -89,21 +66,14 @@ export function Conversation({ session, onLogout, demo }: Props) {
   const announcement = useAssistantAnnouncement(snapshot.thread.messages);
   const dock = useRef<HTMLDivElement>(null);
   const composerHeight = useElementHeight(dock, COMPOSER_FALLBACK_PX);
-  const [tab, setTab] = useState<Tab>("voice");
   const [panel, setPanel] = useState<Panel>("jarvis");
   const refreshBuild = useCallback(() => session.refreshBuild(), [session]);
   const closePanel = useCallback(() => setPanel("jarvis"), []);
   const subtitle = useMemo(() => voiceSubtitle(snapshot.thread), [snapshot.thread]);
   const label = stateLabel(snapshot.state);
   const online = snapshot.connection === "ready";
-  const canTalk = snapshot.capabilities?.stt === true && online;
-  const speech = snapshot.capabilities?.tts === true;
+  const call = snapshot.capabilities?.stt === true && online ? () => void session.startCall() : undefined;
   const { notice } = snapshot;
-
-  const startCall = () => {
-    setTab("voice");
-    void session.startCall();
-  };
 
   useEffect(() => {
     const wake = () => !document.hidden && session.wake();
@@ -152,7 +122,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
   );
 
   const settings = {
-    speech,
+    speech: snapshot.capabilities?.tts === true,
     speakerOn: snapshot.speakerOn,
     online,
     demo,
@@ -160,6 +130,8 @@ export function Conversation({ session, onLogout, demo }: Props) {
     onEnablePush: () => session.enablePush(),
     onLogout,
   };
+
+  const chat = <ChatView session={session} snapshot={snapshot} dock={dock} hidden={wide && panel !== "jarvis"} active={panel === "jarvis"} demo={demo} onCall={call} />;
 
   const live = (
     <>
@@ -174,34 +146,26 @@ export function Conversation({ session, onLogout, demo }: Props) {
     return (
       <div ref={app} className="app app-wide" style={frame}>
         <nav className="sidebar" aria-label="Secciones">
-          <div className="sidebar-brand">
-            <Core state={snapshot.state} label={label} getLevels={session.getLevels} onActivate={canTalk && !snapshot.callActive ? startCall : undefined} activateLabel="Llamar a Jarvis" />
-            <div className="title-text">
-              <h1>Jarvis</h1>
-              <StatusLine snapshot={snapshot} label={label} />
-            </div>
-          </div>
-          <NavButton active={panel === "jarvis"} label="Jarvis" icon={<ChatIcon size={20} />} onClick={() => setPanel("jarvis")} />
+          <button type="button" className="nav-brand" aria-current={panel === "jarvis" ? "page" : undefined} onClick={() => setPanel("jarvis")}>
+            <Core state={snapshot.state} label={label} getLevels={session.getLevels} />
+            <span className="title-text">
+              <strong>Jarvis</strong>
+              <span className="brand-status" data-state={snapshot.state} data-online={online}>
+                {online ? label : "Sin conexión"}
+              </span>
+            </span>
+          </button>
           <NavButton active={panel === "build"} label="Construir" icon={<HammerIcon />} onClick={() => setPanel("build")} />
           <NavButton active={panel === "settings"} label="Configuración" icon={<GearIcon />} onClick={() => setPanel("settings")} />
         </nav>
 
         <main className="main">
-          {panel === "jarvis" && (
+          {panel === "jarvis" && snapshot.callActive && (
             <header className="session-header">
-              {snapshot.callActive ? (
-                <CallBar session={session} snapshot={snapshot} label={label} />
-              ) : (
-                <div className="session-actions">
-                  {speech && <SpeakerToggle session={session} on={snapshot.speakerOn} />}
-                  <button type="button" className="button call-start-button" disabled={!canTalk} onClick={startCall}>
-                    <PhoneIcon size={18} /> Llamar
-                  </button>
-                </div>
-              )}
+              <CallBar session={session} snapshot={snapshot} label={label} />
             </header>
           )}
-          <ChatView session={session} snapshot={snapshot} dock={dock} hidden={panel !== "jarvis"} demo={demo} />
+          {chat}
           {panel === "build" && build(true)}
           {panel === "settings" && (
             <section className="settings-page" aria-labelledby="settings-page-title">
@@ -216,40 +180,18 @@ export function Conversation({ session, onLogout, demo }: Props) {
   }
 
   return (
-    <div ref={app} className={`app app-phone tab-${tab}${keyboardOpen ? " keyboard-open" : ""}`} style={frame}>
-      {tab === "voice" && (
-        <VoicePanel
-          state={snapshot.state}
-          label={label}
-          getLevels={session.getLevels}
-          greeting={snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}
-          canTalk={canTalk}
-          callActive={snapshot.callActive}
-          callMuted={snapshot.callMuted}
-          voiceNote={snapshot.voiceNote}
-          subtitle={subtitle}
-          onCall={startCall}
-          onHangUp={() => session.endCall()}
-          onMute={() => void session.toggleCallMute()}
-          onOpenChat={() => setTab("chat")}
-          onNoteStart={() => void session.startVoiceNote()}
-          onNoteFinish={() => session.finishVoiceNote()}
-          onNoteCancel={() => session.cancelVoiceNote()}
-        />
-      )}
-      <ChatView session={session} snapshot={snapshot} dock={dock} hidden={tab !== "chat"} demo={demo} />
+    <div ref={app} className={`app app-phone${keyboardOpen ? " keyboard-open" : ""}`} style={frame}>
+      {chat}
 
       <header className="topbar">
         <div className="title-pill glass">
-          {tab === "chat" && <Core state={snapshot.state} label={label} getLevels={session.getLevels} onActivate={canTalk ? startCall : undefined} activateLabel="Llamar a Jarvis" />}
+          <Core state={snapshot.state} label={label} getLevels={session.getLevels} onActivate={call} activateLabel="Llamar a Jarvis" />
           <div className="title-text">
             <h1>Jarvis</h1>
             <StatusLine snapshot={snapshot} label={label} />
           </div>
         </div>
-        {tab === "chat" && snapshot.callActive && <CallPill onOpen={() => setTab("voice")} />}
         <div className="topbar-actions">
-          {speech && !snapshot.callActive && <SpeakerToggle session={session} on={snapshot.speakerOn} />}
           <button type="button" className="glass-button glass" aria-label="Construir" aria-haspopup="dialog" onClick={() => setPanel("build")}>
             <HammerIcon />
           </button>
@@ -259,24 +201,18 @@ export function Conversation({ session, onLogout, demo }: Props) {
         </div>
       </header>
 
-      {tab === "voice" && (
-        <div className="voice-notices">
-          <Notices session={session} snapshot={snapshot} />
-        </div>
-      )}
-
-      <nav className="tabbar glass" aria-label="Vistas">
-        <button type="button" className="tab" aria-current={tab === "voice" ? "page" : undefined} onClick={() => setTab("voice")}>
-          <WaveIcon />
-          <span>Llamada</span>
-        </button>
-        <button type="button" className="tab" aria-current={tab === "chat" ? "page" : undefined} onClick={() => setTab("chat")}>
-          <ChatIcon />
-          <span>Chat</span>
-        </button>
-      </nav>
-
       {live}
+      {snapshot.callActive && (
+        <CallScreen
+          state={snapshot.state}
+          label={label}
+          muted={snapshot.callMuted}
+          subtitle={subtitle}
+          getLevels={session.getLevels}
+          onMute={() => void session.toggleCallMute()}
+          onHangUp={() => session.endCall()}
+        />
+      )}
       {panel === "settings" && <SettingsSheet {...settings} onClose={closePanel} />}
       {panel === "build" && build(false)}
     </div>

@@ -3,6 +3,7 @@ import type { AttachmentCard, ChatUpload } from "../attachments/upload.js";
 import type { SessionSnapshot } from "../conversation/session.js";
 import { appendDictation } from "./dictation.js";
 import { DictationBar } from "./DictationBar.js";
+import { WaveIcon } from "./icons.js";
 
 interface Props {
   online: boolean;
@@ -15,7 +16,12 @@ interface Props {
   onDictationStop(send: boolean): void;
   onDictationCancel(): void;
   onStop(): void;
+  /** Starts a call; shown next to the microphone while the field is empty, like ChatGPT's voice mode. */
+  onCall?(): void;
   onAttach?(file: File): Promise<ChatUpload>;
+  placeholder?: string;
+  /** False while another screen covers this composer, so a dictation started there is not written here too. */
+  active?: boolean;
   /** The owner started writing. */
   onFocus?(): void;
 }
@@ -35,7 +41,7 @@ function revoke(items: readonly Pending[]): void {
 }
 
 export function Composer(props: Props) {
-  const { online, busy, dictation, dictated, levels, onSend, onDictate, onDictationStop, onDictationCancel, onStop, onAttach, onFocus } = props;
+  const { online, busy, dictation, dictated, levels, onSend, onDictate, onDictationStop, onDictationCancel, onStop, onCall, onAttach, onFocus, placeholder = "Mensaje", active = true } = props;
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const uploading = attachments.some((item) => !item.card);
@@ -76,6 +82,7 @@ export function Composer(props: Props) {
   useEffect(() => {
     if (!dictated || dictated.id === appliedDictation.current) return;
     appliedDictation.current = dictated.id;
+    if (!active) return;
     const next = appendDictation(text, dictated.text);
     if (!dictated.send || !send(next)) setText(next);
   }, [dictated]);
@@ -171,7 +178,7 @@ export function Composer(props: Props) {
           ref={field}
           rows={1}
           value={text}
-          placeholder="Mensaje"
+          placeholder={placeholder}
           enterKeyHint="send"
           autoComplete="off"
           onChange={(event) => setText(event.target.value)}
@@ -195,6 +202,10 @@ export function Composer(props: Props) {
           <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
             <path fill="currentColor" d="M11 20V7.83l-5.59 5.59L4 12l8-8 8 8-1.41 1.41L13 7.83V20h-2Z" />
           </svg>
+        </button>
+      ) : onCall ? (
+        <button type="button" className="round-button voice" aria-label="Llamar a Jarvis" disabled={!online} onClick={onCall}>
+          <WaveIcon size={22} />
         </button>
       ) : null}
     </form>

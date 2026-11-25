@@ -35,10 +35,13 @@ interface Props {
   dock: RefObject<HTMLDivElement | null>;
   hidden?: boolean;
   demo?: boolean;
+  onCall?(): void;
+  /** False while Construir or Configuración covers the chat. */
+  active?: boolean;
 }
 
 /** The written session: the thread, its notices and the composer. */
-export function ChatView({ session, snapshot, dock, hidden, demo }: Props) {
+export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active = true }: Props) {
   const online = snapshot.connection === "ready";
   const { thread } = snapshot;
   const empty = thread.messages.length === 0 && !thread.hasMore && !thread.transcript;
@@ -49,7 +52,7 @@ export function ChatView({ session, snapshot, dock, hidden, demo }: Props) {
       {empty && (
         <section className="chat-empty" aria-label="Inicio">
           <h2>{snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}</h2>
-          <p>Escribime, dictame o mandame un audio.</p>
+          <p>Escribime, dictame o llamame.</p>
         </section>
       )}
       <div className="dock" ref={dock}>
@@ -65,6 +68,8 @@ export function ChatView({ session, snapshot, dock, hidden, demo }: Props) {
           onDictationStop={(send) => session.stopDictation(send)}
           onDictationCancel={() => session.cancelDictation()}
           onStop={() => session.stopAll()}
+          onCall={snapshot.callActive ? undefined : onCall}
+          active={active}
           onAttach={demo ? undefined : uploadChatAttachment}
           onFocus={() => session.warm()}
         />

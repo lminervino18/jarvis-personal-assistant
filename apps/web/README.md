@@ -5,10 +5,17 @@ Conversational PWA for J.A.R.V.IS: React 19 + Vite. The interface is only the co
 ## Layout
 
 - There is one continuous session. The server compacts and renews it behind the scenes, so the app has no conversation list.
-- Phone: two tabs.
-  - **Llamada** (`ui/VoicePanel.tsx`): the core, a live caption with the owner's words or the end of the latest reply, a hold-to-talk voice note (release sends it, sliding left drops it) and the call.
-  - **Chat** (`ui/ChatView.tsx`): the written session. The dictation bar can write the transcript into the field or send it.
-- From 900 px wide: a sidebar with Jarvis, Construir and Configuración, and the session in the middle. A call shows as a bar above the thread.
+- The chat is the center. The composer has the dictation microphone, which can write the transcript into the field or send it. Next to the microphone sits a ChatGPT-style voice button that starts a call.
+- Phone:
+  - top left, the core with Jarvis's status (tapping it also calls);
+  - top right, Construir and Configuración;
+  - a call opens full screen (`ui/CallScreen.tsx`) with the big core, a live caption and mute and hang-up. Everything said is saved in the chat.
+- From 900 px wide, a sidebar:
+  - the core with "Jarvis" and its status, which is the chat;
+  - Construir and Configuración.
+
+  A call shows as a bar above the thread.
+- Configuración lists the connected services (WhatsApp, Gmail, GitHub) with their logos (`public/logos`), each with Conectar or Desconectar on the same line.
 - Glass surfaces use a backdrop blur with highlights. Chromium also bends the backdrop near the edges with an SVG filter (`ui/GlassLens.tsx`). Safari does not apply SVG filters in `backdrop-filter`, so the iPhone shows only the blur.
 
 ## Development

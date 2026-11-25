@@ -44,7 +44,6 @@ export interface SessionSnapshot {
   dictation: "idle" | "recording" | "transcribing";
   /** The latest dictated text; `id` changes with every new transcript, `send` asks the composer to send it right away. */
   dictated: { id: number; text: string; send: boolean } | null;
-  voiceNote: "idle" | "starting" | "recording";
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
@@ -129,9 +128,6 @@ export class Session {
   private readonly dictationTurns = new Set<string>();
   private dictated: SessionSnapshot["dictated"] = null;
   private dictationSend = false;
-  private voiceNote: SessionSnapshot["voiceNote"] = "idle";
-  private voiceNoteWanted = false;
-  private voiceNoteTurn: string | null = null;
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
@@ -181,7 +177,7 @@ export class Session {
   getSnapshot = (): SessionSnapshot => this.snapshot;
 
   getLevels = (): Levels => {
-    this.levels.input = this.micOpen || this.dictation === "recording" || this.voiceNote === "recording" ? this.inputLevel : 0;
+    this.levels.input = this.micOpen || this.dictation === "recording" ? this.inputLevel : 0;
     this.levels.output = this.engine?.outputLevel() ?? 0;
     return this.levels;
   };
@@ -284,7 +280,7 @@ export class Session {
   async startDictation(): Promise<void> {
     if (!this.canRecord()) return;
     this.dictationWanted = true;
-    const turnId = await this.openRecorder("dictation", () => this.dictationWanted);
+    const turnId = await this.openRecorder(() => this.dictationWanted);
     if (!turnId) return;
     this.dictationTurn = turnId;
     this.dictationTurns.add(turnId);
@@ -306,52 +302,8 @@ export class Session {
     this.emit();
   }
 
-  /** Voice note: records while the owner holds the button and sends it as a voice turn on release. */
-  async startVoiceNote(): Promise<void> {
-    if (!this.canRecord()) return;
-    this.voiceNoteWanted = true;
-    this.voiceNote = "starting";
-    this.interruptAssistant("superseded");
-    this.emit();
-    const turnId = await this.openRecorder("turn", () => this.voiceNoteWanted);
-    if (!turnId) {
-      this.voiceNote = "idle";
-      this.emit();
-      return;
-    }
-    this.voiceNoteTurn = turnId;
-    this.voiceNote = "recording";
-    this.emit();
-  }
-
-  /** The owner let go: what was recorded becomes a turn, transcribed and answered by the server. */
-  finishVoiceNote(): void {
-    this.voiceNoteWanted = false;
-    const turnId = this.voiceNoteTurn;
-    this.voiceNote = "idle";
-    this.voiceNoteTurn = null;
-    if (turnId) {
-      this.closeRecorderMicrophone();
-      this.client.send({ type: "audio.end", turnId });
-      this.markTurnSent(turnId, "transcribing", this.replyMode() === "voice");
-    }
-    this.emit();
-  }
-
-  cancelVoiceNote(): void {
-    this.voiceNoteWanted = false;
-    const turnId = this.voiceNoteTurn;
-    this.voiceNote = "idle";
-    this.voiceNoteTurn = null;
-    if (turnId) {
-      this.client.send({ type: "turn.cancel", turnId, reason: "user_stop" });
-      this.closeRecorderMicrophone();
-    }
-    this.emit();
-  }
-
   private canRecord(): boolean {
-    if (this.micOpen || this.dictation !== "idle" || this.voiceNote !== "idle" || this.micStarting) return false;
+    if (this.micOpen || this.dictation !== "idle" || this.micStarting) return false;
     if (!this.capabilities?.stt) {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
       return false;
@@ -360,8 +312,8 @@ export class Session {
     return true;
   }
 
-  /** Opens the microphone and starts one capture; returns its turn id, or null if it was abandoned or failed. */
-  private async openRecorder(purpose: "dictation" | "turn", wanted: () => boolean): Promise<string | null> {
+  /** Opens the microphone and starts a dictation capture; returns its turn id, or null if it was abandoned or failed. */
+  private async openRecorder(wanted: () => boolean): Promise<string | null> {
     const conversationId = this.client.conversationId;
     if (!conversationId) return null;
     this.micStarting = true;
@@ -378,7 +330,7 @@ export class Session {
         return null;
       }
       const turnId = this.newId();
-      const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode(), ...(purpose === "dictation" ? { purpose } : {}) } as const;
+      const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode(), purpose: "dictation" } as const;
       if (!this.client.send(begin)) {
         engine.stopMicrophone();
         this.refuse("No hay conexión: no puedo escucharte.");
@@ -898,7 +850,6 @@ export class Session {
       callMuted: this.callMuted,
       dictation: this.dictation,
       dictated: this.dictated,
-      voiceNote: this.voiceNote,
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,

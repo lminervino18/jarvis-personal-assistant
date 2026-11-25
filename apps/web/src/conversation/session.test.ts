@@ -523,38 +523,6 @@ describe("speaker, voice notes and calls", () => {
     expect(session.getSnapshot().dictated).toEqual({ id: 1, text: "comprar pan", send: true });
   });
 
-  it("sends a held voice note as a voice turn when the owner lets go", async () => {
-    const { session, socket, engine, connect } = setup();
-    connect(true);
-    await session.startVoiceNote();
-    expect(session.getSnapshot()).toMatchObject({ voiceNote: "recording", state: "listening" });
-    const begin = socket().last("audio.begin");
-    expect(begin?.purpose).toBeUndefined();
-    const turnId = begin?.turnId as string;
-    engine().feed(0.1, 5);
-    expect(socket().binaryFrames().filter((frame) => frame.turnId === turnId)).toHaveLength(5);
-    session.finishVoiceNote();
-    expect(socket().last("audio.end")).toEqual({ type: "audio.end", turnId });
-    expect(session.getSnapshot()).toMatchObject({ voiceNote: "idle", state: "transcribing" });
-    expect(engine().frames).toBeNull();
-  });
-
-  it("drops a voice note the owner slid away, and one released before the microphone opened", async () => {
-    const { session, socket, connect } = setup();
-    connect(true);
-    await session.startVoiceNote();
-    const turnId = socket().last("audio.begin")?.turnId as string;
-    session.cancelVoiceNote();
-    expect(socket().last("turn.cancel")).toMatchObject({ turnId, reason: "user_stop" });
-    expect(socket().last("audio.end")).toBeUndefined();
-
-    const pending = session.startVoiceNote();
-    session.finishVoiceNote();
-    await pending;
-    expect(socket().json().filter((message) => message.type === "audio.begin")).toHaveLength(1);
-    expect(session.getSnapshot().voiceNote).toBe("idle");
-  });
-
   it("reports what the browser really applied to the microphone", async () => {
     const { session, socket, engine, connect } = setup();
     connect(true);
