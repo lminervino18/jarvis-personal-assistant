@@ -14,7 +14,7 @@ export interface ConnectionsDeps {
   /** The live WhatsApp bridge's status and, while it waits for a scan, its pairing card. */
   whatsapp?: IntegrationStatusSource;
   /** Gmail accounts, shown with the other connections; undefined when Gmail is not configured. */
-  gmailAccounts?(): { label: string; email: string; status: string }[];
+  gmailAccounts?(): { label: string; email: string; status: string; drive: boolean }[];
   env: NodeJS.ProcessEnv;
   cipher?: TokenCipher;
   publicOrigin: string;
@@ -76,7 +76,7 @@ export function createConnections(deps: ConnectionsDeps): Connections {
         whatsapp: bridge ? { status: bridge.status, detail: bridge.detail, pairing: deps.whatsapp?.pairingCard?.() ?? null } : null,
         gmail: {
           available: Boolean(gmail),
-          accounts: (gmail ?? []).filter((account) => account.status !== "revoked").map(({ label, email, status }) => ({ label, email, status })),
+          accounts: (gmail ?? []).filter((account) => account.status !== "revoked").map(({ label, email, status, drive }) => ({ label, email, status, drive })),
         },
         github: { available: Boolean(github && accounts), account: accounts?.get("github")?.account ?? null },
         vercel: { available: Boolean(accounts), account: accounts?.get("vercel")?.account ?? null, domain: projectsDomain ?? null },

@@ -22,7 +22,7 @@ describe("google oauth", () => {
     const { connector } = buildGoogleHarness();
     const url = new URL(connector.authorizationUrl("personal"));
     expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
-    expect(url.searchParams.get("scope")).toBe("openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send");
+    expect(url.searchParams.get("scope")).toBe("openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive");
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");

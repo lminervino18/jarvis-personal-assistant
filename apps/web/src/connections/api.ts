@@ -2,7 +2,7 @@ import type { Card } from "@jarvis/contracts";
 
 export interface ConnectionsState {
   whatsapp: { status: string; detail: string; pairing: Card | null } | null;
-  gmail: { available: boolean; accounts: { label: string; email: string; status: string }[] };
+  gmail: { available: boolean; accounts: { label: string; email: string; status: string; drive: boolean }[] };
   github: { available: boolean; account: string | null };
 }
 

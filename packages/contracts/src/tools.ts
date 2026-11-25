@@ -245,6 +245,47 @@ export const toolInputs = {
     change: z.string().trim().min(1).max(4000),
     attachmentIds: z.array(z.uuid()).max(6).optional(),
   },
+  drive_search: {
+    /** Words in the file name; without it, the folder's contents (the Jarvis folder by default). */
+    query: z.string().trim().max(200).optional(),
+    /** A folder id or Drive link to list. */
+    folderId: z.string().trim().max(500).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_create_folder: {
+    name: z.string().trim().min(1).max(120),
+    /** Parent folder id or link; the Jarvis folder by default. */
+    parentId: z.string().trim().max(500).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_upload: {
+    attachmentIds: z.array(z.uuid()).min(1).max(20),
+    folderId: z.string().trim().max(500).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_update: {
+    fileId: z.string().trim().min(1).max(500),
+    name: z.string().trim().min(1).max(200).optional(),
+    folderId: z.string().trim().max(500).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_share: {
+    fileId: z.string().trim().min(1).max(500),
+    /** Anyone with the link can view. */
+    anyone: z.boolean().optional(),
+    email: z.email().optional(),
+    role: z.enum(["reader", "writer"]).optional(),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_download: {
+    /** A Drive or Docs link (file or folder), or a file id. */
+    link: z.string().trim().min(5).max(500),
+    account: GmailAccountLabel.optional(),
+  },
+  drive_trash: {
+    fileId: z.string().trim().min(1).max(500),
+    account: GmailAccountLabel.optional(),
+  },
   image_create: {
     prompt: z.string().trim().min(3).max(4000),
     /** Photos the owner uploaded, used as references to edit or build on. */
@@ -278,6 +319,8 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "task_status",
   "task_result",
   "page_responses",
+  "drive_search",
+  "drive_download",
 ]);
 
 /** Built-in Claude tools the runtime may expose. They are all treated as untrusted sources. */
@@ -313,6 +356,11 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "video_send",
   "video_page",
   "image_create",
+  "drive_create_folder",
+  "drive_upload",
+  "drive_update",
+  "drive_share",
+  "drive_trash",
 ]);
 
 export const ToolErrorCode = z.enum([

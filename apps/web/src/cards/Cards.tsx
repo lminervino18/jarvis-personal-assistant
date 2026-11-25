@@ -44,6 +44,7 @@ export const providerNames: Record<Of<"integration">["provider"], string> = {
   agents: "Agentes",
   github: "GitHub",
   vercel: "Vercel",
+  drive: "Google Drive",
 };
 
 function ExternalLink({ href, children }: { href: string | undefined; children: string }) {

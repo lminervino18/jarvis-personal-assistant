@@ -7,7 +7,9 @@ import type { IntegrationStatusSource } from "../../tools/types.js";
 import { GoogleAccessTokens } from "../google/access-tokens.js";
 import { GoogleAccountStore } from "../google/account-store.js";
 import { GoogleConnector } from "../google/connector.js";
-import { GoogleOAuthClient } from "../google/oauth-client.js";
+import { DRIVE_SCOPE, GoogleOAuthClient } from "../google/oauth-client.js";
+import { DriveClient } from "../drive/drive-client.js";
+import type { DriveServices } from "../../tools/drive-tools.js";
 import { OAuthStateStore } from "../oauth-states.js";
 import { registerGoogleRoutes } from "../google/routes.js";
 import { GmailClient } from "./client.js";
@@ -26,6 +28,8 @@ export interface GmailAccountSummary {
   label: GmailAccountLabel;
   email: string;
   status: string;
+  /** The account also granted Google Drive access. */
+  drive: boolean;
 }
 
 export interface GmailIntegration {
@@ -33,6 +37,9 @@ export interface GmailIntegration {
   /** The connected accounts, for the settings screen; undefined when Gmail is not configured. */
   accounts?(): GmailAccountSummary[];
   statusSource: IntegrationStatusSource;
+  /** Google Drive through the same accounts; undefined when Google is not configured. */
+  drive?: DriveServices;
+  driveStatus?: IntegrationStatusSource;
   registerRoutes(app: FastifyInstance, helpers: RouteHelpers): void;
 }
 
@@ -68,9 +75,21 @@ export function createGmailIntegration(deps: GmailIntegrationDeps): GmailIntegra
   const tokens = new GoogleAccessTokens(accounts, oauth);
   const connector = new GoogleConnector(oauth, new OAuthStateStore(db, cipher), accounts, tokens);
   const service = new GmailService(accounts, new GmailClient(tokens, deps.timezone, deps.fetchFn));
+  const driveReady = (label: GmailAccountLabel) => {
+    const account = accounts.get(label);
+    return account?.status === "connected" && account.scopes.includes(DRIVE_SCOPE);
+  };
   return {
     service,
-    accounts: () => accounts.list().map(({ label, email, status }) => ({ label, email, status })),
+    drive: { client: new DriveClient(tokens, deps.fetchFn), ready: driveReady },
+    driveStatus: {
+      status: async () => [
+        driveReady("personal")
+          ? { provider: "drive", account: accounts.get("personal")?.email, status: "connected", detail: "Manejo el Drive del dueño; lo que guardo va a la carpeta Jarvis." }
+          : { provider: "drive", status: "disconnected", detail: "Se conecta reconectando la cuenta de Google personal desde Configuración." },
+      ],
+    },
+    accounts: () => accounts.list().map(({ label, email, status }) => ({ label, email, status, drive: driveReady(label) })),
     statusSource: service,
     registerRoutes: (app, helpers) => registerGoogleRoutes(app, helpers, { connector, publicOrigin: deps.publicOrigin }),
   };

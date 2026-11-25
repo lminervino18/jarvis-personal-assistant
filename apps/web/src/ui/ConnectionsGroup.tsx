@@ -86,6 +86,16 @@ export function ConnectionsGroup() {
           );
         })}
 
+      {gmail.available && (() => {
+        const personal = gmail.accounts.find((item) => item.label === "personal");
+        const connected = personal?.status === "connected" && personal.drive;
+        return (
+          <ConnectionRow name="Google Drive" logo="drive" account={connected ? personal.email : null} connected={connected === true}>
+            {!connected && <ConnectLink href={gmailConnectUrl("personal")} />}
+          </ConnectionRow>
+        );
+      })()}
+
       <ConnectionRow name="GitHub" logo="github" account={github.account} connected={Boolean(github.account)}>
         {github.account ? <DisconnectButton onClick={() => void remove("github")} /> : github.available && <ConnectLink href={GITHUB_CONNECT_URL} />}
       </ConnectionRow>

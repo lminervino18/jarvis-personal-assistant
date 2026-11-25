@@ -12,6 +12,7 @@ import { remindersTools } from "./reminders-tools.js";
 import { taskTools } from "./task-tools.js";
 import { videoTools } from "./video-tools.js";
 import { imageTools } from "./image-tools.js";
+import { driveTools } from "./drive-tools.js";
 import { chatStudyTools } from "./chat-study-tools.js";
 import { whatsappTools } from "./whatsapp-tools.js";
 import { youtubeTools } from "./youtube-tools.js";
@@ -34,6 +35,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...fileTools,
   ...videoTools,
   ...imageTools,
+  ...driveTools,
   ...chatStudyTools,
 ];
 

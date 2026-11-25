@@ -98,7 +98,8 @@ const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
-  statusSources: [gmail.statusSource, whatsapp, youtube, connections.statusSource],
+  statusSources: [gmail.statusSource, whatsapp, youtube, connections.statusSource, ...(gmail.driveStatus ? [gmail.driveStatus] : [])],
+  drive: gmail.drive,
   gmail: gmail.service,
   youtube,
 };
