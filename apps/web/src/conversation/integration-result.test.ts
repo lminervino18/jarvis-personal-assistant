@@ -3,8 +3,8 @@ import { integrationResultCard, parseIntegrationResult } from "./integration-res
 
 describe("Gmail connection result", () => {
   it("reads a successful connection", () => {
-    expect(parseIntegrationResult("?integration=gmail&status=connected&label=work")).toEqual({ status: "connected", label: "work", reason: null });
-    expect(integrationResultCard({ status: "connected", label: "work", reason: null })).toMatchObject({
+    expect(parseIntegrationResult("?integration=gmail&status=connected&label=work")).toEqual({ provider: "gmail", status: "connected", label: "work", reason: null });
+    expect(integrationResultCard({ provider: "gmail", status: "connected", label: "work", reason: null })).toMatchObject({
       kind: "integration",
       provider: "gmail",
       status: "connected",
@@ -17,7 +17,7 @@ describe("Gmail connection result", () => {
     const card = integrationResultCard(result!);
     expect(card).toMatchObject({ status: "error", actionUrl: "/api/integrations/google/start?label=personal", actionLabel: "Reintentar" });
     expect(card.kind === "integration" && card.message).toContain("Cancelaste");
-    const unknown = integrationResultCard({ status: "error", label: null, reason: "something_new" });
+    const unknown = integrationResultCard({ provider: "gmail", status: "error", label: null, reason: "something_new" });
     expect(unknown).toMatchObject({ message: "No pude conectar Gmail." });
     expect(unknown).not.toHaveProperty("actionUrl");
   });
@@ -28,5 +28,15 @@ describe("Gmail connection result", () => {
     expect(parseIntegrationResult("?integration=whatsapp&status=connected")).toBeNull();
     expect(parseIntegrationResult("?integration=gmail&status=hacked")).toBeNull();
     expect(parseIntegrationResult("?integration=gmail&status=connected&label=../../x")?.label).toBeNull();
+  });
+});
+
+describe("GitHub connection result", () => {
+  it("names the connected login and offers a retry after a failure", () => {
+    const connected = parseIntegrationResult("?integration=github&status=connected&label=owner-login");
+    expect(integrationResultCard(connected!)).toMatchObject({ provider: "github", status: "connected", message: "GitHub quedó conectado como owner-login." });
+    const failed = integrationResultCard(parseIntegrationResult("?integration=github&status=error&reason=denied")!);
+    expect(failed).toMatchObject({ status: "error", actionUrl: "/api/integrations/github/start" });
+    expect(parseIntegrationResult("?integration=github&status=connected&label=<b>x</b>")?.label).toBeNull();
   });
 });

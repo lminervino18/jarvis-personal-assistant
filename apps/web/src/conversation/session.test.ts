@@ -442,7 +442,7 @@ describe("Session voice turns", () => {
 describe("Session integration result", () => {
   it("shows the outcome after the history loads and keeps it out of the way before", () => {
     const { session, connect } = setup();
-    session.showIntegrationResult({ status: "connected", label: "personal", reason: null });
+    session.showIntegrationResult({ provider: "gmail", status: "connected", label: "personal", reason: null });
     expect(session.getSnapshot().thread.messages).toEqual([]);
     connect();
     const messages = session.getSnapshot().thread.messages;
@@ -454,7 +454,7 @@ describe("Session integration result", () => {
   it("shows it immediately when the conversation is already loaded", () => {
     const { session, connect } = setup();
     connect();
-    session.showIntegrationResult({ status: "error", label: "work", reason: "denied" });
+    session.showIntegrationResult({ provider: "gmail", status: "error", label: "work", reason: "denied" });
     expect(session.getSnapshot().thread.messages[0]?.cards[0]).toMatchObject({ status: "error", actionLabel: "Reintentar" });
   });
 });

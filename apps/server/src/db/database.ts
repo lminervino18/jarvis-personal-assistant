@@ -11,6 +11,7 @@ import { sql as whatsappMediaSql } from "./migrations/007-whatsapp-media.js";
 import { sql as videosSql } from "./migrations/008-videos.js";
 import { sql as chatStudiesSql } from "./migrations/009-chat-studies.js";
 import { sql as videoSendSql } from "./migrations/010-video-send.js";
+import { sql as serviceAccountsSql } from "./migrations/011-service-accounts.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as taskArchiveSql } from "./work-migrations/004-task-archive.js";
@@ -36,6 +37,7 @@ export const migrations: Migration[] = [
   { version: 8, name: "videos", sql: videosSql },
   { version: 9, name: "chat_studies", sql: chatStudiesSql },
   { version: 10, name: "video_send", sql: videoSendSql },
+  { version: 11, name: "service_accounts", sql: serviceAccountsSql },
 ];
 
 /**

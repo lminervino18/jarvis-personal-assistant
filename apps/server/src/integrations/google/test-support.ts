@@ -9,7 +9,7 @@ import { GoogleAccessTokens } from "./access-tokens.js";
 import { GoogleAccountStore } from "./account-store.js";
 import { GoogleConnector } from "./connector.js";
 import { GoogleOAuthClient } from "./oauth-client.js";
-import { OAuthStateStore } from "./oauth-states.js";
+import { OAuthStateStore } from "../oauth-states.js";
 
 export const CLIENT_ID = "client-id.example.test";
 export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";

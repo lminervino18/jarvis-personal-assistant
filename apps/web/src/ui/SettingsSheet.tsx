@@ -1,3 +1,4 @@
+import { ConnectionsGroup } from "./ConnectionsGroup.js";
 import { useEffect, useState } from "react";
 import type { PushResult } from "../conversation/session.js";
 import { readPushStatus, type PushStatus } from "../pwa/push.js";
@@ -83,6 +84,8 @@ export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onE
           {message ?? (push ? pushHelp[push] : "")}
         </p>
       </div>
+
+      {!demo && <ConnectionsGroup online={online} />}
 
       {onLogout && (
         <div className="group">

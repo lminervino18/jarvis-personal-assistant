@@ -3,7 +3,7 @@ import { TokenDecryptionError } from "../../crypto/token-cipher.js";
 import { AccountBindingError, type GoogleAccount, type GoogleAccountStore } from "./account-store.js";
 import type { GoogleAccessTokens } from "./access-tokens.js";
 import { GMAIL_READONLY_SCOPE, GoogleAuthError, parseIdTokenEmail, type GoogleOAuthClient } from "./oauth-client.js";
-import type { OAuthStateStore } from "./oauth-states.js";
+import type { OAuthStateStore } from "../oauth-states.js";
 
 export type ConnectFailure =
   | "invalid_state"

@@ -42,6 +42,8 @@ export const providerNames: Record<Of<"integration">["provider"], string> = {
   push: "Notificaciones",
   voice: "Voz",
   agents: "Agentes",
+  github: "GitHub",
+  vercel: "Vercel",
 };
 
 function ExternalLink({ href, children }: { href: string | undefined; children: string }) {

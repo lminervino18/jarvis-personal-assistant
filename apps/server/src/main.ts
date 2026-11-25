@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createConnections } from "./integrations/connections.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
 import { ConversationHub } from "./conversation/hub.js";
@@ -81,6 +82,8 @@ const gmail = createGmailIntegration({
   timezone: config.timezone,
 });
 
+const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin });
+
 const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new PairingStore(db, tokenCipher) : undefined);
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 
@@ -88,7 +91,7 @@ const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
-  statusSources: [gmail.statusSource, whatsapp, youtube],
+  statusSources: [gmail.statusSource, whatsapp, youtube, connections.statusSource],
   gmail: gmail.service,
   youtube,
 };
@@ -203,6 +206,7 @@ const app = await buildApp({
   assistantContext,
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
+    connections.registerRoutes(instance, helpers);
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
     registerVideoRoutes(instance, helpers, videos, attachments, videosDir, (input) => sendVideo(services, input, new Date()));

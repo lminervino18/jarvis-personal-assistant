@@ -1,12 +1,20 @@
 import type { Card } from "@jarvis/contracts";
 
 export interface IntegrationResult {
+  provider: "gmail" | "github";
   status: "connected" | "error";
-  label: "personal" | "work" | null;
+  /** The Gmail label (personal or work), or the GitHub login. */
+  label: string | null;
   reason: string | null;
 }
 
-const labelNames = { personal: "personal", work: "de trabajo" } as const;
+const labelNames: Record<string, string> = { personal: "personal", work: "de trabajo" };
+const GITHUB_LOGIN = /^[A-Za-z0-9-]{1,39}$/;
+
+const githubReasons: Record<string, string> = {
+  denied: "Cancelaste la autorización de GitHub. Podés reintentar cuando quieras.",
+  invalid_state: "El enlace de conexión venció. Probá de nuevo.",
+};
 
 const reasonMessages: Record<string, string> = {
   denied: "Cancelaste la autorización de Google. Podés reintentar cuando quieras.",
@@ -19,21 +27,28 @@ const reasonMessages: Record<string, string> = {
   unavailable: "Google no está disponible ahora. Probá más tarde.",
 };
 
-/** Reads the redirect the Gmail connector sends the browser back with. Anything else returns null. */
+/** Reads the redirect the Gmail or GitHub connector sends the browser back with. Anything else returns null. */
 export function parseIntegrationResult(search: string): IntegrationResult | null {
   const params = new URLSearchParams(search);
-  if (params.get("integration") !== "gmail") return null;
+  const provider = params.get("integration");
+  if (provider !== "gmail" && provider !== "github") return null;
   const status = params.get("status");
   if (status !== "connected" && status !== "error") return null;
-  const label = params.get("label");
-  return {
-    status,
-    label: label === "personal" || label === "work" ? label : null,
-    reason: params.get("reason"),
-  };
+  const label = params.get("label") ?? "";
+  const valid = provider === "gmail" ? label in labelNames : GITHUB_LOGIN.test(label);
+  return { provider, status, label: valid ? label : null, reason: params.get("reason") };
+}
+
+function githubCard(result: IntegrationResult): Card {
+  if (result.status === "connected") {
+    return { kind: "integration", provider: "github", status: "connected", message: result.label ? `GitHub quedó conectado como ${result.label}.` : "GitHub quedó conectado." };
+  }
+  const message = githubReasons[result.reason ?? ""] ?? "No pude conectar GitHub. Probá de nuevo en un rato.";
+  return { kind: "integration", provider: "github", status: "error", message, actionUrl: "/api/integrations/github/start", actionLabel: "Reintentar" };
 }
 
 export function integrationResultCard(result: IntegrationResult): Card {
+  if (result.provider === "github") return githubCard(result);
   const name = result.label ? `Gmail (${labelNames[result.label]})` : "Gmail";
   if (result.status === "connected") {
     return { kind: "integration", provider: "gmail", status: "connected", message: `${name} quedó conectado.` };

@@ -7,7 +7,7 @@ import { GoogleAccessTokens } from "../google/access-tokens.js";
 import { GoogleAccountStore } from "../google/account-store.js";
 import { GoogleConnector } from "../google/connector.js";
 import { GoogleOAuthClient } from "../google/oauth-client.js";
-import { OAuthStateStore } from "../google/oauth-states.js";
+import { OAuthStateStore } from "../oauth-states.js";
 import { registerGoogleRoutes } from "../google/routes.js";
 import { GmailClient } from "./client.js";
 import { GmailService } from "./gmail-service.js";
