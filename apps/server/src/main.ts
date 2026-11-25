@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { registerEnrollmentRoutes } from "./voice/enrollment-routes.js";
+import { SpeakerCheck, sherpaEmbedder } from "./voice/speaker-check.js";
 import { ImageService } from "./images/image-service.js";
 import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
 import { ProjectShipper } from "./projects/project-shipper.js";
@@ -123,6 +126,16 @@ const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"))
 services.attachments = attachments;
 if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));
 
+const speakerModel = process.env.SPEAKER_MODEL ?? "/app/models/speaker.onnx";
+const speaker = existsSync(speakerModel)
+  ? new SpeakerCheck({
+      voiceprintPath: join(config.dataDir, "voice", "voiceprint.json"),
+      threshold: Number(process.env.SPEAKER_THRESHOLD ?? 0.35),
+      embed: sherpaEmbedder(speakerModel),
+    })
+  : undefined;
+if (speaker?.enrolled()) setTimeout(() => void speaker.matches(Buffer.alloc(32_000), 16_000).catch(() => undefined), 10_000).unref();
+
 const vapid = loadVapidConfig();
 const pushSubscriptions = new PushSubscriptionStore(db);
 services.statusSources.push(new PushStatusSource(db, vapid), new AgendaStatusSource(db, config.timezone));
@@ -228,6 +241,7 @@ const app = await buildApp({
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
     connections.registerRoutes(instance, helpers);
+    if (speaker) registerEnrollmentRoutes(instance, helpers, { dir: join(config.dataDir, "voice", "enrollment"), speaker });
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
     registerVideoRoutes(instance, helpers, videos, attachments, videosDir, (input) => sendVideo(services, input, new Date()));
@@ -256,6 +270,7 @@ const app = await buildApp({
     if (card.kind === "confirm") return currentConfirmCard(db, card, new Date());
     return card;
   },
+  speaker,
   build: tasks
     ? {
         list: () => tasks.buildCards(),

@@ -1,3 +1,4 @@
+import type { SpeakerCheck, SpeakerVerdict } from "../voice/speaker-check.js";
 import { randomUUID } from "node:crypto";
 import {
   BinaryFrameKind,
@@ -65,6 +66,8 @@ export interface ConnectionDeps {
   /** The current state of a card stored in history (a task that moved on, a confirmation already decided). */
   refreshCard?(card: Card): Card;
   build?: BuildHandlers;
+  /** The owner's voiceprint: in a call, speech from anyone else is dropped like noise. */
+  speaker?: Pick<SpeakerCheck, "matches" | "enrolled">;
 }
 
 interface Capture {
@@ -84,7 +87,14 @@ interface Capture {
   /** The pause reused a transcription started at the earlier tentative pause. */
   earlyCheckpoint?: boolean;
   timer?: NodeJS.Timeout;
+  sampleRate: number;
+  /** The first seconds of a call utterance, kept to check whose voice it is. */
+  voice: Buffer[];
+  voiceBytes: number;
 }
+
+/** Seconds of each call utterance used to recognize the speaker. */
+const SPEAKER_WINDOW_SECONDS = 3;
 
 /** One authenticated WebSocket client (browser or device) speaking the J.A.R.V.IS protocol. */
 export class ClientConnection implements Subscriber {
@@ -347,6 +357,7 @@ export class ClientConnection implements Subscriber {
         outputFormat: this.outputFormat,
         followUpWindowMs: this.deps.followUpWindowMs,
         pushPublicKey: this.deps.pushPublicKey,
+        speakerCheck: this.deps.speaker?.enrolled() === true,
       },
     });
     if (this.sendHistory) {
@@ -420,6 +431,9 @@ export class ClientConnection implements Subscriber {
       provisional: message.duringPlayback === true,
       paused: false,
       generation: 0,
+      sampleRate: message.format.sampleRate,
+      voice: [],
+      voiceBytes: 0,
     });
     if (message.purpose !== "dictation") this.deps.orchestrator.prepareTurn(message.conversationId, message.turnId);
   }
@@ -440,6 +454,10 @@ export class ClientConnection implements Subscriber {
       return;
     }
     capture.capture.push(frame.payload);
+    if (this.inCall && this.deps.speaker && !capture.dictation && capture.voiceBytes < capture.sampleRate * 2 * SPEAKER_WINDOW_SECONDS) {
+      capture.voice.push(Buffer.from(frame.payload));
+      capture.voiceBytes += frame.payload.byteLength;
+    }
   }
 
   /**
@@ -500,6 +518,7 @@ export class ClientConnection implements Subscriber {
     clearTimeout(capture.timer);
     if (capture.dictation) return this.finishDictation(turnId, capture);
     const inputEndedAt = performance.now();
+    const voiceCheck = this.checkSpeaker(turnId, capture);
     if (!capture.provisional) this.send({ type: "state", state: "transcribing", turnId });
     let transcript;
     try {
@@ -517,7 +536,8 @@ export class ClientConnection implements Subscriber {
     const running = this.deps.orchestrator.runningTurn(this.conversationId);
     const noise = running !== undefined && running.turnId !== turnId && isFillerTranscript(text);
     const backchannel = capture.provisional && (isFillerTranscript(text) || isBackchannel(text));
-    if (noise || backchannel) {
+    const stranger = (await voiceCheck)?.owner === false;
+    if (noise || backchannel || stranger) {
       this.deps.orchestrator.discardPrepared(turnId);
       if (backchannel) this.deps.log.info({ turnId, words: text.split(/\s+/).filter(Boolean).length }, "backchannel kept the reply playing");
       this.send({ type: "turn.end", turnId, status: "cancelled" });
@@ -535,6 +555,19 @@ export class ClientConnection implements Subscriber {
       sttMs: Math.round(transcript.latencyMs),
       createSpeaker: this.speakerFactory(turnId, capture.replyMode),
     });
+  }
+
+  /** Whose voice a call utterance is; logs the score so the threshold can be tuned with real calls. */
+  private async checkSpeaker(turnId: string, capture: Capture): Promise<SpeakerVerdict | undefined> {
+    if (!this.deps.speaker || capture.voice.length === 0) return undefined;
+    try {
+      const verdict = await this.deps.speaker.matches(Buffer.concat(capture.voice), capture.sampleRate);
+      if (verdict) this.deps.log.info({ turnId, score: verdict.score, owner: verdict.owner, provisional: capture.provisional }, "speaker score");
+      return verdict;
+    } catch (error) {
+      this.deps.log.warn({ turnId, err: error instanceof Error ? error.message : "unknown" }, "speaker check failed");
+      return undefined;
+    }
   }
 
   private async finishDictation(turnId: string, capture: Capture): Promise<void> {

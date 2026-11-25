@@ -1,3 +1,4 @@
+import { fetchEnrollment } from "../voice/enrollment-api.js";
 import { ConnectionsGroup } from "./ConnectionsGroup.js";
 import { useEffect, useState } from "react";
 import type { PushResult } from "../conversation/session.js";
@@ -11,6 +12,25 @@ interface Props {
   onToggleSpeaker(): void;
   onEnablePush(): Promise<PushResult>;
   onLogout?(): void;
+  /** Opens the voice training; without it the row is hidden. */
+  onTrainVoice?(): void;
+}
+
+function VoiceRow({ onTrain }: { onTrain(): void }) {
+  const [enrolled, setEnrolled] = useState<boolean | null>(null);
+  useEffect(() => void fetchEnrollment().then((state) => setEnrolled(state?.enrolled ?? null)), []);
+  if (enrolled === null) return null;
+  return (
+    <div className="group">
+      <div className="row">
+        <span>Reconocer mi voz</span>
+        <button type="button" className="row-link" onClick={onTrain}>
+          {enrolled ? "Volver a entrenar" : "Entrenar"}
+        </button>
+      </div>
+      <p className="group-footer">{enrolled ? "En las llamadas solo te escucho a vos: ignoro otras voces y ruidos." : "Leés ocho frases y aprendo tu voz, para ignorar otras voces en las llamadas."}</p>
+    </div>
+  );
 }
 
 const pushLabel: Record<PushStatus, string> = {
@@ -43,7 +63,7 @@ function usePushStatus(): [PushStatus | null, () => void] {
 }
 
 /** The settings themselves: voice, notifications and the account. */
-export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onEnablePush, onLogout }: Props) {
+export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onEnablePush, onLogout, onTrainVoice }: Props) {
   const [push, refreshPush] = usePushStatus();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -84,6 +104,8 @@ export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onE
           {message ?? (push ? pushHelp[push] : "")}
         </p>
       </div>
+
+      {!demo && onTrainVoice && <VoiceRow onTrain={onTrainVoice} />}
 
       {!demo && <ConnectionsGroup />}
 

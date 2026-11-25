@@ -17,7 +17,7 @@ import type { Db } from "./db/database.js";
 import { allowedOrigins, applySecurityHeaders, isAllowedOrigin } from "./http/security.js";
 import type { AssistantContext } from "./runtime/system-prompt.js";
 import type { SpeechToTextService, TextToSpeechService } from "./voice/types.js";
-import { ClientConnection, type BuildHandlers, type PlayerState, type PushSubscription, type TaskAction, type TaskActionOutcome } from "./ws/client-connection.js";
+import { ClientConnection, type ConnectionDeps, type BuildHandlers, type PlayerState, type PushSubscription, type TaskAction, type TaskActionOutcome } from "./ws/client-connection.js";
 
 export interface AppDeps {
   config: AppConfig;
@@ -35,6 +35,8 @@ export interface AppDeps {
   onTaskAction?(action: TaskAction): TaskActionOutcome;
   refreshCard?(card: Card): Card;
   build?: BuildHandlers;
+  /** The owner's voiceprint, for dropping other voices in calls. */
+  speaker?: ConnectionDeps["speaker"];
   /** Lets integration modules add their own routes (OAuth callbacks, device gateway). */
   registerRoutes?(app: FastifyInstance, helpers: RouteHelpers): Promise<void> | void;
 }
@@ -144,6 +146,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         onTaskAction: deps.onTaskAction,
         refreshCard: deps.refreshCard,
         build: deps.build,
+        speaker: deps.speaker,
       });
     },
   );

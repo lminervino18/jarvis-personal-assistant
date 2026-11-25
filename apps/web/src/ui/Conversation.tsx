@@ -10,6 +10,7 @@ import { ChatView } from "./ChatView.js";
 import { GlassLens } from "./GlassLens.js";
 import { GearIcon, HammerIcon, HangUpIcon, MicIcon } from "./icons.js";
 import { Settings, SettingsSheet } from "./SettingsSheet.js";
+import { VoiceTraining } from "./VoiceTraining.js";
 
 interface Props {
   session: Session;
@@ -17,7 +18,9 @@ interface Props {
   demo?: boolean;
 }
 
-type Panel = "jarvis" | "build" | "settings";
+type Panel = "jarvis" | "build" | "settings" | "voice";
+
+const VOICE_PATH = "/voz";
 
 const WIDE_QUERY = "(min-width: 900px)";
 const COMPOSER_FALLBACK_PX = 68;
@@ -66,7 +69,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
   const announcement = useAssistantAnnouncement(snapshot.thread.messages);
   const dock = useRef<HTMLDivElement>(null);
   const composerHeight = useElementHeight(dock, COMPOSER_FALLBACK_PX);
-  const [panel, setPanel] = useState<Panel>("jarvis");
+  const [panel, setPanel] = useState<Panel>(() => (window.location.pathname === VOICE_PATH ? "voice" : "jarvis"));
   const refreshBuild = useCallback(() => session.refreshBuild(), [session]);
   const closePanel = useCallback(() => setPanel("jarvis"), []);
   const subtitle = useMemo(() => voiceSubtitle(snapshot.thread), [snapshot.thread]);
@@ -129,7 +132,12 @@ export function Conversation({ session, onLogout, demo }: Props) {
     onToggleSpeaker: () => session.toggleSpeaker(),
     onEnablePush: () => session.enablePush(),
     onLogout,
+    onTrainVoice: () => setPanel("voice"),
   };
+
+  const voice = (embedded: boolean) => (
+    <VoiceTraining embedded={embedded} levels={session.getLevels} onStart={() => session.startSample()} onStop={() => session.stopSample()} onClose={closePanel} />
+  );
 
   const chat = <ChatView session={session} snapshot={snapshot} dock={dock} hidden={wide && panel !== "jarvis"} active={panel === "jarvis"} demo={demo} onCall={call} />;
 
@@ -167,6 +175,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
           )}
           {chat}
           {panel === "build" && build(true)}
+          {panel === "voice" && voice(true)}
           {panel === "settings" && (
             <section className="settings-page" aria-labelledby="settings-page-title">
               <h2 id="settings-page-title">Configuración</h2>
@@ -215,6 +224,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
       )}
       {panel === "settings" && <SettingsSheet {...settings} onClose={closePanel} />}
       {panel === "build" && build(false)}
+      {panel === "voice" && voice(false)}
     </div>
   );
 }

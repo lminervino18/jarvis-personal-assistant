@@ -128,6 +128,8 @@ export class Session {
   private readonly dictationTurns = new Set<string>();
   private dictated: SessionSnapshot["dictated"] = null;
   private dictationSend = false;
+  private sample: Int16Array[] | null = null;
+  private sampling = false;
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
@@ -177,7 +179,7 @@ export class Session {
   getSnapshot = (): SessionSnapshot => this.snapshot;
 
   getLevels = (): Levels => {
-    this.levels.input = this.micOpen || this.dictation === "recording" ? this.inputLevel : 0;
+    this.levels.input = this.micOpen || this.dictation === "recording" || this.sampling ? this.inputLevel : 0;
     this.levels.output = this.engine?.outputLevel() ?? 0;
     return this.levels;
   };
@@ -300,6 +302,47 @@ export class Session {
     this.client.send({ type: "audio.end", turnId: this.dictationTurn });
     this.dictation = "transcribing";
     this.emit();
+  }
+
+  /** Records a voice sample for training: 16 kHz PCM kept on the device until `stopSample`. */
+  async startSample(): Promise<boolean> {
+    if (this.micOpen || this.dictation !== "idle" || this.micStarting || this.sample) return false;
+    const chunks: Int16Array[] = [];
+    this.sample = chunks;
+    this.micStarting = true;
+    try {
+      const engine = this.ensureEngine();
+      await engine.resume();
+      await engine.startMicrophone((pcm) => {
+        this.inputLevel = levelFromDbfs(rmsDbfs(pcm));
+        chunks.push(pcm.slice());
+      });
+      this.sampling = true;
+      return true;
+    } catch (error) {
+      this.sample = null;
+      this.setNotice("warning", micMessage(error));
+      return false;
+    } finally {
+      this.micStarting = false;
+      this.emit();
+    }
+  }
+
+  stopSample(): Int16Array {
+    const chunks = this.sample ?? [];
+    this.sample = null;
+    this.sampling = false;
+    this.engine?.stopMicrophone();
+    this.inputLevel = 0;
+    this.emit();
+    const samples = new Int16Array(chunks.reduce((total, chunk) => total + chunk.length, 0));
+    let offset = 0;
+    for (const chunk of chunks) {
+      samples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return samples;
   }
 
   private canRecord(): boolean {
@@ -731,8 +774,9 @@ export class Session {
   }
 
   /** The candidate turned out to be the owner talking: stop the reply for good. */
+  /** Long speech over the reply cuts it here, unless the server checks voices: then only its verdict does. */
   private confirmBargeIn(): void {
-    if (!this.bargeCandidate) return;
+    if (!this.bargeCandidate || this.capabilities?.speakerCheck) return;
     this.bargeCandidate = null;
     this.interruptAssistant("barge_in");
     this.engine?.duck?.(false);

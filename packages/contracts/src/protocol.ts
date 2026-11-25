@@ -233,6 +233,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
       outputFormat: AudioFormat.nullable(),
       followUpWindowMs: z.number().int().nonnegative(),
       pushPublicKey: z.string().nullable(),
+      /** The server recognizes the owner's voice in calls and drops other voices itself. */
+      speakerCheck: z.boolean().optional(),
     }),
   }),
   ServerBase.extend({

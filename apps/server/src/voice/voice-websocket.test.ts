@@ -1,3 +1,4 @@
+import type { ConnectionDeps } from "../ws/client-connection.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -35,7 +36,7 @@ afterEach(async () => {
 async function startServer(
   engineOptions: FixtureEngineOptions = {},
   reply = "Son las diez de la noche. Algo más en lo que te ayude?",
-  overrides: { stt?: SpeechToTextService; runtime?: ModelRuntime } = {},
+  overrides: { stt?: SpeechToTextService; runtime?: ModelRuntime; speaker?: ConnectionDeps["speaker"] } = {},
 ) {
   const dataDir = mkdtempSync(join(tmpdir(), "jarvis-voice-test-"));
   cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
@@ -60,6 +61,7 @@ async function startServer(
         ownerDisplayName: "Alex",
         timezone: config.timezone,
       }),
+    speaker: overrides.speaker,
     stt: overrides.stt ?? new FixtureStt({ transcript: "¿Qué hora es?", partials: ["¿Qué"] }),
     tts: new EngineTextToSpeech({ provider: "fixture", engine, effectIntensity: 0.15 }),
     orchestrator: new ConversationOrchestrator({
@@ -263,6 +265,20 @@ describe("voice over the WebSocket with fixture providers", () => {
     expect(await client.waitFor("turn.end", (m) => m.turnId === turnId)).toMatchObject({ status: "cancelled" });
     expect(scripted.calls).toHaveLength(0);
     expect(client.messages.some((m) => m.type === "state" && m.state === "transcribing" && m.turnId === turnId)).toBe(false);
+  });
+
+  it("drops another voice in a call, like noise, once the owner's voice is enrolled", async () => {
+    const scripted = new ScriptedRuntime(() => ({ text: "No debería correr." }));
+    const speaker = { enrolled: () => true, matches: async () => ({ owner: false, score: 0.12 }) };
+    const { port } = await startServer({}, undefined, { runtime: scripted, speaker });
+    const client = await VoiceClient.connect(port);
+    const ready = await client.hello();
+    expect(ready.capabilities.speakerCheck).toBe(true);
+    client.send({ type: "call.state", active: true });
+    const turnId = crypto.randomUUID();
+    client.speak(ready.conversationId, turnId);
+    expect(await client.waitFor("turn.end", (m) => m.turnId === turnId)).toMatchObject({ status: "cancelled" });
+    expect(scripted.calls).toHaveLength(0);
   });
 
   it("only transcribes a dictation: no turn, no state change, nothing stored", async () => {

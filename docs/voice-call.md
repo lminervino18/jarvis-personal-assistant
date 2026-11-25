@@ -43,6 +43,27 @@ Speech that starts while the reply plays is a candidate, not an interruption:
 
 Lowering the reply also lowers its echo, so residual echo rarely survives as a candidate, while the owner's voice does. The stop button still cuts everything at once.
 
+## The owner's voice
+
+Status: *implemented* and *tested with fixtures*; *pending owner* enrollment and threshold tuning with real calls.
+
+- **Enrollment.** Configuración › Reconocer mi voz, or `<PUBLIC_ORIGIN>/voz`:
+  - the owner reads 8 phrases (`voice/enrollment-routes.ts`);
+  - each one is uploaded as 16 kHz PCM to `DATA_DIR/voice/enrollment` and never goes to Git;
+  - with the last phrase, the server averages their embeddings into `DATA_DIR/voice/voiceprint.json`.
+- **Model.** 3D-Speaker CAM++ (VoxCeleb, 16 kHz, 512 dimensions) through `sherpa-onnx-node` 2.0.3, Apache-2.0:
+  - baked into the image at `/app/models/speaker.onnx` with its sha256 checked by `ADD --checksum`;
+  - loaded on first use;
+  - measured on the development machine with one thread: 29 ms for 1.5 s of audio, 53 ms for 3 s, plus 0.45 s to load once;
+  - with a voiceprint, the server warms the model in the background 10 s after it starts.
+- **In a call:**
+  - the server keeps the first 3 s of each utterance and scores it against the voiceprint while Whisper transcribes;
+  - below `SPEAKER_THRESHOLD` (default 0.35, cosine), the utterance is dropped like noise: no turn, and the reply keeps playing;
+  - utterances shorter than 1 s cannot be judged and are accepted;
+  - every score is logged as `speaker score`, so the threshold can be tuned with real calls.
+- **Interruptions.** With a voiceprint, `ready.capabilities.speakerCheck` is true and the phone no longer stops the reply on its own after 600 ms of speech. It only lowers the volume, and the server's verdict at the first pause decides whether the reply is interrupted.
+- **Dictation** is never checked: the owner pressed the microphone.
+
 ## Claude start-up
 
 Each turn used to start a Claude Code process after the transcript was ready.
