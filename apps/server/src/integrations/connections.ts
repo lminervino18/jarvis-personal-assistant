@@ -11,6 +11,8 @@ import { VercelClient, VercelError } from "./vercel/vercel-client.js";
 
 export interface ConnectionsDeps {
   db: Db;
+  /** Gmail accounts, shown with the other connections; undefined when Gmail is not configured. */
+  gmailAccounts?(): { label: string; email: string; status: string }[];
   env: NodeJS.ProcessEnv;
   cipher?: TokenCipher;
   publicOrigin: string;
@@ -66,7 +68,12 @@ export function createConnections(deps: ConnectionsDeps): Connections {
   const registerRoutes = (app: FastifyInstance, helpers: RouteHelpers) => {
     app.get("/api/connections", async (request, reply) => {
       if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+      const gmail = deps.gmailAccounts?.();
       return {
+        gmail: {
+          available: Boolean(gmail),
+          accounts: (gmail ?? []).filter((account) => account.status !== "revoked").map(({ label, email, status }) => ({ label, email, status })),
+        },
         github: { available: Boolean(github && accounts), account: accounts?.get("github")?.account ?? null },
         vercel: { available: Boolean(accounts), account: accounts?.get("vercel")?.account ?? null, domain: projectsDomain ?? null },
       };

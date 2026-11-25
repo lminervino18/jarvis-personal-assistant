@@ -82,7 +82,7 @@ const gmail = createGmailIntegration({
   timezone: config.timezone,
 });
 
-const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin });
+const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin, gmailAccounts: gmail.accounts });
 
 const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new PairingStore(db, tokenCipher) : undefined);
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });

@@ -89,7 +89,11 @@ describe("Vercel connection", () => {
     expect(connections.accounts?.get("vercel")).toMatchObject({ account: "owner-vercel", detail: "team_owner" });
 
     const listed = await app.inject({ method: "GET", url: "/api/connections" });
-    expect(listed.json()).toEqual({ github: { available: true, account: null }, vercel: { available: true, account: "owner-vercel", domain: "example.test" } });
+    expect(listed.json()).toEqual({
+      gmail: { available: false, accounts: [] },
+      github: { available: true, account: null },
+      vercel: { available: true, account: "owner-vercel", domain: "example.test" },
+    });
 
     const removed = await app.inject({ method: "POST", url: "/api/integrations/vercel/disconnect" });
     expect(removed.json()).toEqual({ disconnected: true });

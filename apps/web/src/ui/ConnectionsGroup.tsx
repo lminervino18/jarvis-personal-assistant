@@ -1,7 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { disconnect, fetchConnections, GITHUB_CONNECT_URL, saveVercelToken, VERCEL_TOKENS_URL, type ConnectionsState } from "../connections/api.js";
+import { disconnect, fetchConnections, GITHUB_CONNECT_URL, gmailConnectUrl, saveVercelToken, VERCEL_TOKENS_URL, type ConnectionsState } from "../connections/api.js";
 
-/** GitHub and Vercel: the accounts JARVIS uses to create repositories and publish projects. */
+const GMAIL_LABELS = [
+  { label: "personal", name: "Gmail personal" },
+  { label: "work", name: "Gmail de trabajo" },
+] as const;
+
+/** Gmail, GitHub and Vercel: each one connects with a link, or with a pasted token for Vercel. */
 export function ConnectionsGroup({ online }: { online: boolean }) {
   const [state, setState] = useState<ConnectionsState | null>(null);
   const [token, setToken] = useState("");
@@ -27,10 +32,28 @@ export function ConnectionsGroup({ online }: { online: boolean }) {
   };
 
   if (!state) return null;
-  const { github, vercel } = state;
+  const { gmail, github, vercel } = state;
 
   return (
     <div className="group">
+      {gmail.available &&
+        GMAIL_LABELS.map(({ label, name }) => {
+          const account = gmail.accounts.find((item) => item.label === label);
+          return (
+            <div key={label} className="row">
+              <span>{name}</span>
+              {account?.status === "connected" ? (
+                <span className="row-value" data-status="on">
+                  {account.email}
+                </span>
+              ) : (
+                <a className="row-link" href={gmailConnectUrl(label)}>
+                  {account ? "Reconectar" : "Conectar"}
+                </a>
+              )}
+            </div>
+          );
+        })}
       <div className="row">
         <span>GitHub</span>
         {github.account ? (

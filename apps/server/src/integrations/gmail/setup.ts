@@ -1,3 +1,4 @@
+import type { GmailAccountLabel } from "@jarvis/contracts";
 import type { FastifyInstance } from "fastify";
 import type { RouteHelpers } from "../../app.js";
 import type { TokenCipher } from "../../crypto/token-cipher.js";
@@ -21,8 +22,16 @@ export interface GmailIntegrationDeps {
   fetchFn?: typeof fetch;
 }
 
+export interface GmailAccountSummary {
+  label: GmailAccountLabel;
+  email: string;
+  status: string;
+}
+
 export interface GmailIntegration {
   service?: GmailService;
+  /** The connected accounts, for the settings screen; undefined when Gmail is not configured. */
+  accounts?(): GmailAccountSummary[];
   statusSource: IntegrationStatusSource;
   registerRoutes(app: FastifyInstance, helpers: RouteHelpers): void;
 }
@@ -61,6 +70,7 @@ export function createGmailIntegration(deps: GmailIntegrationDeps): GmailIntegra
   const service = new GmailService(accounts, new GmailClient(tokens, deps.timezone, deps.fetchFn));
   return {
     service,
+    accounts: () => accounts.list().map(({ label, email, status }) => ({ label, email, status })),
     statusSource: service,
     registerRoutes: (app, helpers) => registerGoogleRoutes(app, helpers, { connector, publicOrigin: deps.publicOrigin }),
   };

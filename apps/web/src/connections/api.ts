@@ -1,9 +1,13 @@
 export interface ConnectionsState {
+  gmail: { available: boolean; accounts: { label: string; email: string; status: string }[] };
   github: { available: boolean; account: string | null };
   vercel: { available: boolean; account: string | null; domain: string | null };
 }
 
 export type SaveOutcome = { ok: true } | { ok: false; message: string };
+
+/** Where the owner starts Google's authorization for one Gmail label. */
+export const gmailConnectUrl = (label: "personal" | "work") => `/api/integrations/google/start?label=${label}`;
 
 /** Where the owner starts GitHub's authorization; the server redirects there and back. */
 export const GITHUB_CONNECT_URL = "/api/integrations/github/start";
