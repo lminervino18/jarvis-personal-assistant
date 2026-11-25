@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { ImageService } from "./images/image-service.js";
+import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
 import { ProjectShipper } from "./projects/project-shipper.js";
 import { RepoProjects } from "./projects/repo-projects.js";
 import { createConnections } from "./integrations/connections.js";
@@ -162,6 +165,17 @@ services.filesBaseUrl = config.pages?.baseUrl;
 const videos = new VideoStore(db);
 const videosDir = join(config.dataDir, "videos");
 services.videos = videos;
+if (process.env.OPENAI_API_KEY) {
+  const whatsappOutbox = new WhatsAppOutbox(db);
+  services.images = new ImageService({
+    apiKey: process.env.OPENAI_API_KEY,
+    attachments,
+    outbox: new Outbox(db),
+    sendWhatsApp: ({ jid, text, attachmentId }) => whatsappOutbox.enqueue({ id: randomUUID(), chatJid: jid, text, attachmentId }, new Date()),
+    log: logger,
+    ...(process.env.IMAGE_MODEL ? { model: process.env.IMAGE_MODEL } : {}),
+  });
+}
 services.ownerName = config.ownerDisplayName;
 const videoSendsInFlight = new Set<string>();
 setInterval(() => {

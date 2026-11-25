@@ -1,3 +1,4 @@
+import type { ImageService } from "../images/image-service.js";
 import type { RepoProjects } from "../projects/repo-projects.js";
 import type { FileAnalysis, FileToAnalyze } from "../files/file-analysis.js";
 import type { FileLinks } from "../files/file-links.js";
@@ -53,6 +54,8 @@ export interface ToolServices {
   /** Reads any file for the model: images, transcripts, text of documents and sheets. */
   analyzeFile?: (file: FileToAnalyze) => Promise<FileAnalysis>;
   videos?: VideoStore;
+  /** Image generation with OpenAI; undefined without an API key. */
+  images?: Pick<ImageService, "start">;
   chatStudies?: ChatStudies;
   /** Speaks a text with JARVIS's voice as a WhatsApp voice note. */
   voiceNotes?: Pick<VoiceNoteMaker, "make">;

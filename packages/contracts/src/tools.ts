@@ -245,6 +245,15 @@ export const toolInputs = {
     change: z.string().trim().min(1).max(4000),
     attachmentIds: z.array(z.uuid()).max(6).optional(),
   },
+  image_create: {
+    prompt: z.string().trim().min(3).max(4000),
+    /** Photos the owner uploaded, used as references to edit or build on. */
+    attachmentIds: z.array(z.uuid()).max(4).optional(),
+    quality: z.enum(["low", "medium", "high"]).optional(),
+    format: z.enum(["square", "portrait", "landscape"]).optional(),
+    /** A WhatsApp chat (id, number or name, or "me") that gets the image as soon as it is ready. */
+    sendTo: z.object({ to: z.string().trim().min(1).max(120), text: z.string().trim().max(1000).optional() }).optional(),
+  },
   page_list: {},
   page_responses: {
     slug: PageSlug,
@@ -303,6 +312,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "video_revise",
   "video_send",
   "video_page",
+  "image_create",
 ]);
 
 /**
