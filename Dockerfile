@@ -41,7 +41,7 @@ COPY --from=build /out/package.json ./package.json
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /src/apps/server/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
-ADD --checksum=sha256:98daf9bcf1c8abf3db374fec4c27a5eda7c58705bb3f180d057b085a72a88bb5 \
+ADD --checksum=sha256:98daf9bcf1c8abf3db374fec4c27a5eda7c58705bb3f180d057b085a72a88bb5 --chmod=644 \
   https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx \
   ./models/speaker.onnx
 COPY assistant/CLAUDE.md assistant/loren.example.md ./assistant/
