@@ -42,8 +42,9 @@ export interface SessionSnapshot {
   callActive: boolean;
   callMuted: boolean;
   dictation: "idle" | "recording" | "transcribing";
-  /** The latest dictated text; `id` changes with every new transcript. */
-  dictated: { id: number; text: string } | null;
+  /** The latest dictated text; `id` changes with every new transcript, `send` asks the composer to send it right away. */
+  dictated: { id: number; text: string; send: boolean } | null;
+  voiceNote: "idle" | "starting" | "recording";
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
@@ -127,6 +128,10 @@ export class Session {
   private dictationTurn: string | null = null;
   private readonly dictationTurns = new Set<string>();
   private dictated: SessionSnapshot["dictated"] = null;
+  private dictationSend = false;
+  private voiceNote: SessionSnapshot["voiceNote"] = "idle";
+  private voiceNoteWanted = false;
+  private voiceNoteTurn: string | null = null;
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
@@ -176,7 +181,7 @@ export class Session {
   getSnapshot = (): SessionSnapshot => this.snapshot;
 
   getLevels = (): Levels => {
-    this.levels.input = this.micOpen || this.dictation === "recording" ? this.inputLevel : 0;
+    this.levels.input = this.micOpen || this.dictation === "recording" || this.voiceNote === "recording" ? this.inputLevel : 0;
     this.levels.output = this.engine?.outputLevel() ?? 0;
     return this.levels;
   };
@@ -277,17 +282,88 @@ export class Session {
 
   /** Dictation: records until stopped and writes the transcript into the composer instead of sending a turn. */
   async startDictation(): Promise<void> {
-    if (this.micOpen || this.dictation !== "idle" || this.micStarting) return;
+    if (!this.canRecord()) return;
+    this.dictationWanted = true;
+    const turnId = await this.openRecorder("dictation", () => this.dictationWanted);
+    if (!turnId) return;
+    this.dictationTurn = turnId;
+    this.dictationTurns.add(turnId);
+    this.dictation = "recording";
+    this.emit();
+  }
+
+  /**
+   * Stops dictating; the transcript arrives later in the snapshot's `dictated`. With `send` the
+   * composer sends it as soon as it arrives instead of leaving it for editing.
+   */
+  stopDictation(send = false): void {
+    this.dictationWanted = false;
+    if (this.dictation !== "recording" || !this.dictationTurn) return;
+    this.dictationSend = send;
+    this.closeRecorderMicrophone();
+    this.client.send({ type: "audio.end", turnId: this.dictationTurn });
+    this.dictation = "transcribing";
+    this.emit();
+  }
+
+  /** Voice note: records while the owner holds the button and sends it as a voice turn on release. */
+  async startVoiceNote(): Promise<void> {
+    if (!this.canRecord()) return;
+    this.voiceNoteWanted = true;
+    this.voiceNote = "starting";
+    this.interruptAssistant("superseded");
+    this.emit();
+    const turnId = await this.openRecorder("turn", () => this.voiceNoteWanted);
+    if (!turnId) {
+      this.voiceNote = "idle";
+      this.emit();
+      return;
+    }
+    this.voiceNoteTurn = turnId;
+    this.voiceNote = "recording";
+    this.emit();
+  }
+
+  /** The owner let go: what was recorded becomes a turn, transcribed and answered by the server. */
+  finishVoiceNote(): void {
+    this.voiceNoteWanted = false;
+    const turnId = this.voiceNoteTurn;
+    this.voiceNote = "idle";
+    this.voiceNoteTurn = null;
+    if (turnId) {
+      this.closeRecorderMicrophone();
+      this.client.send({ type: "audio.end", turnId });
+      this.markTurnSent(turnId, "transcribing", this.replyMode() === "voice");
+    }
+    this.emit();
+  }
+
+  cancelVoiceNote(): void {
+    this.voiceNoteWanted = false;
+    const turnId = this.voiceNoteTurn;
+    this.voiceNote = "idle";
+    this.voiceNoteTurn = null;
+    if (turnId) {
+      this.client.send({ type: "turn.cancel", turnId, reason: "user_stop" });
+      this.closeRecorderMicrophone();
+    }
+    this.emit();
+  }
+
+  private canRecord(): boolean {
+    if (this.micOpen || this.dictation !== "idle" || this.voiceNote !== "idle" || this.micStarting) return false;
     if (!this.capabilities?.stt) {
       this.setNotice("warning", "La voz todavía no está disponible en el servidor. Escribime.");
-      return;
+      return false;
     }
+    if (!this.client.conversationId || this.status !== "ready") return this.refuse("No hay conexión: no puedo escucharte.");
+    return true;
+  }
+
+  /** Opens the microphone and starts one capture; returns its turn id, or null if it was abandoned or failed. */
+  private async openRecorder(purpose: "dictation" | "turn", wanted: () => boolean): Promise<string | null> {
     const conversationId = this.client.conversationId;
-    if (!conversationId || this.status !== "ready") {
-      this.refuse("No hay conexión: no puedo escucharte.");
-      return;
-    }
-    this.dictationWanted = true;
+    if (!conversationId) return null;
     this.micStarting = true;
     try {
       const engine = this.ensureEngine();
@@ -297,37 +373,26 @@ export class Session {
         this.sendFrame(pcm);
       });
       this.reportCapture();
-      if (!this.dictationWanted) {
+      if (!wanted()) {
         engine.stopMicrophone();
-        return;
+        return null;
       }
       const turnId = this.newId();
-      const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode(), purpose: "dictation" } as const;
+      const begin = { type: "audio.begin", conversationId, turnId, format: STT_INPUT_FORMAT, replyMode: this.replyMode(), ...(purpose === "dictation" ? { purpose } : {}) } as const;
       if (!this.client.send(begin)) {
         engine.stopMicrophone();
         this.refuse("No hay conexión: no puedo escucharte.");
-        return;
+        return null;
       }
       this.captureTurn = turnId;
-      this.dictationTurn = turnId;
-      this.dictationTurns.add(turnId);
-      this.dictation = "recording";
+      return turnId;
     } catch (error) {
       this.setNotice("warning", micMessage(error));
+      return null;
     } finally {
       this.micStarting = false;
       this.emit();
     }
-  }
-
-  /** Stops dictating; the transcript arrives later in the snapshot's `dictated`. */
-  stopDictation(): void {
-    this.dictationWanted = false;
-    if (this.dictation !== "recording" || !this.dictationTurn) return;
-    this.closeDictationMicrophone();
-    this.client.send({ type: "audio.end", turnId: this.dictationTurn });
-    this.dictation = "transcribing";
-    this.emit();
   }
 
   /** Throws the dictation away, including a transcript still on its way. */
@@ -335,14 +400,14 @@ export class Session {
     this.dictationWanted = false;
     if (this.dictation === "recording" && this.dictationTurn) {
       this.client.send({ type: "turn.cancel", turnId: this.dictationTurn, reason: "user_stop" });
-      this.closeDictationMicrophone();
+      this.closeRecorderMicrophone();
     }
     this.dictation = "idle";
     this.dictationTurn = null;
     this.emit();
   }
 
-  private closeDictationMicrophone(): void {
+  private closeRecorderMicrophone(): void {
     this.engine?.stopMicrophone();
     this.inputLevel = 0;
     this.captureTurn = null;
@@ -352,10 +417,10 @@ export class Session {
     if (message.type === "transcript" && !message.final) return;
     this.dictationTurns.delete(message.turnId);
     if (message.turnId !== this.dictationTurn) return;
-    if (this.dictation === "recording") this.closeDictationMicrophone();
+    if (this.dictation === "recording") this.closeRecorderMicrophone();
     this.dictation = "idle";
     this.dictationTurn = null;
-    if (message.type === "transcript" && message.text) this.dictated = { id: (this.dictated?.id ?? 0) + 1, text: message.text };
+    if (message.type === "transcript" && message.text) this.dictated = { id: (this.dictated?.id ?? 0) + 1, text: message.text, send: this.dictationSend };
     else if (message.type === "transcript") this.setNotice("info", "No te escuché. Probá de nuevo.");
     else if (message.type === "error") this.setNotice("warning", message.message);
     this.emit();
@@ -427,11 +492,6 @@ export class Session {
     if (!trimmed) return false;
     if (!this.client.send({ type: "build.feedback", taskId, text: trimmed })) return this.refuse("No hay conexión: la respuesta no se envió.");
     return true;
-  }
-
-  newConversation(): void {
-    this.stopAll();
-    this.client.send({ type: "conversation.new" });
   }
 
   loadOlder(): void {
@@ -838,6 +898,7 @@ export class Session {
       callMuted: this.callMuted,
       dictation: this.dictation,
       dictated: this.dictated,
+      voiceNote: this.voiceNote,
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,

@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 interface Props {
   state: "recording" | "transcribing";
   levels: () => { input: number };
-  onStop(): void;
+  /** Finishes recording; `send` sends the transcript instead of writing it into the field. */
+  onStop(send: boolean): void;
   onCancel(): void;
 }
 
@@ -21,7 +22,7 @@ function useRecordingSeconds(recording: boolean): number {
   return seconds;
 }
 
-function Waveform({ levels }: { levels: () => { input: number } }) {
+export function Waveform({ levels }: { levels: () => { input: number } }) {
   const bars = useRef<(HTMLSpanElement | null)[]>([]);
 
   useEffect(() => {
@@ -53,10 +54,14 @@ function Waveform({ levels }: { levels: () => { input: number } }) {
   );
 }
 
-/** The composer while dictating: cancel on the left, the live waveform, and "done" on the right. */
+/**
+ * The composer while dictating: cancel, the live waveform, then the two ways to finish: write the
+ * transcript into the field to keep editing, or send it as soon as it is transcribed.
+ */
 export function DictationBar({ state, levels, onStop, onCancel }: Props) {
   const seconds = useRecordingSeconds(state === "recording");
   const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  const recording = state === "recording";
 
   return (
     <>
@@ -66,7 +71,7 @@ export function DictationBar({ state, levels, onStop, onCancel }: Props) {
         </svg>
       </button>
       <div className="field glass dictation" role="status" aria-live="polite">
-        {state === "recording" ? (
+        {recording ? (
           <>
             <span className="sr-only">Escuchando</span>
             <Waveform levels={levels} />
@@ -78,10 +83,15 @@ export function DictationBar({ state, levels, onStop, onCancel }: Props) {
             Transcribiendo…
           </span>
         )}
+        <button type="button" className="field-button dictation-write" aria-label="Escribir lo que dije para editarlo" disabled={!recording} onClick={() => onStop(false)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+            <path fill="currentColor" d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25ZM20.7 7.04a1 1 0 0 0 0-1.41l-2.33-2.33a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.82-1.84Z" />
+          </svg>
+        </button>
       </div>
-      <button type="button" className="round-button dictation-done" aria-label="Listo: escribir lo que dije" disabled={state !== "recording"} onClick={onStop}>
+      <button type="button" className="round-button" aria-label="Enviar lo que dije" disabled={!recording} onClick={() => onStop(true)}>
         <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
-          <path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17Z" />
+          <path fill="currentColor" d="M11 20V7.83l-5.59 5.59L4 12l8-8 8 8-1.41 1.41L13 7.83V20h-2Z" />
         </svg>
       </button>
     </>

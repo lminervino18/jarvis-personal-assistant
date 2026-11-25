@@ -56,14 +56,4 @@ describe("demo mode", () => {
     expect(decided?.cards.find((c) => c.kind === "confirm")).toMatchObject({ status: "confirmed" });
     session.stop();
   });
-
-  it("starts an empty conversation on request", async () => {
-    const session = demoSession();
-    session.start();
-    await vi.advanceTimersByTimeAsync(5);
-    session.newConversation();
-    await vi.advanceTimersByTimeAsync(5);
-    expect(session.getSnapshot().thread.messages).toEqual([]);
-    session.stop();
-  });
 });

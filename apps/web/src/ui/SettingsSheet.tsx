@@ -9,9 +9,7 @@ interface Props {
   demo?: boolean;
   onToggleSpeaker(): void;
   onEnablePush(): Promise<PushResult>;
-  onNewConversation(): void;
   onLogout?(): void;
-  onClose(): void;
 }
 
 const pushLabel: Record<PushStatus, string> = {
@@ -43,17 +41,11 @@ function usePushStatus(): [PushStatus | null, () => void] {
   return [status, () => setVersion((current) => current + 1)];
 }
 
-/** iOS-style settings sheet: voice, notifications and the conversation. */
-export function SettingsSheet({ speech, speakerOn, online, demo, onToggleSpeaker, onEnablePush, onNewConversation, onLogout, onClose }: Props) {
+/** The settings themselves: voice, notifications and the account. */
+export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onEnablePush, onLogout }: Props) {
   const [push, refreshPush] = usePushStatus();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const enablePush = async () => {
     setBusy(true);
@@ -64,62 +56,65 @@ export function SettingsSheet({ speech, speakerOn, online, demo, onToggleSpeaker
   };
 
   return (
+    <>
+      {speech && (
+        <div className="group">
+          <label className="row">
+            <span>Leer respuestas en voz alta</span>
+            <input type="checkbox" role="switch" className="switch" checked={speakerOn} onChange={onToggleSpeaker} />
+          </label>
+          <p className="group-footer">En la llamada siempre te respondo hablando.</p>
+        </div>
+      )}
+
+      <div className="group">
+        <div className="row">
+          <span>Notificaciones</span>
+          <span className="row-value" data-status={push ?? "off"}>
+            {push ? pushLabel[push] : "…"}
+          </span>
+        </div>
+        {push === "off" && (
+          <button type="button" className="row row-action" disabled={busy || !online} onClick={() => void enablePush()}>
+            {busy ? "Activando…" : "Activar notificaciones"}
+          </button>
+        )}
+        <p className="group-footer" role="status">
+          {message ?? (push ? pushHelp[push] : "")}
+        </p>
+      </div>
+
+      {onLogout && (
+        <div className="group">
+          <button type="button" className="row row-action row-danger" onClick={onLogout}>
+            Cerrar sesión
+          </button>
+        </div>
+      )}
+      {demo && <p className="group-footer">Modo demo: datos ficticios.</p>}
+    </>
+  );
+}
+
+/** iOS-style settings sheet for the phone. */
+export function SettingsSheet({ onClose, ...settings }: Props & { onClose(): void }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
     <div className="sheet-backdrop" onClick={onClose}>
       <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
         <span className="sheet-grabber" aria-hidden="true" />
         <header className="sheet-header">
-          <h2 id="settings-title">Ajustes</h2>
+          <h2 id="settings-title">Configuración</h2>
           <button type="button" className="sheet-done" onClick={onClose}>
             Listo
           </button>
         </header>
-
-        {speech && (
-          <div className="group">
-            <label className="row">
-              <span>Leer respuestas en voz alta</span>
-              <input type="checkbox" role="switch" className="switch" checked={speakerOn} onChange={onToggleSpeaker} />
-            </label>
-            <p className="group-footer">En la llamada siempre te respondo hablando.</p>
-          </div>
-        )}
-
-        <div className="group">
-          <div className="row">
-            <span>Notificaciones</span>
-            <span className="row-value" data-status={push ?? "off"}>
-              {push ? pushLabel[push] : "…"}
-            </span>
-          </div>
-          {push === "off" && (
-            <button type="button" className="row row-action" disabled={busy || !online} onClick={() => void enablePush()}>
-              {busy ? "Activando…" : "Activar notificaciones"}
-            </button>
-          )}
-          <p className="group-footer" role="status">
-            {message ?? (push ? pushHelp[push] : "")}
-          </p>
-        </div>
-
-        <div className="group">
-          <button
-            type="button"
-            className="row row-action"
-            disabled={!online}
-            onClick={() => {
-              onNewConversation();
-              onClose();
-            }}
-          >
-            Nueva conversación
-          </button>
-          {onLogout && (
-            <button type="button" className="row row-action row-danger" onClick={onLogout}>
-              Cerrar sesión
-            </button>
-          )}
-        </div>
-        {demo && <p className="group-footer">Modo demo: datos ficticios.</p>}
+        <Settings {...settings} />
       </section>
     </div>
   );

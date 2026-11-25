@@ -14,6 +14,7 @@ import { subscribeToPush } from "./pwa/push.js";
 import "./styles.css";
 
 preventZoom(document);
+if ("userAgentData" in navigator) document.documentElement.classList.add("refract");
 const root = createRoot(document.getElementById("root") as HTMLElement);
 
 const demo = new URLSearchParams(window.location.search).has("demo");

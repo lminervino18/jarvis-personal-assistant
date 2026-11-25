@@ -14,12 +14,14 @@ interface Props {
   dictated: SessionSnapshot["dictated"];
   levels: () => { input: number };
   onDictate(): void;
-  onDictationStop(): void;
+  onDictationStop(send: boolean): void;
   onDictationCancel(): void;
   onRefresh(): void;
   onRequest(text: string): boolean;
   onReply(taskId: string, text: string): boolean;
   onClose(): void;
+  /** Shown inside the wide layout's main panel instead of covering the screen. */
+  embedded?: boolean;
 }
 
 const REFRESH_MS = 4000;
@@ -35,15 +37,24 @@ function replyLabel(task: BuildTask): string {
  * another one reviews; the owner answers questions here and decides whether to publish.
  */
 export function BuildScreen(props: Props) {
-  const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose } = props;
+  const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose, embedded } = props;
   const [text, setText] = useState("");
   const [replyTo, setReplyTo] = useState<BuildTask | null>(null);
   const appliedDictation = useRef(dictated?.id ?? 0);
 
+  const send = (value: string): boolean => {
+    const sent = replyTo ? onReply(replyTo.taskId, value) : onRequest(value);
+    if (!sent) return false;
+    setText("");
+    setReplyTo(null);
+    return true;
+  };
+
   useEffect(() => {
     if (!dictated || dictated.id === appliedDictation.current) return;
     appliedDictation.current = dictated.id;
-    setText((current) => appendDictation(current, dictated.text));
+    const next = appendDictation(text, dictated.text);
+    if (!dictated.send || !send(next)) setText(next);
   }, [dictated]);
 
   useEffect(() => {
@@ -60,22 +71,21 @@ export function BuildScreen(props: Props) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const sent = replyTo ? onReply(replyTo.taskId, text) : onRequest(text);
-    if (!sent) return;
-    setText("");
-    setReplyTo(null);
+    send(text);
   };
 
   return (
-    <section className="build" role="dialog" aria-modal="true" aria-labelledby="build-title">
+    <section className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true })} aria-labelledby="build-title">
       <header className="build-header">
         <div>
           <h2 id="build-title">Construir</h2>
           <p>Cambios a JARVIS, revisados antes de publicar</p>
         </div>
-        <button type="button" className="build-done" onClick={onClose}>
-          Listo
-        </button>
+        {!embedded && (
+          <button type="button" className="build-done" onClick={onClose}>
+            Listo
+          </button>
+        )}
       </header>
 
       <div className="build-list">
