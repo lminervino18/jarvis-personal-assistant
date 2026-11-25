@@ -17,7 +17,8 @@ preventZoom(document);
 if ("userAgentData" in navigator) document.documentElement.classList.add("refract");
 const root = createRoot(document.getElementById("root") as HTMLElement);
 
-const demo = new URLSearchParams(window.location.search).has("demo");
+const params = new URLSearchParams(window.location.search);
+const demo = params.has("demo");
 
 function createSession(): Session {
   const session = new Session({
@@ -36,7 +37,7 @@ function createSession(): Session {
 
 function createDemoSession(): Session {
   const session = new Session({
-    transport: demoTransport(),
+    transport: demoTransport({ stepMs: 700, voice: params.has("voz") }),
     createEngine: (options) => new WebAudioEngine(options),
   });
   session.start();

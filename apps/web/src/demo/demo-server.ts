@@ -7,6 +7,8 @@ const DEMO_VIDEO = { videoId: "jNQXAC9IVRw", title: "Video de ejemplo", channel:
 export interface DemoOptions {
   /** Pause between scripted steps, in milliseconds. */
   stepMs: number;
+  /** Pretends the server can transcribe and speak, to show the voice controls. */
+  voice?: boolean;
   now?: () => Date;
 }
 
@@ -135,8 +137,31 @@ function confirmCard(now: Date, status: "pending" | "confirmed" | "rejected"): C
   };
 }
 
+const STRESS_TEXT = [
+  "Esta es una respuesta larga para probar la lectura: tiene **negritas**, _itálicas_, una lista y código.",
+  "",
+  "1. Primero revisé el archivo `apps/web/src/ui/Conversation.tsx`, que es bastante largo.",
+  "2. Después comparé contra https://example.com/una/url/muy/larga/que/no/deberia/romper/el/ancho/del/chat?con=parametros&y=mas&parametros=todavia",
+  "3. Por último armé este bloque:",
+  "",
+  "```ts",
+  "export function sumarTodosLosValoresDeUnaListaMuyLarga(valores: readonly number[]): number { return valores.reduce((total, valor) => total + valor, 0); }",
+  "```",
+  "",
+  "Un párrafo final más largo, para ver cómo respira el texto cuando ocupa varias líneas en un celular angosto y en una pantalla ancha de escritorio, sin estirarse de más ni quedar apretado contra los bordes.",
+].join("\n");
+
+function stressCards(): Card[] {
+  return [
+    { kind: "table", title: "Comparación con un título bastante largo para ver cómo se corta", columns: ["Archivo", "Líneas", "Estado", "Notas"], rows: [["apps/web/src/ui/Conversation.tsx", "231", "Revisado", "Sin problemas"], ["apps/server/src/ws/client-connection.ts", "612", "Pendiente", "Revisar el manejo de capturas en llamadas largas"]] },
+    { kind: "attachment", attachmentId: "d3d30d3d-0000-4000-8000-00000000a001", name: "informe-trimestral-de-ventas-por-region-version-final-revisada-2026.pdf", mediaType: "application/pdf", size: 482_133 },
+    { kind: "link", url: "https://example.com/una/url/muy/larga/que/no/deberia/romper/el/ancho/del/chat?con=parametros&y=mas", title: "Un enlace con un título largo que tiene que poder leerse entero o cortarse con criterio", description: "Descripción del enlace (ficticia)." },
+  ];
+}
+
 function reply(text: string, now: Date): { text: string; cards: Card[] } {
   const lower = text.toLowerCase();
+  if (lower.includes("prueba")) return { text: STRESS_TEXT, cards: stressCards() };
   if (lower.includes("recordatorio") || lower.includes("recordame")) {
     return {
       text: "Listo, te lo anoté.",
@@ -236,7 +261,7 @@ export class DemoServer {
       protocol: 1,
       conversationId: this.conversation,
       owner: { displayName: "Demo" },
-      capabilities: { stt: false, tts: false, ttsProvider: null, outputFormat: null, followUpWindowMs: 12_000, pushPublicKey: null },
+      capabilities: { stt: this.options.voice === true, tts: this.options.voice === true, ttsProvider: null, outputFormat: null, followUpWindowMs: 12_000, pushPublicKey: null },
     });
     this.emit({ type: "history", conversationId: this.conversation, items: empty ? [] : demoHistory(this.now()), hasMore: false });
     this.emit({ type: "state", state: "idle" });
@@ -246,12 +271,10 @@ export class DemoServer {
     const answer = reply(text, this.now());
     this.emit({ type: "state", state: "thinking", turnId });
     this.later(2, () => this.emit({ type: "state", state: "using_tool", turnId, tool: "demo" }));
-    this.later(4, () => {
-      this.emit({ type: "state", state: "thinking", turnId });
-      this.emit({ type: "assistant.delta", turnId, text: answer.text.slice(0, Math.ceil(answer.text.length / 2)) });
-    });
-    this.later(5, () => {
-      this.emit({ type: "assistant.delta", turnId, text: answer.text.slice(Math.ceil(answer.text.length / 2)) });
+    const pieces = answer.text.match(/[\s\S]{1,24}/g) ?? [];
+    this.later(4, () => this.emit({ type: "state", state: "thinking", turnId }));
+    pieces.forEach((piece, index) => this.later(4 + (index + 1) / 6, () => this.emit({ type: "assistant.delta", turnId, text: piece })));
+    this.later(5 + pieces.length / 6, () => {
       for (const card of answer.cards) this.emit({ type: "card", turnId, card });
       this.emit({ type: "assistant.done", turnId, messageId: `demo-reply-${turnId}`, text: answer.text, interrupted: false });
       this.emit({ type: "turn.end", turnId, status: "completed" });
