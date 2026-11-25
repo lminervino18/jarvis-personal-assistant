@@ -1,112 +1,99 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { disconnect, fetchConnections, GITHUB_CONNECT_URL, gmailConnectUrl, saveVercelToken, VERCEL_TOKENS_URL, type ConnectionsState } from "../connections/api.js";
+import { useEffect, useState, type ReactNode } from "react";
+import type { CardActions } from "../cards/actions.js";
+import { CardView } from "../cards/Cards.js";
+import { disconnect, fetchConnections, GITHUB_CONNECT_URL, gmailConnectUrl, type ConnectionsState } from "../connections/api.js";
 
 const GMAIL_LABELS = [
   { label: "personal", name: "Gmail personal" },
   { label: "work", name: "Gmail de trabajo" },
 ] as const;
 
-/** Gmail, GitHub and Vercel: each one connects with a link, or with a pasted token for Vercel. */
-export function ConnectionsGroup({ online }: { online: boolean }) {
+const NO_ACTIONS: CardActions = {
+  decide: () => {},
+  taskAction: () => {},
+  registerPlayer: () => () => {},
+  reportPlayer: () => {},
+  enablePush: async () => ({ ok: true }),
+};
+
+function ConnectionRow({ name, account, connected, children }: { name: string; account?: string | null; connected: boolean; children?: ReactNode }) {
+  return (
+    <div className="row connection-row">
+      <span className="connection-dot" data-on={connected} aria-hidden="true" />
+      <span className="connection-name">
+        <span>{name}</span>
+        {account && <small>{account}</small>}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function ConnectLink({ href }: { href: string }) {
+  return (
+    <a className="row-link" href={href}>
+      Conectar
+    </a>
+  );
+}
+
+function DisconnectButton({ onClick }: { onClick(): void }) {
+  return (
+    <button type="button" className="row-link row-link-danger" onClick={onClick}>
+      Desconectar
+    </button>
+  );
+}
+
+const whatsappLabels: Record<string, string> = {
+  connected: "Conectado",
+  needs_action: "Hay que vincularlo",
+  disconnected: "Desconectado",
+  error: "Con problemas",
+  disabled: "Desactivado",
+};
+
+/** One line per service: whether it is connected, and connect or disconnect right there. */
+export function ConnectionsGroup() {
   const [state, setState] = useState<ConnectionsState | null>(null);
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
 
   const refresh = () => void fetchConnections().then(setState);
   useEffect(refresh, []);
 
-  const saveToken = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    const outcome = await saveVercelToken(token.trim());
-    setBusy(false);
-    setMessage(outcome.ok ? null : outcome.message);
-    if (outcome.ok) setToken("");
-    refresh();
-  };
-
-  const remove = async (provider: "github" | "vercel") => {
+  const remove = async (provider: "github" | "gmail-personal" | "gmail-work") => {
     await disconnect(provider);
     refresh();
   };
 
   if (!state) return null;
-  const { gmail, github, vercel } = state;
+  const { whatsapp, gmail, github } = state;
 
   return (
     <div className="group">
+      {whatsapp && (
+        <ConnectionRow name="WhatsApp" account={whatsappLabels[whatsapp.status] ?? whatsapp.status} connected={whatsapp.status === "connected"} />
+      )}
+      {whatsapp?.pairing && <CardView card={whatsapp.pairing} actions={NO_ACTIONS} />}
+
       {gmail.available &&
         GMAIL_LABELS.map(({ label, name }) => {
           const account = gmail.accounts.find((item) => item.label === label);
+          const connected = account?.status === "connected";
           return (
-            <div key={label} className="row">
-              <span>{name}</span>
-              {account?.status === "connected" ? (
-                <span className="row-value" data-status="on">
-                  {account.email}
-                </span>
-              ) : (
-                <a className="row-link" href={gmailConnectUrl(label)}>
-                  {account ? "Reconectar" : "Conectar"}
-                </a>
-              )}
-            </div>
+            <ConnectionRow key={label} name={name} account={account?.email} connected={connected}>
+              {connected ? <DisconnectButton onClick={() => void remove(`gmail-${label}`)} /> : <ConnectLink href={gmailConnectUrl(label)} />}
+            </ConnectionRow>
           );
         })}
-      <div className="row">
-        <span>GitHub</span>
-        {github.account ? (
-          <span className="row-value" data-status="on">
-            {github.account}
-          </span>
-        ) : github.available ? (
-          <a className="row-link" href={GITHUB_CONNECT_URL}>
-            Conectar
-          </a>
-        ) : (
-          <span className="row-value">No configurado</span>
-        )}
-      </div>
-      {github.account && (
-        <button type="button" className="row row-action row-danger" onClick={() => void remove("github")}>
-          Desconectar GitHub
-        </button>
-      )}
 
-      <div className="row">
-        <span>Vercel</span>
-        <span className="row-value" data-status={vercel.account ? "on" : "off"}>
-          {vercel.account ?? "Sin conectar"}
-        </span>
-      </div>
-      {vercel.account ? (
-        <button type="button" className="row row-action row-danger" onClick={() => void remove("vercel")}>
-          Desconectar Vercel
-        </button>
-      ) : (
-        vercel.available && (
-          <form className="row row-form" onSubmit={(event) => void saveToken(event)}>
-            <input type="password" autoComplete="off" placeholder="Token de Vercel" aria-label="Token de Vercel" value={token} onChange={(event) => setToken(event.target.value)} />
-            <button type="submit" className="row-link" disabled={busy || !online || token.trim().length < 10}>
-              {busy ? "Guardando…" : "Guardar"}
-            </button>
-          </form>
-        )
-      )}
+      <ConnectionRow name="GitHub" account={github.account} connected={Boolean(github.account)}>
+        {github.account ? <DisconnectButton onClick={() => void remove("github")} /> : github.available && <ConnectLink href={GITHUB_CONNECT_URL} />}
+      </ConnectionRow>
+
       <p className="group-footer" role="status">
-        {message ??
-          (vercel.account
-            ? `Publico los proyectos en ${vercel.domain ? `<nombre>.${vercel.domain}` : "vercel.app"}, siempre después de que lo apruebes.`
-            : (
-              <>
-                Creá un token en{" "}
-                <a href={VERCEL_TOKENS_URL} target="_blank" rel="noreferrer">
-                  Vercel › Tokens
-                </a>{" "}
-                con el alcance de tu equipo y pegalo acá.
-              </>
-            ))}
+        {whatsapp && whatsapp.status !== "connected"
+          ? whatsapp.detail
+          : "Jarvis usa estas cuentas solo para lo que le pedís; lo que publica o manda en tu nombre siempre pasa por tu aprobación."}
       </p>
     </div>
   );

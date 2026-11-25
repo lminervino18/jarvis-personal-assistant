@@ -85,7 +85,7 @@ export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onE
         </p>
       </div>
 
-      {!demo && <ConnectionsGroup online={online} />}
+      {!demo && <ConnectionsGroup />}
 
       {onLogout && (
         <div className="group">
