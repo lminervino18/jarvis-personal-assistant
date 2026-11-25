@@ -80,12 +80,17 @@ Owner feedback sent while a task runs is queued for the next iteration. If the r
 
 | Role | Model (default) | Tools | Writes |
 | --- | --- | --- | --- |
-| Planner | `claude-haiku-5-5`, effort medium | Read, Glob, Grep | nothing |
-| Executor | `claude-sonnet-5-5`, effort medium | Read, Write, Edit, Glob, Grep, Bash, TodoWrite, Agent (only `explorer`) | its `work/` folder |
+| Planner | `claude-sonnet-5-5`, effort medium | Read, Glob, Grep, WebSearch, WebFetch | nothing |
+| Executor | `claude-sonnet-5-5`, effort medium | Read, Write, Edit, Glob, Grep, Bash, TodoWrite, WebSearch, WebFetch, Agent (only `explorer`) | its `work/` folder |
 | Explorer subagent | `claude-haiku-5-5` | Read, Glob, Grep | nothing |
 | Reviewer | `claude-sonnet-5-5`, effort medium | Read, Glob, Grep, Bash, TodoWrite | a disposable clone |
 
-The planner moved to Haiku on 2026-11-21 to spend less of the plan. On the controlled task, with real Claude, it wrote 7 verifiable criteria (including the rounding rule from `CONTEXT.md` and a scope check) for USD 0.003. Set `AGENT_MODEL_PLANNER=claude-sonnet-5-5` if real tasks show weaker plans.
+The planner moved to Haiku on 2026-11-21 to spend less of the plan. On the controlled task, with real Claude, it wrote 7 verifiable criteria (including the rounding rule from `CONTEXT.md` and a scope check) for USD 0.003. On 2026-11-25 the owner moved it back to Sonnet, because whole projects and research need stronger plans. `AGENT_MODEL_PLANNER=claude-haiku-5-5` brings Haiku back.
+
+Network, decided by the owner on 2026-11-25:
+- Agent commands reach package registries (npm, Yarn, JSR, PyPI) and GitHub (`DEFAULT_AGENT_DOMAINS` in `runner-config.ts`, overridden by `AGENT_ALLOWED_DOMAINS`). So agents can install dependencies and clone public code.
+- The planner and the executor have WebSearch and WebFetch for research. These tools follow the tool allowlist, not the domain list.
+- Agents still get no credentials: anything that writes to GitHub or deploys is done by the server after an owner tap.
 
 No delegation can end up on Opus. The guard has six layers:
 
@@ -134,7 +139,7 @@ Agents share the owner's subscription limits with the chat, so the runner keeps 
   - `task_create` inherits the chat tool idempotency key (turn + input).
   - External sources de-duplicate on `(source, external_ref)`.
   - Notifications de-duplicate on `task-event:<id>:chat|push`.
-- **External effects.** Agents have no credentials for company systems and no network unless `AGENT_ALLOWED_DOMAINS` allows it, so re-running a phase only touches the task's own folder. Any future connector that writes outside the workspace must record the effect with an idempotency key and check its outcome before retrying. Until then, an `unknown` outcome is never retried automatically.
+- **External effects.** Agents have no credentials for company systems, and their network reaches only registries, GitHub and the web for reading, so re-running a phase only touches the task's own folder. Any future connector that writes outside the workspace must record the effect with an idempotency key and check its outcome before retrying. Until then, an `unknown` outcome is never retried automatically.
 
 ## Personal and work separation
 
@@ -152,7 +157,7 @@ Inside the runner container:
 
 - File tools are confined by the path policy: reads only in the task's `request/`, `context/` and `work/` (or system paths); writes only in `work/`. Nothing under `/proc`, `/sys` or `/dev`, other tasks, `.runner/` or `work.db`.
 - Bash runs in Claude Code's sandbox (bubblewrap), with `failIfUnavailable` in production.
-- **Residual risk (documented, not solved):** with the weaker nested sandbox Docker needs, a hostile command could read the agent process environment through `/proc` and use an allowed domain to exfiltrate the agent token. The token would expose the owner's plan usage, not money while extra usage stays disabled, until it is revoked. It is a separate token from the chat's, so it can be revoked and replaced with `claude setup-token` without touching the chat. Keep `AGENT_ALLOWED_DOMAINS` empty unless a task needs the network.
+- **Residual risk (documented, not solved):** with the weaker nested sandbox Docker needs, a hostile command could read the agent process environment through `/proc` and use an allowed domain to exfiltrate the agent token. The token would expose the owner's plan usage, not money while extra usage stays disabled, until it is revoked. It is a separate token from the chat's, so it can be revoked and replaced with `claude setup-token` without touching the chat. Since 2026-11-25 agents have network by the owner's decision, so this risk is accepted. Set `AGENT_ALLOWED_DOMAINS` empty and drop WebFetch to close it.
 
 ## Approvals and external effects
 

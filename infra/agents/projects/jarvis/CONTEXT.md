@@ -6,7 +6,7 @@ Este proyecto es el repositorio de J.A.R.V.IS. Lo que hagas acá lo revisa otro 
 
 - Leé `CLAUDE.md` en la raíz del repositorio y seguilo: estilo, convenciones y reglas de seguridad.
 - Leé la documentación del área que vas a cambiar (`docs/architecture.md`, `docs/agents.md`, `docs/voice.md`, `docs/integrations/`).
-- Las dependencias ya están instaladas en `node_modules`. No hay red: no agregues paquetes nuevos.
+- Las dependencias ya están instaladas en `node_modules`. No agregues paquetes nuevos salvo que el pedido lo diga.
 
 ## Cómo trabajar
 

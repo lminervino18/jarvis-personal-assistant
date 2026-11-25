@@ -31,9 +31,9 @@ server: card status and one chat message plus push when it ends
 
 ## Agent workspace
 
-- The runner clones the project repository and then runs the project's `setup.sh` (`pnpm install --frozen-lockfile`) itself, before any agent touches the copy. Install scripts therefore only come from the deployed commit, and agents need no network.
+- The runner clones the project repository and then runs the project's `setup.sh` (`pnpm install --frozen-lockfile`) itself, before any agent touches the copy. Install scripts therefore only come from the deployed commit.
 - The reviewer's disposable clone gets the same `node_modules` as hard links (`cp -al`), so it can run the tests too.
-- Agents cannot add dependencies (no network, and the publisher installs from the lockfile).
+- Agents can reach package registries, but `CONTEXT.md` tells them not to add dependencies unless the request asks. The publisher installs from the lockfile, so a new dependency must come with its lockfile change.
 - The executor reports `commitTitle`, a Conventional Commit title in English. The server checks it and falls back to `feat(build): apply build task N`.
 
 ## Publisher steps
@@ -51,7 +51,7 @@ server: card status and one chat message plus push when it ends
 - **The owner's tap is the only approval.** The server signs a request only from a `task.action publish` on an authenticated session. The publisher refuses unsigned requests and patches that changed after the tap.
 - **Same UID.** The server container and the agent runner both run as UID 10001. The spool folder therefore cannot tell them apart, and the signature exists for that reason.
 - **Signing key.** It lives in `jarvis.env` and `/etc/jarvis/publisher.env`, where agents cannot read it.
-- **Residual risk.** An agent that escaped the bubblewrap sandbox could read the server process environment under the same UID. Keep agents without network (`AGENT_ALLOWED_DOMAINS` empty).
+- **Residual risk.** An agent that escaped the bubblewrap sandbox could read the server process environment under the same UID. Since 2026-11-25 agents have network by the owner's decision, which widens this risk. Setting `AGENT_ALLOWED_DOMAINS` empty narrows it again.
 - **App code.** A published change runs with the app's own privileges, which include the owner's personal data. Reading the diff before publishing is the owner's control. Tests and review catch mistakes, not malice.
 
 ## Setup (once, as an admin)

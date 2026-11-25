@@ -26,8 +26,8 @@ export interface ClaudeAgentConfig {
 }
 
 const ROLE_TOOLS: Record<AgentRole, string[]> = {
-  planner: ["Read", "Glob", "Grep"],
-  executor: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "TodoWrite"],
+  planner: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
+  executor: ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "Agent", "TodoWrite", "WebSearch", "WebFetch"],
   reviewer: ["Read", "Glob", "Grep", "Bash", "TodoWrite"],
 };
 

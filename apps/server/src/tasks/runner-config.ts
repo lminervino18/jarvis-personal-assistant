@@ -14,6 +14,21 @@ const flag = (fallback: "true" | "false") =>
     .default(fallback)
     .transform((value) => value === "true" || value === "1");
 const EffortValue = z.enum(["low", "medium", "high", "xhigh", "max"]);
+/** Hosts that agent commands may reach by default: package registries and GitHub. Web research goes through WebSearch and WebFetch. */
+export const DEFAULT_AGENT_DOMAINS = [
+  "registry.npmjs.org",
+  "*.npmjs.org",
+  "registry.yarnpkg.com",
+  "*.yarnpkg.com",
+  "jsr.io",
+  "*.jsr.io",
+  "pypi.org",
+  "*.pythonhosted.org",
+  "github.com",
+  "*.github.com",
+  "*.githubusercontent.com",
+];
+
 const ModelName = z.string().regex(/^(claude-)?(sonnet|haiku)[a-z0-9.-]*$/i, "agents only run on Sonnet or Haiku models");
 
 const RunnerEnv = z.object({
@@ -23,7 +38,7 @@ const RunnerEnv = z.object({
   TIMEZONE: z.string().default("America/Argentina/Buenos_Aires"),
   AGENT_CLAUDE_CODE_OAUTH_TOKEN: z.string().optional(),
   AGENT_CLAUDE_CONFIG_DIR: z.string().optional(),
-  AGENT_MODEL_PLANNER: ModelName.default("claude-haiku-5-5"),
+  AGENT_MODEL_PLANNER: ModelName.default("claude-sonnet-5-5"),
   AGENT_MODEL_EXECUTOR: ModelName.default("claude-sonnet-5-5"),
   AGENT_MODEL_REVIEWER: ModelName.default("claude-sonnet-5-5"),
   AGENT_MODEL_SUBAGENT: ModelName.default("claude-haiku-5-5"),
@@ -39,7 +54,7 @@ const RunnerEnv = z.object({
   AGENT_MAX_FIX_ROUNDS: z.coerce.number().int().min(0).max(5).default(defaultRunnerLimits.maxFixRounds),
   AGENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(defaultRunnerLimits.maxAttempts),
   AGENT_PLAN_MAX_UTILIZATION: z.coerce.number().min(0.1).max(1).default(defaultRunnerLimits.planMaxUtilization),
-  AGENT_ALLOWED_DOMAINS: z.string().default(""),
+  AGENT_ALLOWED_DOMAINS: z.string().default(DEFAULT_AGENT_DOMAINS.join(",")),
   AGENT_BASH: flag("true"),
   AGENT_SANDBOX_REQUIRED: z.string().optional(),
   AGENT_SANDBOX_WEAKER_NESTED: flag("false"),
