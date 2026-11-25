@@ -26,7 +26,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 10001 jarvis \
  && useradd --uid 10001 --gid jarvis --create-home --home-dir /home/jarvis --shell /usr/sbin/nologin jarvis \
- && mkdir -p /data /work \
+ && mkdir -p /data /work /app/models \
  && chown jarvis:jarvis /data /work
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
