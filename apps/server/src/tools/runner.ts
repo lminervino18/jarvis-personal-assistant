@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  confirmAlwaysTools,
   stateChangingTools,
   toolInputs,
   untrustedContentTools,
@@ -115,7 +114,7 @@ export async function runTool(ctx: ToolContext, definition: AnyToolDefinition, r
     if ("refused" in prepared) return prepared.refused;
 
     const changesState = stateChangingTools.has(definition.name);
-    if (changesState && (ctx.security.tainted || confirmAlwaysTools.has(definition.name))) {
+    if (changesState && ctx.security.tainted) {
       return requestConfirmation(ctx, definition, prepared.input, ctx.security.tainted);
     }
 

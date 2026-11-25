@@ -93,7 +93,7 @@ export function ConnectionsGroup() {
       <p className="group-footer" role="status">
         {whatsapp && whatsapp.status !== "connected"
           ? whatsapp.detail
-          : "Jarvis usa estas cuentas solo para lo que le pedís; lo que publica o manda en tu nombre siempre pasa por tu aprobación."}
+          : "Jarvis usa estas cuentas solo para lo que le pedís."}
       </p>
     </div>
   );

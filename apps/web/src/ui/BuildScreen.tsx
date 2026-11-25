@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { CardActions } from "../cards/actions.js";
-import { CardView } from "../cards/Cards.js";
+import { taskActionsFor } from "../cards/Cards.js";
 import type { BuildTask, Notice, SessionSnapshot } from "../conversation/session.js";
+import { safeHref } from "../format.js";
 import { Composer } from "./Composer.js";
 
 interface Props {
@@ -25,26 +26,51 @@ interface Props {
 
 const REFRESH_MS = 4000;
 
-function replyLabel(task: BuildTask): string {
-  if (task.status === "accepted") return "Pedir otro cambio";
-  if (task.status === "awaiting_owner") return "Responder";
-  return "Pedir cambios";
+const phaseLines = { plan: "Pensando cómo hacerlo…", execute: "Programando…", review: "Revisándolo con otro agente…" } as const;
+
+const publishSteps: Record<string, string> = {
+  verify: "verificando",
+  prepare: "preparando",
+  apply: "aplicando el cambio",
+  checks: "chequeo completo",
+  commit: "creando el commit",
+  push: "subiendo a GitHub",
+  deploy: "desplegando",
+};
+
+/** Where a change to JARVIS is, in one sentence. */
+export function buildLine(task: BuildTask): string {
+  if (task.paused && (task.status === "queued" || task.status === "running")) return "En pausa.";
+  const publication = task.publication;
+  switch (task.status) {
+    case "queued":
+    case "running":
+      return `${task.phase ? phaseLines[task.phase] : "En cola…"}${task.iteration > 1 ? ` (vuelta ${task.iteration})` : ""}`;
+    case "awaiting_owner":
+      return task.blocker?.kind === "question" ? `Necesito que me respondas: ${task.blocker.message}` : (task.blocker?.message ?? "Estoy esperando algo de vos.");
+    case "ready":
+      return "Revisado y aprobado: lo publico ahora.";
+    case "accepted":
+      if (!publication || publication.status === "queued") return "Revisado y aprobado: lo publico ahora.";
+      if (publication.status === "running") return `Publicando${publication.step ? `: ${publishSteps[publication.step] ?? publication.step}` : ""}…`;
+      if (publication.status === "published") return `Listo, ya está en producción${publication.commit ? ` (commit ${publication.commit.slice(0, 7)})` : ""}.`;
+      return `No se pudo publicar${publication.message ? `: ${publication.message}` : "."}`;
+    case "failed":
+      return `No pude terminarlo${task.blocker?.message ? `: ${task.blocker.message}` : "."}`;
+    case "cancelled":
+      return "Cancelado.";
+  }
 }
 
 /**
- * Build mode: changes to JARVIS itself. Each request becomes a task an agent programs and
- * another one reviews; the owner answers questions here and decides whether to publish.
+ * Construir: changes to JARVIS itself, as a conversation. Each request is programmed by an agent,
+ * reviewed by another and published on its own; Jarvis only asks when something is unclear.
  */
 export function BuildScreen(props: Props) {
   const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose, embedded } = props;
-  const [replyTo, setReplyTo] = useState<BuildTask | null>(null);
-
-  const send = (value: string): boolean => {
-    const sent = replyTo ? onReply(replyTo.taskId, value) : onRequest(value);
-    if (!sent) return false;
-    setReplyTo(null);
-    return true;
-  };
+  const list = useRef<HTMLOListElement>(null);
+  const visible = (tasks ?? []).filter((task) => !task.archived).reverse();
+  const asking = [...visible].reverse().find((task) => task.status === "awaiting_owner" && task.blocker?.kind === "question");
 
   useEffect(() => {
     onRefresh();
@@ -53,18 +79,24 @@ export function BuildScreen(props: Props) {
   }, [onRefresh]);
 
   useEffect(() => {
+    if (embedded) return;
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [embedded, onClose]);
 
+  useEffect(() => {
+    list.current?.lastElementChild?.scrollIntoView({ block: "end" });
+  }, [visible.length]);
+
+  const send = (value: string): boolean => (asking ? onReply(asking.taskId, value) : onRequest(value));
 
   return (
     <section className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true })} aria-labelledby="build-title">
       <header className="build-header">
         <div>
           <h2 id="build-title">Construir</h2>
-          <p>Cambios a JARVIS, revisados antes de publicar</p>
+          <p>Pedile cambios a Jarvis: los programa, los revisa y los publica solo</p>
         </div>
         {!embedded && (
           <button type="button" className="build-done" onClick={onClose}>
@@ -75,42 +107,58 @@ export function BuildScreen(props: Props) {
 
       <div className="build-list">
         {tasks === null && <p className="build-empty">Cargando…</p>}
-        {tasks?.length === 0 && (
-          <div className="build-empty">
-            <p>Pedime un cambio sobre mí mismo: una herramienta, un ajuste de la pantalla, un modo nuevo.</p>
-            <ol>
-              <li>Un agente lo programa en una copia y corre los tests.</li>
-              <li>Otro agente lo revisa por su cuenta.</li>
-              <li>Vos ves el resultado y decidís si se publica.</li>
-            </ol>
-          </div>
+        {tasks !== null && visible.length === 0 && (
+          <p className="build-empty">Contame qué querés que cambie en mí: una herramienta, algo de la pantalla, un modo nuevo. Si algo no me queda claro, te pregunto.</p>
         )}
-        {tasks?.filter((task) => !task.archived).map((task) => (
-          <div key={task.taskId} className="build-item">
-            <CardView card={task} actions={actions} />
-            {task.status !== "cancelled" && (
-              <button type="button" className="build-reply" onClick={() => setReplyTo(task)}>
-                {replyLabel(task)}
-              </button>
-            )}
-          </div>
-        ))}
+        <ol className="build-thread" ref={list}>
+          {visible.map((task) => {
+            const url = safeHref(task.publication?.url);
+            return (
+              <li key={task.taskId} className="build-turn">
+                <p className="build-request">{task.title}</p>
+                <div className="build-answer" data-status={task.publication?.status ?? task.status}>
+                  <p>{buildLine(task)}</p>
+                  {task.summary && <p className="build-summary">{task.summary}</p>}
+                  <p className="build-links">
+                    #{task.ref}
+                    {task.iteration > 0 && (
+                      <>
+                        {" · "}
+                        <a href={`/api/tasks/${task.ref}/diff`} target="_blank" rel="noopener noreferrer">
+                          ver cambios
+                        </a>
+                      </>
+                    )}
+                    {url && (
+                      <>
+                        {" · "}
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                          abrir
+                        </a>
+                      </>
+                    )}
+                  </p>
+                  {taskActionsFor(task).map((button) => (
+                    <button
+                      key={button.action}
+                      type="button"
+                      className="build-action"
+                      onClick={() => actions.taskAction(task.taskId, button.action, button.action === "approve" || button.action === "reject" ? task.blocker?.approvalId : undefined)}
+                    >
+                      {button.label}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       </div>
 
       <div className="build-composer">
         {notice && (
           <p className={`build-notice build-notice-${notice.level}`} role={notice.level === "error" ? "alert" : "status"}>
             {notice.text}
-          </p>
-        )}
-        {replyTo && (
-          <p className="build-target">
-            <span>
-              {replyTo.status === "accepted" ? "Nuevo cambio a partir de" : "Respondiendo a"} la tarea #{replyTo.ref}
-            </span>
-            <button type="button" aria-label="Volver a un pedido nuevo" onClick={() => setReplyTo(null)}>
-              ×
-            </button>
           </p>
         )}
         <Composer
@@ -124,7 +172,7 @@ export function BuildScreen(props: Props) {
           onDictationStop={onDictationStop}
           onDictationCancel={onDictationCancel}
           onStop={() => {}}
-          placeholder={replyTo ? "Tu respuesta o los cambios que querés" : "¿Qué querés que construya?"}
+          placeholder={asking ? `Respondé a la tarea #${asking.ref}` : "¿Qué querés que construya?"}
         />
       </div>
     </section>

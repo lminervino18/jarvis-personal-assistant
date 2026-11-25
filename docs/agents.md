@@ -151,7 +151,7 @@ Agents share the owner's subscription limits with the chat, so the runner keeps 
 | Secrets in reach | Google tokens, VAPID, voice keys | only the agent token; `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` strips it from tool subprocesses |
 | Context | profile, memories, integrations | the request, its attachments, the project's `CONTEXT.md` and its repository |
 
-JARVIS is told not to copy personal data into a task request unless the owner asks. Task results that come back to the chat are third-party content: `task_status` and `task_result` taint the turn, so a state change in the same turn needs a confirmation card. `task_create`, `task_feedback` and `task_control` are state-changing tools, so a turn that read an email cannot spawn work silently.
+JARVIS is told not to copy personal data into a task request unless the owner asks. Task results that come back to the chat are third-party content: `task_status` and `task_result` taint the turn, so a state change in the same turn waits for the owner's OK in the chat. `task_create`, `task_feedback` and `task_control` are state-changing tools, so a turn that read an email cannot spawn work silently.
 
 Inside the runner container:
 
@@ -161,8 +161,13 @@ Inside the runner container:
 
 ## Approvals and external effects
 
-- A finished task never gets permission to publish, deploy or send anything. The runner has no such capability.
-- The one exception is build mode ([build-mode.md](build-mode.md)). There, a reviewed change to JARVIS itself is published only after the owner taps Publish. The publisher is deterministic and runs on the host; no agent is involved.
+- The runner never publishes, deploys or sends anything itself.
+- Since 2026-11-25, by the owner's decision, the server publishes what the reviewer approved without waiting for a tap (`TaskService.autoPublish`, every 5 s):
+  - build tasks go to production through the signed host publisher ([build-mode.md](build-mode.md));
+  - repository tasks go to the base branch on the owner's own repositories, or as a pull request elsewhere;
+  - new projects become a private repository and a Vercel site ([integrations/github-vercel.md](integrations/github-vercel.md)).
+
+  No agent is involved, and the owner gets a chat message and a push when each publication ends.
 - When the executor needs an external action, it reports `approvalsNeeded`. The task then waits with an `approval` blocker that names the exact action, and the card shows Approve and Reject.
 - The decision is recorded once (`task_approvals`), by a tap, never by the model. It reaches the executor as a system-written note.
 - In this version an approved action is still executed by the owner, from the instructions the agent leaves. A future connector will execute stored, approved actions deterministically, like `pending_actions` in the chat.

@@ -315,13 +315,6 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "image_create",
 ]);
 
-/**
- * State-changing tools that always wait for the owner's tap on a confirmation card, tainted turn or
- * not. WhatsApp messages, voice notes and videos go out directly when the owner asks clearly; like
- * every state-changing tool, they still wait for a card after the turn read third-party content.
- */
-export const confirmAlwaysTools: ReadonlySet<ToolName> = new Set<ToolName>(["gmail_send"]);
-
 export const ToolErrorCode = z.enum([
   "not_connected",
   "auth_expired",

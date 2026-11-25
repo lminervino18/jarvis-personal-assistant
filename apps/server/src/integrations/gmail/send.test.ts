@@ -10,7 +10,7 @@ import { buildRawMail } from "./mime.js";
 const OWNER = "loren.prueba@example.test";
 const decoded = (raw: string) => Buffer.from(raw, "base64url").toString("utf8");
 
-async function setup(scope = `openid email ${GMAIL_SCOPE} ${GMAIL_SEND_SCOPE}`) {
+async function setup(scope = `openid email ${GMAIL_SCOPE} ${GMAIL_SEND_SCOPE}`, tainted = false) {
   const harness = buildGoogleHarness();
   await harness.connect("personal", OWNER, { scope });
   harness.fake.calls.length = 0;
@@ -22,7 +22,7 @@ async function setup(scope = `openid email ${GMAIL_SCOPE} ${GMAIL_SEND_SCOPE}`) 
     conversationId: "c1",
     turnId: "t1",
     now: () => new Date(),
-    security: { tainted: false, taintSources: new Set() },
+    security: { tainted, taintSources: new Set<string>() },
     emitCard: (card) => cards.push(card),
     emitPlayerCommand: () => {},
   };
@@ -42,8 +42,16 @@ describe("outgoing mail", () => {
     expect(() => buildRawMail({ from: OWNER, to: ["a@b.example"], subject: "hola\r\nBcc: espia@x.example", body: "x" })).toThrow();
   });
 
-  it("waits for the owner, then sends exactly the confirmed mail from the owner's account", async () => {
-    const { send, confirm, sent, cards } = await setup();
+  it("sends a clear request right away, from the owner's account", async () => {
+    const { send, sent, cards } = await setup();
+    const result = await send({ to: ["ventas@empresa.example"], subject: "Consulta", body: "Hola, ¿hacen envíos?" });
+    expect(result).toMatchObject({ ok: true });
+    expect(cards).toEqual([]);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("waits for the owner's OK after the turn read third-party content, then sends exactly that mail", async () => {
+    const { send, confirm, sent, cards } = await setup(undefined, true);
     const result = await send({ to: ["ventas@empresa.example"], subject: "Consulta", body: "Hola, ¿hacen envíos?" });
     expect(result).toMatchObject({ ok: false, error: { code: "needs_confirmation" } });
     expect(cards[0]).toMatchObject({ kind: "confirm", title: "Enviar mail", summary: "Para ventas@empresa.example" });
@@ -65,7 +73,7 @@ describe("outgoing mail", () => {
   });
 
   it("replaces the pending mail to the same people when the owner corrects it", async () => {
-    const { send, db } = await setup();
+    const { send, db } = await setup(undefined, true);
     await send({ to: ["ventas@empresa.example"], subject: "Consulta", body: "Hola" });
     await send({ to: ["VENTAS@empresa.example"], subject: "Consulta", body: "Buenas tardes" });
     await send({ to: ["otra@empresa.example"], subject: "Otra", body: "Hola" });

@@ -77,6 +77,15 @@ describe("build mode", () => {
     expect(service.createBuild("algo", new Date())).toMatchObject({ ok: false });
   });
 
+  it("publishes a reviewed build task on its own, once", () => {
+    const { service, publishDir, now, readyBuild } = setup();
+    const task = readyBuild();
+    service.autoPublish(now);
+    expect(service.cardFor(task.id)).toMatchObject({ status: "accepted", publication: { status: "queued" } });
+    service.autoPublish(now);
+    expect(readdirSync(join(publishDir, "requests")).filter((name) => name.endsWith(".json"))).toHaveLength(1);
+  });
+
   it("publishes a reviewed change as a signed request with the exact patch", () => {
     const { service, spool, publishDir, now, readyBuild, store } = setup();
     const task = readyBuild();

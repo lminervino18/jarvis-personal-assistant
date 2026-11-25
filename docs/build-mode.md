@@ -1,6 +1,6 @@
 # Build mode
 
-Build mode lets the owner change JARVIS itself from the app. It reuses the delegated-task pipeline ([agents.md](agents.md)) on a project called `jarvis`. A deterministic publisher, with no model involved, ships a change only after the owner taps Publish.
+Build mode lets the owner change JARVIS itself from the app. It reuses the delegated-task pipeline ([agents.md](agents.md)) on a project called `jarvis`. A deterministic publisher, with no model involved, ships a change as soon as the independent reviewer approves it. The owner decided on 2026-11-25 not to approve each one, and gets a notification when it is published or when it fails.
 
 Status: *implemented* and *tested with fixtures*. The first real publication is still pending.
 
@@ -11,7 +11,7 @@ Construir (web) ──build.request──► server: task on project "jarvis" (n
                                      │
 agent runner (host): plan → execute → review, in a copy of the deployed commit with dependencies installed
                                      │ ready: card with summary, review score and "ver cambios"
-owner taps Publicar ──task.action publish──► server: signed request + exact patch in /srv/jarvis-publish/requests
+reviewer approves ──TaskService.autoPublish──► server: signed request + exact patch in /srv/jarvis-publish/requests
                                      │ systemd path unit
 publisher (host, user deploy): verify → prepare → apply → checks → commit → push → deploy
                                      │ result file
@@ -48,7 +48,7 @@ server: card status and one chat message plus push when it ends
 
 ## Trust boundaries
 
-- **The owner's tap is the only approval.** The server signs a request only from a `task.action publish` on an authenticated session. The publisher refuses unsigned requests and patches that changed after the tap.
+- **The independent review is the gate.** The server signs a request only for a task the reviewer approved (status `ready`), or when the owner retries a failed publication. The publisher refuses unsigned requests and patches that changed after signing. It still runs every check and rolls back a failed deploy.
 - **Same UID.** The server container and the agent runner both run as UID 10001. The spool folder therefore cannot tell them apart, and the signature exists for that reason.
 - **Signing key.** It lives in `jarvis.env` and `/etc/jarvis/publisher.env`, where agents cannot read it.
 - **Residual risk.** An agent that escaped the bubblewrap sandbox could read the server process environment under the same UID. Since 2026-11-25 agents have network by the owner's decision, which widens this risk. Setting `AGENT_ALLOWED_DOMAINS` empty narrows it again.

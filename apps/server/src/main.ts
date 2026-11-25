@@ -118,6 +118,7 @@ const tasks =
       )
     : undefined;
 if (tasks && config.tasks?.publish) setInterval(() => tasks.syncPublications(new Date()), PUBLICATION_SYNC_MS).unref();
+if (tasks) setInterval(() => tasks.autoPublish(new Date(), connections.accounts?.get("github")?.account), PUBLICATION_SYNC_MS).unref();
 services.tasks = tasks;
 if (workLayout && connections.github && connections.accounts) {
   services.repoProjects = new RepoProjects({ github: connections.github, accounts: connections.accounts, projectsDir: workLayout.projectsDir });

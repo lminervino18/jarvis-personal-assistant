@@ -51,4 +51,31 @@ describe("shipping a project task", () => {
     await vi.waitFor(() => expect(service.cardFor(taskId)?.publication).toMatchObject({ status: "failed", step: "push", message: "GitHub rechazó el push a main." }));
     expect(service.decide(taskId, "ship_pr", undefined, now)).toMatchObject({ ok: true });
   });
+
+  it("ships on its own once reviewed: the owner's repositories onto main, anyone else's as a pull request, new projects with a site", async () => {
+    const ship = vi.fn<ProjectShipper["ship"]>(async () => ({ commit: "abc1234", url: "https://example.test", message: "Listo." }));
+    const { service, store, now, taskId } = setup(ship);
+    const ready = (target: Parameters<TaskService["create"]>[0]["target"]) => {
+      const created = service.create({ title: "Otra", request: "Otro pedido largo", target }, now);
+      if (!created.ok) throw new Error(created.message);
+      store.update(created.task.id, { status: "ready", phase: null, iteration: 1, evidence: store.require(taskId).evidence, report: store.require(taskId).report }, now);
+      return created.task.id;
+    };
+    const foreign = ready({ kind: "github", repo: "empresa/app", base: "develop" });
+    const fresh = ready({ kind: "new", name: "mi-app" });
+
+    service.autoPublish(now, "Owner");
+    await vi.waitFor(() => expect(ship).toHaveBeenCalledTimes(1));
+    expect(ship.mock.calls[0]?.[1]).toBe("main");
+    await vi.waitFor(() => expect(service.cardFor(taskId)?.publication?.status).toBe("published"));
+
+    service.autoPublish(now, "Owner");
+    await vi.waitFor(() => expect(service.cardFor(foreign)?.publication?.status).toBe("published"));
+    service.autoPublish(now, "Owner");
+    await vi.waitFor(() => expect(service.cardFor(fresh)?.publication?.status).toBe("published"));
+    expect(ship.mock.calls.map((call) => call[1])).toEqual(["main", "pr", "new"]);
+
+    service.autoPublish(now, "Owner");
+    expect(ship).toHaveBeenCalledTimes(3);
+  });
 });

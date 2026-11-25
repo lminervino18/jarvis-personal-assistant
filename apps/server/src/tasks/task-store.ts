@@ -545,6 +545,17 @@ export class TaskStore {
     return row ? toPublication(row) : undefined;
   }
 
+  /** Reviewed tasks that were never published, oldest first. */
+  readyToPublish(): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE status = 'ready' AND archived_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM task_publications WHERE task_publications.task_id = tasks.id) ORDER BY updated_at`,
+      )
+      .all() as TaskRow[];
+    return rows.map(toTask);
+  }
+
   /** Publications of JARVIS itself waiting for the host publisher. */
   activePublications(): Publication[] {
     const rows = this.db

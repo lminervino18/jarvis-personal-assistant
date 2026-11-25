@@ -1,6 +1,6 @@
 # GitHub and Vercel
 
-The accounts JARVIS uses to create repositories, push reviewed work and publish projects. Agents never see these tokens: only the server uses them, and only after the owner taps a card.
+The accounts JARVIS uses to create repositories, push reviewed work and publish projects. Agents never see these tokens: only the server uses them, to publish work the independent reviewer approved.
 
 Status:
 - connection *validated with real service*: GitHub, Vercel and both Gmail accounts connected on 2026-11-25;
@@ -23,9 +23,12 @@ Status:
   - `repo`: the server checks the repository with the owner's token and clones it, or updates its clone, into `projects/gh-<owner>-<name>/repo`. It writes a `CONTEXT.md` with the base branch and the repository's conventions. The runner then copies it like any project.
   - `newProject`: the name is refused when the owner already has a repository with it. The task starts from an empty folder.
 - Agents never get the GitHub or Vercel tokens. The workspace's `.git/info/exclude` keeps `node_modules`, `.env*` and build caches out of the change.
-- When the task is `ready`, its card offers:
-  - for a repository, **Abrir PR** (`ship_pr`) or **Subir a <base>** (`ship_main`);
-  - for a new project, **Crear repo y publicar** (`ship_new`).
+- When the reviewer approves (status `ready`), the server publishes on its own (`TaskService.autoPublish`):
+  - a repository owned by the connected GitHub login goes onto its base branch (`ship_main`);
+  - anyone else's repository gets a pull request (`ship_pr`);
+  - a new project gets a private repository and a site (`ship_new`).
+
+  A failed publication can be retried from the task.
 - The server ships in the background (`projects/project-shipper.ts`):
   1. It clones the repository fresh, or initializes the new one.
   2. It applies the exact patch the reviewer saw (`git apply --index`, `--3way` on an existing repository).

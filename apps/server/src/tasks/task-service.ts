@@ -299,6 +299,25 @@ export class TaskService {
     }
   }
 
+  /**
+   * Publishes what the reviewer approved without waiting for a tap, by the owner's decision: build
+   * tasks go to production, new projects get a repository and a site, and repository work goes
+   * straight onto the owner's own repositories or as a pull request to anyone else's. One at a
+   * time per family; the rest wait for the next call.
+   */
+  autoPublish(now: Date, githubLogin?: string): void {
+    for (const task of this.store.readyToPublish()) {
+      if (task.project === BUILD_PROJECT) {
+        if (this.spool?.available()) this.publish(task.id, now);
+        continue;
+      }
+      if (!task.target || !this.shipper) continue;
+      const owner = task.target.kind === "github" ? task.target.repo.split("/")[0]?.toLowerCase() : undefined;
+      const kind: ShipKind = task.target.kind === "new" ? "new" : owner && owner === githubLogin?.toLowerCase() ? "main" : "pr";
+      this.ship(task, kind, now);
+    }
+  }
+
   /** Reads the publisher's results and tells the owner when a publication ends. */
   syncPublications(now: Date): void {
     if (!this.spool) return;

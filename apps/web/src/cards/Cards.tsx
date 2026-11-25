@@ -57,42 +57,19 @@ function ExternalLink({ href, children }: { href: string | undefined; children: 
   );
 }
 
-function ConfirmCard({ card, actions }: { card: Of<"confirm">; actions: CardActions }) {
-  const [sent, setSent] = useState(false);
-  const open = card.status === "pending" && !sent && Date.parse(card.expiresAt) > Date.now();
-  const status = card.status === "pending" && Date.parse(card.expiresAt) <= Date.now() ? confirmStatus.expired : confirmStatus[card.status];
-  const decide = (decision: "confirm" | "reject") => {
-    setSent(true);
-    actions.decide(card.actionId, decision);
-  };
+/** A pending action as a line in the chat: the owner answers "ok", or says what to change, by text or voice. */
+function ConfirmCard({ card }: { card: Of<"confirm"> }) {
+  const expired = card.status === "pending" && Date.parse(card.expiresAt) <= Date.now();
+  const pending = card.status === "pending" && !expired;
+  const details = card.details.map((detail) => `${detail.label}: ${detail.value}`).join(" · ");
   return (
-    <section className="card card-confirm" aria-label={`Confirmación: ${card.title}`}>
-      <h3 className="card-title">{card.title}</h3>
-      <p>{card.summary}</p>
-      {card.details.length > 0 && (
-        <dl className="card-details">
-          {card.details.map((detail) => (
-            <div key={`${detail.label}:${detail.value}`}>
-              <dt>{detail.label}</dt>
-              <dd>{detail.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      <p className="card-status" data-status={card.status} role="status">
-        {sent && card.status === "pending" ? "Enviando tu respuesta" : status}
-      </p>
-      {open && (
-        <div className="card-actions">
-          <button type="button" className="button primary" onClick={() => decide("confirm")}>
-            Confirmar
-          </button>
-          <button type="button" className="button" onClick={() => decide("reject")}>
-            Rechazar
-          </button>
-        </div>
-      )}
-    </section>
+    <p className="inline-confirm" data-status={expired ? "expired" : card.status} role="status">
+      <strong>{pending ? "Esperando tu OK" : expired ? confirmStatus.expired : confirmStatus[card.status]}</strong>
+      {" · "}
+      {card.title}. {card.summary}
+      {details && <span className="inline-confirm-details">{details}</span>}
+      {pending && <span className="inline-confirm-hint">Decime «ok» o qué querés cambiar.</span>}
+    </p>
   );
 }
 
@@ -266,51 +243,25 @@ function publicationLine(publication: NonNullable<Of<"task">["publication"]>): s
   }
 }
 
-const ARCHIVE = { action: "archive", label: "Borrar" } as const;
-
 type TaskButton = { action: TaskCardAction; label: string; primary?: boolean };
 
-/** Ship buttons for a task on a GitHub repository or a new project: offered when it is ready, again after a failure. */
-function shipActionsFor(card: Of<"task">): TaskButton[] | undefined {
-  if (!card.target) return undefined;
-  const retry = card.status === "accepted" && card.publication?.status === "failed";
-  if (card.status !== "ready" && !retry) return undefined;
-  if (card.target.kind === "new") return [{ action: "ship_new", label: retry ? "Reintentar publicación" : "Crear repo y publicar", primary: true }];
-  return [
-    { action: "ship_pr", label: "Abrir PR", primary: true },
-    { action: "ship_main", label: `Subir a ${card.target.base}` },
-  ];
-}
-
-function taskActionsFor(card: Of<"task">): TaskButton[] {
+/**
+ * Tasks publish on their own once reviewed, so a task shows its state and nothing to tap, except an
+ * external action an agent asks permission for (only a tap may approve it) and a publication to retry.
+ */
+export function taskActionsFor(card: Of<"task">): TaskButton[] {
   if (card.archived) return [];
-  const ship = shipActionsFor(card);
-  if (ship) return ship;
-  if (card.status === "ready" && card.build) {
-    return [{ action: "publish", label: "Publicar", primary: true }, ARCHIVE];
-  }
-  if (card.status === "ready") return [{ action: "accept", label: "Aceptar entrega", primary: true }];
-  if (card.build && card.status === "accepted" && card.publication?.status === "failed") return [{ action: "publish", label: "Publicar de nuevo", primary: true }, ARCHIVE];
-  if (card.status === "accepted" || card.status === "failed" || card.status === "cancelled") return card.build ? [ARCHIVE] : [];
   if (card.blocker?.kind === "approval") {
     return [
       { action: "approve", label: "Aprobar", primary: true },
       { action: "reject", label: "Rechazar" },
-      { action: "cancel", label: "Cancelar tarea" },
     ];
   }
-  if (card.status === "awaiting_owner") {
-    const resumable = card.blocker && ["usage_limit", "error", "review_limit"].includes(card.blocker.kind);
-    return [...(resumable ? [{ action: "resume" as const, label: "Reintentar" }] : []), card.build ? ARCHIVE : { action: "cancel", label: "Cancelar tarea" }];
-  }
-  return [card.paused ? { action: "resume", label: "Reanudar" } : { action: "pause", label: "Pausar" }, { action: "cancel", label: "Cancelar tarea" }];
-}
-
-function readyHint(card: Of<"task">): string {
-  if (card.build) return "Publicar lo chequea entero, lo sube a GitHub y lo despliega. Para pedir cambios, respondé abajo.";
-  if (card.target?.kind === "new") return "Crea un repositorio privado a tu nombre y lo publica en la web. Para pedir cambios, escribilos en el chat.";
-  if (card.target) return "El PR o el commit salen a tu nombre. Para pedir cambios, escribilos en el chat.";
-  return "Para pedir cambios, escribilos en el chat.";
+  if (card.status !== "accepted" || card.publication?.status !== "failed") return [];
+  if (card.build) return [{ action: "publish", label: "Reintentar publicación", primary: true }];
+  if (card.target?.kind === "new") return [{ action: "ship_new", label: "Reintentar publicación", primary: true }];
+  if (card.target) return [{ action: "ship_pr", label: "Reintentar como PR", primary: true }];
+  return [];
 }
 
 function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions }) {
@@ -380,9 +331,6 @@ function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions })
             </>
           )}
         </p>
-      )}
-      {card.status === "ready" && (
-        <p className="card-meta">{readyHint(card)}</p>
       )}
       {buttons.length > 0 && !pending && (
         <div className="card-actions">
@@ -464,7 +412,7 @@ export function CardView({ card, actions }: { card: Card; actions: CardActions }
     case "youtube":
       return <YoutubeCard card={card} actions={actions} />;
     case "confirm":
-      return <ConfirmCard card={card} actions={actions} />;
+      return <ConfirmCard card={card} />;
     case "reminder":
       return <ReminderCard card={card} />;
     case "event":

@@ -29,11 +29,13 @@ const confirm = (status: "pending" | "confirmed", expiresAt = future): Card => (
 });
 
 describe("cards", () => {
-  it("offers Confirmar and Rechazar only while a confirmation is pending and valid", () => {
-    expect(render(confirm("pending"))).toContain("Confirmar");
-    expect(render(confirm("pending"))).toContain("Rechazar");
-    expect(render(confirm("confirmed"))).not.toContain("Rechazar");
-    expect(render(confirm("pending", past))).not.toContain("Rechazar");
+  it("shows a confirmation as a line that waits for the owner's ok in the chat, without buttons", () => {
+    const pending = render(confirm("pending"));
+    expect(pending).toContain("Esperando tu OK");
+    expect(pending).toContain("Para: ana@example.com");
+    expect(pending).toContain("Decime «ok»");
+    expect(pending).not.toContain("<button");
+    expect(render(confirm("confirmed"))).toContain("Confirmado");
     expect(render(confirm("pending", past))).toContain("Venció");
   });
 
@@ -121,12 +123,10 @@ describe("youtube card when playback is blocked", () => {
     };
     const repo = render({ ...base, status: "ready", target: { kind: "github", repo: "owner/app", base: "main" } });
     expect(repo).toContain("Repositorio owner/app");
-    expect(repo).toContain("Abrir PR");
-    expect(repo).toContain("Subir a main");
-    expect(repo).not.toContain("Aceptar entrega");
+    expect(repo).not.toContain("<button");
 
-    const fresh = render({ ...base, status: "ready", target: { kind: "new", name: "mi-app" } });
-    expect(fresh).toContain("Crear repo y publicar");
+    const failed = render({ ...base, status: "accepted", target: { kind: "new", name: "mi-app" }, publication: { status: "failed", message: "Vercel falló" } });
+    expect(failed).toContain("Reintentar publicación");
 
     const shipped = render({
       ...base,
@@ -135,7 +135,7 @@ describe("youtube card when playback is blocked", () => {
       publication: { status: "published", url: "https://mi-app.example.test" },
     });
     expect(shipped).toContain('href="https://mi-app.example.test/"');
-    expect(shipped).not.toContain("Crear repo y publicar");
+    expect(shipped).not.toContain("<button");
   });
 
   it("shows a task's state, review evidence and only the actions that fit it", () => {
@@ -161,9 +161,8 @@ describe("youtube card when playback is blocked", () => {
     expect(ready).toContain("Tarea #7");
     expect(ready).toContain("Lista para revisar");
     expect(ready).toContain("4 de 4 criterios");
-    expect(ready).toContain("Aceptar entrega");
     expect(ready).toContain("/api/tasks/7/files?path=CHANGES.md");
-    expect(ready).not.toContain("Pausar");
+    expect(ready).not.toContain("<button");
 
     const approval = render({
       ...base,
@@ -177,20 +176,14 @@ describe("youtube card when playback is blocked", () => {
 
     const running = render({ ...base, status: "running", phase: "review" });
     expect(running).toContain("Trabajando · revisión");
-    expect(running).toContain("Pausar");
-    expect(render({ ...base, status: "queued", phase: "execute", paused: true })).toContain("Reanudar");
-    expect(render({ ...base, status: "cancelled" })).not.toContain("<button");
-
-    const build = render({ ...base, status: "ready", build: true });
-    expect(build).toContain("Publicar");
-    expect(build).not.toContain("Aceptar entrega");
+    expect(running).not.toContain("<button");
     const publishing = render({ ...base, status: "accepted", build: true, publication: { status: "running", step: "checks" } });
     expect(publishing).toContain("Publicando · chequeo completo");
     const published = render({ ...base, status: "accepted", build: true, publication: { status: "published", commit: "abc1234def56" } });
     expect(published).toContain("Publicado en producción · commit abc1234");
-    expect(render({ ...base, status: "accepted", build: true, publication: { status: "failed", step: "checks", message: "No pasó los tests" } })).toContain(
-      "No se publicó: No pasó los tests",
-    );
+    const failedBuild = render({ ...base, status: "accepted", build: true, publication: { status: "failed", step: "checks", message: "No pasó los tests" } });
+    expect(failedBuild).toContain("No se publicó: No pasó los tests");
+    expect(failedBuild).toContain("Reintentar publicación");
   });
 
   it("renders a table with every column even when a row is short, and a chart container", () => {
