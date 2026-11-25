@@ -2001,17 +2001,17 @@ p.voice-caption-empty {
   justify-content: flex-start;
 }
 
-.connection-dot {
+.connection-logo {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--tertiary);
+  width: 30px;
+  height: 30px;
+  opacity: 0.4;
+  filter: saturate(0.3);
 }
 
-.connection-dot[data-on="true"] {
-  background: var(--green);
-  box-shadow: 0 0 8px rgba(48, 209, 88, 0.6);
+.connection-logo[data-on="true"] {
+  opacity: 1;
+  filter: none;
 }
 
 .connection-name {

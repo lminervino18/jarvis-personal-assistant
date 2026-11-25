@@ -16,10 +16,10 @@ const NO_ACTIONS: CardActions = {
   enablePush: async () => ({ ok: true }),
 };
 
-function ConnectionRow({ name, account, connected, children }: { name: string; account?: string | null; connected: boolean; children?: ReactNode }) {
+function ConnectionRow({ name, logo, account, connected, children }: { name: string; logo: string; account?: string | null; connected: boolean; children?: ReactNode }) {
   return (
     <div className="row connection-row">
-      <span className="connection-dot" data-on={connected} aria-hidden="true" />
+      <img className="connection-logo" src={`/logos/${logo}.png`} alt="" width={30} height={30} data-on={connected} />
       <span className="connection-name">
         <span>{name}</span>
         {account && <small>{account}</small>}
@@ -71,7 +71,7 @@ export function ConnectionsGroup() {
   return (
     <div className="group">
       {whatsapp && (
-        <ConnectionRow name="WhatsApp" account={whatsappLabels[whatsapp.status] ?? whatsapp.status} connected={whatsapp.status === "connected"} />
+        <ConnectionRow name="WhatsApp" logo="whatsapp" account={whatsappLabels[whatsapp.status] ?? whatsapp.status} connected={whatsapp.status === "connected"} />
       )}
       {whatsapp?.pairing && <CardView card={whatsapp.pairing} actions={NO_ACTIONS} />}
 
@@ -80,13 +80,13 @@ export function ConnectionsGroup() {
           const account = gmail.accounts.find((item) => item.label === label);
           const connected = account?.status === "connected";
           return (
-            <ConnectionRow key={label} name={name} account={account?.email} connected={connected}>
+            <ConnectionRow key={label} name={name} logo="gmail" account={account?.email} connected={connected}>
               {connected ? <DisconnectButton onClick={() => void remove(`gmail-${label}`)} /> : <ConnectLink href={gmailConnectUrl(label)} />}
             </ConnectionRow>
           );
         })}
 
-      <ConnectionRow name="GitHub" account={github.account} connected={Boolean(github.account)}>
+      <ConnectionRow name="GitHub" logo="github" account={github.account} connected={Boolean(github.account)}>
         {github.account ? <DisconnectButton onClick={() => void remove("github")} /> : github.available && <ConnectLink href={GITHUB_CONNECT_URL} />}
       </ConnectionRow>
 
