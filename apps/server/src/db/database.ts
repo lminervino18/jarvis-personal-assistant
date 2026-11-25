@@ -16,6 +16,7 @@ import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as taskArchiveSql } from "./work-migrations/004-task-archive.js";
 import { sql as publicationsSql } from "./work-migrations/003-publications.js";
+import { sql as projectTargetsSql } from "./work-migrations/005-project-targets.js";
 
 export type Db = Database.Database;
 
@@ -49,6 +50,7 @@ export const workMigrations: Migration[] = [
   { version: 2, name: "planner_session", sql: plannerSessionSql },
   { version: 3, name: "publications", sql: publicationsSql },
   { version: 4, name: "task_archive", sql: taskArchiveSql },
+  { version: 5, name: "project_targets", sql: projectTargetsSql },
 ];
 
 /**

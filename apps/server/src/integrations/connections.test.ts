@@ -21,7 +21,7 @@ function fakeFetch(scope = "repo") {
     const url = String(input);
     calls.push({ url, init });
     if (url === "https://github.com/login/oauth/access_token") return json({ access_token: GITHUB_TOKEN, scope, token_type: "bearer" });
-    if (url === "https://api.github.com/user") return json({ login: "owner-login" });
+    if (url === "https://api.github.com/user") return json({ login: "owner-login", id: 42 });
     if (url === "https://api.vercel.com/v2/user") return json({ user: { username: "owner-vercel" } });
     if (url === "https://api.vercel.com/v2/teams") return json({ teams: [{ id: "team_other", slug: "other" }, { id: "team_owner", slug: "owner" }] });
     if (url.startsWith("https://api.vercel.com/v6/domains/example.test")) return url.includes("team_owner") ? json({ domain: {} }) : json({}, 404);
@@ -90,6 +90,7 @@ describe("Vercel connection", () => {
 
     const listed = await app.inject({ method: "GET", url: "/api/connections" });
     expect(listed.json()).toEqual({
+      whatsapp: null,
       gmail: { available: false, accounts: [] },
       github: { available: true, account: null },
       vercel: { available: true, account: "owner-vercel", domain: "example.test" },

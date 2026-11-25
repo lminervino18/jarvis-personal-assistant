@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { finalTaskStatuses, type Card, type TaskCardAction, type TaskPhase } from "@jarvis/contracts";
+import { finalTaskStatuses, type Card, type TaskCardAction, type TaskPhase, type TaskTarget } from "@jarvis/contracts";
 import { BUILD_PROJECT, isCommitTitle, MAX_PATCH_BYTES, type PublicationSpool } from "../publisher/spool.js";
+import { ShipError, type ProjectShipper, type ShipKind } from "../projects/project-shipper.js";
 import type { Attachment, Publication, Task, TaskPatch, TaskStore } from "./task-store.js";
 import type { ProjectInfo, WorkLayout } from "./workspace.js";
 import { safeFileName } from "./workspace.js";
@@ -26,6 +27,8 @@ function buildTitle(text: string): string {
   const title = line.trim().replace(/\s+/g, " ");
   return title.length > BUILD_TITLE_CHARS ? `${title.slice(0, BUILD_TITLE_CHARS - 1).trimEnd()}…` : title;
 }
+
+const SHIP_KINDS = { ship_pr: "pr", ship_main: "main", ship_new: "new" } as const;
 
 const OPEN_FOR_FEEDBACK = new Set(["awaiting_owner", "ready", "accepted", "failed"]);
 const RESUMABLE_BLOCKERS = new Set(["budget", "usage_limit", "error", "review_limit"]);
@@ -51,6 +54,7 @@ export function taskCard(task: Task, publication?: Publication): TaskCard {
     costUsd: Math.round(task.costUsd * 100) / 100,
     budgetUsd: task.budgetUsd,
     ...(task.project === BUILD_PROJECT ? { build: true } : {}),
+    ...(task.target ? { target: task.target } : {}),
     ...(publication
       ? {
           publication: {
@@ -58,6 +62,7 @@ export function taskCard(task: Task, publication?: Publication): TaskCard {
             ...(publication.step ? { step: publication.step } : {}),
             ...(publication.commitSha ? { commit: publication.commitSha } : {}),
             ...(publication.message ? { message: publication.message } : {}),
+            ...(publication.url ? { url: publication.url } : {}),
           },
         }
       : {}),
@@ -76,6 +81,7 @@ export class TaskService {
     private readonly layout: WorkLayout,
     private readonly options: TaskServiceOptions,
     private readonly spool?: PublicationSpool,
+    private readonly shipper?: ProjectShipper,
   ) {}
 
   /** Whether the agent runner wrote a heartbeat recently, so queued tasks will actually progress. */
@@ -109,7 +115,7 @@ export class TaskService {
     return this.store.attachments(task.id);
   }
 
-  create(input: { title: string; request: string; project?: string; attachmentIds?: string[] }, now: Date): TaskOutcome {
+  create(input: { title: string; request: string; project?: string; target?: TaskTarget; attachmentIds?: string[] }, now: Date): TaskOutcome {
     if (input.project && !this.layout.hasProject(input.project)) {
       return { ok: false, code: "not_found", message: `No existe el proyecto "${input.project}". Usá task_projects para ver los disponibles.` };
     }
@@ -179,6 +185,7 @@ export class TaskService {
     }
     if (action === "approve" || action === "reject") return this.decideApproval(task, action, approvalId, now);
     if (action === "publish") return this.publish(task.id, now);
+    if (action === "ship_pr" || action === "ship_main" || action === "ship_new") return this.ship(task, SHIP_KINDS[action], now);
     if (action === "archive") return this.archive(task, now);
     return this.apply(task, action, now);
   }
@@ -254,6 +261,44 @@ export class TaskService {
     return this.done(task.id, `Publicando la tarea #${task.ref}: chequeo completo, GitHub y despliegue.`);
   }
 
+  /**
+   * The owner's tap on a ship button: the reviewed change goes to GitHub (and Vercel for a new
+   * project) in the background; the card follows the publication and the chat hears when it ends.
+   */
+  private ship(task: Task, kind: ShipKind, now: Date): TaskOutcome {
+    if (!this.shipper) return this.invalid("La publicación de proyectos no está configurada en el servidor.");
+    if (!task.target || (kind === "new") !== (task.target.kind === "new")) return this.invalid("Esta tarea no se publica de esa forma.");
+    const retry = task.status === "accepted" && this.store.publication(task.id)?.status === "failed";
+    if ((task.status !== "ready" && !retry) || !task.evidence) return this.invalid("Se publica una entrega lista y revisada.");
+    const proposed = task.report?.commitTitle?.trim();
+    const commitTitle = proposed && isCommitTitle(proposed) ? proposed : `feat: apply task ${task.ref}`;
+    const publication = this.store.createPublication(task.id, commitTitle, now, kind);
+    if (!publication) return this.invalid("Ya hay una publicación de proyecto en curso; esperá a que termine.");
+    if (!this.store.update(task.id, { status: "accepted", blocker: null, finishedAt: now.toISOString() }, now, ["ready", "accepted"])) {
+      this.store.updatePublication(publication.id, { status: "failed", step: "request", message: "La tarea cambió de estado antes de publicar." }, now);
+      return this.changed(task.ref);
+    }
+    this.store.addEvent(task.id, "publish_requested", "El dueño pidió publicar el resultado.", false, now);
+    void this.runShip(this.store.require(task.id), publication, this.shipper);
+    const what = kind === "pr" ? "abriendo el PR" : kind === "main" ? "subiendo el cambio a la rama base" : "creando el repositorio y publicando el sitio";
+    return this.done(task.id, `Publicando la tarea #${task.ref}: ${what}.`);
+  }
+
+  private async runShip(task: Task, publication: Publication, shipper: ProjectShipper): Promise<void> {
+    let step = "github";
+    const onStep = (next: string) => {
+      step = next;
+      this.store.updatePublication(publication.id, { status: "running", step }, new Date());
+    };
+    try {
+      const result = await shipper.ship(task, publication.kind as ShipKind, publication.commitTitle, onStep);
+      this.finishPublication(publication, task, { status: "published", step: "done", commitSha: result.commit, url: result.url, message: result.message }, new Date());
+    } catch (error) {
+      const message = error instanceof ShipError ? error.message : "Falló la publicación.";
+      this.finishPublication(publication, task, { status: "failed", step: error instanceof ShipError ? error.step : step, message }, new Date());
+    }
+  }
+
   /** Reads the publisher's results and tells the owner when a publication ends. */
   syncPublications(now: Date): void {
     if (!this.spool) return;
@@ -277,13 +322,16 @@ export class TaskService {
   private finishPublication(
     publication: Publication,
     task: Task | undefined,
-    patch: { status: "published" | "failed"; step?: string; commitSha?: string; message?: string },
+    patch: { status: "published" | "failed"; step?: string; commitSha?: string; message?: string; url?: string },
     now: Date,
   ): void {
     if (!this.store.updatePublication(publication.id, patch, now) || !task) return;
+    const project = publication.kind !== "jarvis";
     const message =
       patch.status === "published"
-        ? `La tarea #${task.ref} está publicada en producción${patch.commitSha ? ` (commit ${patch.commitSha})` : ""}.`
+        ? project
+          ? `${patch.message ?? `La tarea #${task.ref} está publicada.`}${patch.url ? ` ${patch.url}` : ""}`
+          : `La tarea #${task.ref} está publicada en producción${patch.commitSha ? ` (commit ${patch.commitSha})` : ""}.`
         : `No se pudo publicar la tarea #${task.ref}${patch.message ? `: ${patch.message}` : "."}`;
     this.store.addEvent(task.id, patch.status === "published" ? "published" : "publish_failed", message, true, now);
     this.store.update(task.id, {}, now);

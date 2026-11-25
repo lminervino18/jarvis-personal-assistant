@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PublicationStatus, TaskBlocker, TaskPhase, TaskStatus } from "@jarvis/contracts";
+import type { PublicationStatus, TaskBlocker, TaskPhase, TaskStatus, TaskTarget } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
 import type { ExecutionReport, ReviewResult, TaskEvidence, TaskSpec } from "./schemas.js";
 
@@ -32,6 +32,7 @@ interface TaskRow {
   updated_at: string;
   finished_at: string | null;
   archived_at: string | null;
+  target_json: string | null;
 }
 
 export interface Task {
@@ -64,12 +65,19 @@ export interface Task {
   finishedAt?: string;
   /** Hidden from build mode by the owner; the task and its history stay. */
   archivedAt?: string;
+  /** The repository or new project the result can be shipped to. */
+  target?: TaskTarget;
 }
 
-/** A build task's way to production after the owner tapped Publish. */
+/** `jarvis` publishes a build task to production; the others ship a task to GitHub (and Vercel for a new project). */
+export type PublicationKind = "jarvis" | "pr" | "main" | "new";
+
+/** A task's way out after the owner tapped Publish or one of the ship buttons. */
 export interface Publication {
   id: string;
   taskId: string;
+  kind: PublicationKind;
+  url?: string;
   status: PublicationStatus;
   commitTitle: string;
   step?: string;
@@ -84,11 +92,14 @@ export interface PublicationPatch {
   step?: string;
   commitSha?: string;
   message?: string;
+  url?: string;
 }
 
 interface PublicationRow {
   id: string;
   task_id: string;
+  kind: PublicationKind;
+  url: string | null;
   status: PublicationStatus;
   commit_title: string;
   step: string | null;
@@ -102,6 +113,8 @@ function toPublication(row: PublicationRow): Publication {
   return {
     id: row.id,
     taskId: row.task_id,
+    kind: row.kind,
+    ...(row.url ? { url: row.url } : {}),
     status: row.status,
     commitTitle: row.commit_title,
     ...(row.step ? { step: row.step } : {}),
@@ -145,6 +158,7 @@ export interface NewTask {
   externalRef?: string;
   budgetUsd: number;
   attachmentIds?: string[];
+  target?: TaskTarget;
 }
 
 export interface RunOutcome {
@@ -212,6 +226,7 @@ function toTask(row: TaskRow): Task {
     updatedAt: row.updated_at,
     finishedAt: row.finished_at ?? undefined,
     archivedAt: row.archived_at ?? undefined,
+    target: parse(row.target_json),
   };
 }
 
@@ -263,10 +278,10 @@ export class TaskStore {
         const ref = (this.db.prepare("SELECT COALESCE(MAX(ref), 0) + 1 AS next FROM tasks").get() as { next: number }).next;
         this.db
           .prepare(
-            `INSERT INTO tasks (id, ref, title, request, project, source, external_ref, status, phase, budget_usd, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'plan', ?, ?, ?)`,
+            `INSERT INTO tasks (id, ref, title, request, project, source, external_ref, status, phase, budget_usd, created_at, updated_at, target_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 'plan', ?, ?, ?, ?)`,
           )
-          .run(id, ref, input.title, input.request, input.project ?? null, source, input.externalRef ?? null, input.budgetUsd, at, at);
+          .run(id, ref, input.title, input.request, input.project ?? null, source, input.externalRef ?? null, input.budgetUsd, at, at, input.target ? JSON.stringify(input.target) : null);
         for (const attachmentId of input.attachmentIds ?? []) {
           this.db.prepare("UPDATE task_attachments SET task_id = ? WHERE id = ? AND task_id IS NULL").run(id, attachmentId);
         }
@@ -501,15 +516,16 @@ export class TaskStore {
     return ids.filter((id) => this.db.prepare("SELECT 1 FROM task_attachments WHERE id = ? AND task_id IS NULL").get(id));
   }
 
-  /** Queues a publication unless another one is still queued or running. */
-  createPublication(taskId: string, commitTitle: string, now: Date): Publication | undefined {
+  /** Queues a publication unless another one of the same family (JARVIS or projects) is still queued or running. */
+  createPublication(taskId: string, commitTitle: string, now: Date, kind: PublicationKind = "jarvis"): Publication | undefined {
+    const family = kind === "jarvis" ? "kind = 'jarvis'" : "kind != 'jarvis'";
     const insert = this.db.transaction(() => {
-      if (this.db.prepare("SELECT 1 FROM task_publications WHERE status IN ('queued', 'running')").get()) return undefined;
+      if (this.db.prepare(`SELECT 1 FROM task_publications WHERE status IN ('queued', 'running') AND ${family}`).get()) return undefined;
       const id = randomUUID();
       const at = now.toISOString();
       this.db
-        .prepare("INSERT INTO task_publications (id, task_id, status, commit_title, requested_at, updated_at) VALUES (?, ?, 'queued', ?, ?, ?)")
-        .run(id, taskId, commitTitle, at, at);
+        .prepare("INSERT INTO task_publications (id, task_id, kind, status, commit_title, requested_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?, ?)")
+        .run(id, taskId, kind, commitTitle, at, at);
       return id;
     });
     const id = insert.immediate();
@@ -529,8 +545,11 @@ export class TaskStore {
     return row ? toPublication(row) : undefined;
   }
 
+  /** Publications of JARVIS itself waiting for the host publisher. */
   activePublications(): Publication[] {
-    const rows = this.db.prepare("SELECT * FROM task_publications WHERE status IN ('queued', 'running') ORDER BY requested_at").all() as PublicationRow[];
+    const rows = this.db
+      .prepare("SELECT * FROM task_publications WHERE status IN ('queued', 'running') AND kind = 'jarvis' ORDER BY requested_at")
+      .all() as PublicationRow[];
     return rows.map(toPublication);
   }
 
@@ -538,10 +557,10 @@ export class TaskStore {
   updatePublication(id: string, patch: PublicationPatch, now: Date): boolean {
     const result = this.db
       .prepare(
-        `UPDATE task_publications SET status = ?, step = ?, commit_sha = COALESCE(?, commit_sha), message = ?, updated_at = ?
+        `UPDATE task_publications SET status = ?, step = ?, commit_sha = COALESCE(?, commit_sha), message = ?, url = COALESCE(?, url), updated_at = ?
          WHERE id = ? AND status IN ('queued', 'running')`,
       )
-      .run(patch.status, patch.step ?? null, patch.commitSha ?? null, patch.message ?? null, now.toISOString(), id);
+      .run(patch.status, patch.step ?? null, patch.commitSha ?? null, patch.message ?? null, patch.url ?? null, now.toISOString(), id);
     return result.changes > 0;
   }
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus } from "./tasks.js";
+import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus, TaskTarget } from "./tasks.js";
 import { VideoFile, VideoFormat, VideoSendState, VideoStatus } from "./videos.js";
 
 const IsoDateTime = z.iso.datetime({ offset: true });
@@ -111,10 +111,19 @@ export const TaskCard = z.object({
   budgetUsd: z.number().nonnegative(),
   /** A change to JARVIS itself, which the owner can publish. */
   build: z.boolean().optional(),
+  /** A repository or new project the owner can ship the result to. */
+  target: TaskTarget.optional(),
   /** The owner removed it from build mode. */
   archived: z.boolean().optional(),
   publication: z
-    .object({ status: PublicationStatus, step: z.string().max(40).optional(), commit: z.string().max(40).optional(), message: z.string().max(600).optional() })
+    .object({
+      status: PublicationStatus,
+      step: z.string().max(40).optional(),
+      commit: z.string().max(40).optional(),
+      message: z.string().max(600).optional(),
+      /** The pull request or the published site. */
+      url: z.string().max(500).optional(),
+    })
     .optional(),
   updatedAt: IsoDateTime,
 });

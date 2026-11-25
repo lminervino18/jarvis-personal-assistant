@@ -1,3 +1,4 @@
+import type { RepoProjects } from "../projects/repo-projects.js";
 import type { FileAnalysis, FileToAnalyze } from "../files/file-analysis.js";
 import type { FileLinks } from "../files/file-links.js";
 import type { WhatsAppFiles } from "../files/whatsapp-files.js";
@@ -41,6 +42,8 @@ export interface ToolServices {
   gmail?: GmailService;
   youtube?: YoutubeService;
   tasks?: TaskService;
+  /** Prepares GitHub repositories and new projects as targets for delegated tasks. */
+  repoProjects?: RepoProjects;
   pages?: PageService;
   attachments?: AttachmentStore;
   whatsappFiles?: WhatsAppFiles;

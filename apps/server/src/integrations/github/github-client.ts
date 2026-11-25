@@ -26,7 +26,7 @@ export class GitHubError extends Error {
 }
 
 const TokenResponse = z.object({ access_token: z.string().min(1), scope: z.string().default("") });
-const User = z.object({ login: z.string().min(1) });
+const User = z.object({ login: z.string().min(1), id: z.number().int().positive() });
 const Repo = z.object({
   full_name: z.string(),
   html_url: z.string(),
@@ -86,7 +86,12 @@ export class GitHubClient {
   }
 
   async user(token: string): Promise<string> {
-    return User.parse(await this.api(token, "GET", "/user")).login;
+    return (await this.profile(token)).login;
+  }
+
+  /** The login and numeric id, which together give the owner's private commit email. */
+  async profile(token: string): Promise<{ login: string; id: number }> {
+    return User.parse(await this.api(token, "GET", "/user"));
   }
 
   async repo(token: string, fullName: string): Promise<GitHubRepo> {

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Attachment, Task } from "./task-store.js";
@@ -25,6 +25,9 @@ const REVIEW_DIFF_EXCLUDES = [
   "dist/**",
   "coverage/**",
 ].map((pattern) => `:(exclude,glob)**/${pattern}`);
+
+/** Never part of a task's change: installed dependencies, build caches and local secrets. */
+const LOCAL_ONLY = ["node_modules/", ".vercel/", ".next/", ".env", ".env.*", "__pycache__/", ".venv/"];
 
 export interface ProjectInfo {
   slug: string;
@@ -142,6 +145,7 @@ export class WorkLayout {
       mkdirSync(paths.work, { recursive: true });
       await git(paths.work, ["init", "--quiet", "--initial-branch=main"]);
     }
+    appendFileSync(join(paths.work, ".git", "info", "exclude"), LOCAL_ONLY.join("\n") + "\n");
     await git(paths.work, ["add", "-A"]);
     await git(paths.work, ["commit", "--quiet", "--allow-empty", "-m", "baseline"]);
     const baseline = (await git(paths.work, ["rev-parse", "HEAD"])).trim();

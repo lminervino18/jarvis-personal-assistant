@@ -157,6 +157,10 @@ export const toolInputs = {
     title: z.string().min(3).max(80),
     request: z.string().min(10).max(8000),
     project: ProjectSlug.optional(),
+    /** An existing GitHub repository, as `owner/name` or its URL. */
+    repo: z.string().min(3).max(200).optional(),
+    /** A new project with its own repository and site, named with a short slug. */
+    newProject: z.string().regex(/^[a-z0-9][a-z0-9-]{1,39}$/).optional(),
     attachmentIds: z.array(z.uuid()).max(10).optional(),
   },
   task_projects: {},

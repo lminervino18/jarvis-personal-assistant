@@ -247,6 +247,10 @@ const publishStep: Record<string, string> = {
   commit: "creando el commit",
   push: "subiendo a GitHub",
   deploy: "desplegando",
+  github: "conectando con GitHub",
+  clone: "clonando el repositorio",
+  repository: "creando el repositorio",
+  pull_request: "abriendo el PR",
 };
 
 function publicationLine(publication: NonNullable<Of<"task">["publication"]>): string {
@@ -256,7 +260,7 @@ function publicationLine(publication: NonNullable<Of<"task">["publication"]>): s
     case "running":
       return `Publicando${publication.step ? ` · ${publishStep[publication.step] ?? publication.step}` : ""}`;
     case "published":
-      return `Publicado en producción${publication.commit ? ` · commit ${publication.commit.slice(0, 7)}` : ""}`;
+      return publication.url ? "Publicado" : `Publicado en producción${publication.commit ? ` · commit ${publication.commit.slice(0, 7)}` : ""}`;
     case "failed":
       return `No se publicó${publication.message ? `: ${publication.message}` : ""}`;
   }
@@ -264,8 +268,24 @@ function publicationLine(publication: NonNullable<Of<"task">["publication"]>): s
 
 const ARCHIVE = { action: "archive", label: "Borrar" } as const;
 
-function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: string; primary?: boolean }[] {
+type TaskButton = { action: TaskCardAction; label: string; primary?: boolean };
+
+/** Ship buttons for a task on a GitHub repository or a new project: offered when it is ready, again after a failure. */
+function shipActionsFor(card: Of<"task">): TaskButton[] | undefined {
+  if (!card.target) return undefined;
+  const retry = card.status === "accepted" && card.publication?.status === "failed";
+  if (card.status !== "ready" && !retry) return undefined;
+  if (card.target.kind === "new") return [{ action: "ship_new", label: retry ? "Reintentar publicación" : "Crear repo y publicar", primary: true }];
+  return [
+    { action: "ship_pr", label: "Abrir PR", primary: true },
+    { action: "ship_main", label: `Subir a ${card.target.base}` },
+  ];
+}
+
+function taskActionsFor(card: Of<"task">): TaskButton[] {
   if (card.archived) return [];
+  const ship = shipActionsFor(card);
+  if (ship) return ship;
   if (card.status === "ready" && card.build) {
     return [{ action: "publish", label: "Publicar", primary: true }, ARCHIVE];
   }
@@ -284,6 +304,13 @@ function taskActionsFor(card: Of<"task">): { action: TaskCardAction; label: stri
     return [...(resumable ? [{ action: "resume" as const, label: "Reintentar" }] : []), card.build ? ARCHIVE : { action: "cancel", label: "Cancelar tarea" }];
   }
   return [card.paused ? { action: "resume", label: "Reanudar" } : { action: "pause", label: "Pausar" }, { action: "cancel", label: "Cancelar tarea" }];
+}
+
+function readyHint(card: Of<"task">): string {
+  if (card.build) return "Publicar lo chequea entero, lo sube a GitHub y lo despliega. Para pedir cambios, respondé abajo.";
+  if (card.target?.kind === "new") return "Crea un repositorio privado a tu nombre y lo publica en la web. Para pedir cambios, escribilos en el chat.";
+  if (card.target) return "El PR o el commit salen a tu nombre. Para pedir cambios, escribilos en el chat.";
+  return "Para pedir cambios, escribilos en el chat.";
 }
 
 function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions }) {
@@ -340,15 +367,22 @@ function TaskCard({ card, actions }: { card: Of<"task">; actions: CardActions })
           </>
         )}
       </p>
+      {card.target && <p className="card-meta">{card.target.kind === "github" ? `Repositorio ${card.target.repo}` : `Proyecto nuevo «${card.target.name}»`}</p>}
       {card.publication && (
         <p className="card-status" data-status={card.publication.status === "failed" ? "failed" : card.publication.status === "published" ? "accepted" : "running"} role="status">
           {publicationLine(card.publication)}
+          {card.publication.url && (
+            <>
+              {" · "}
+              <a href={safeHref(card.publication.url) ?? undefined} target="_blank" rel="noopener noreferrer">
+                {card.publication.url.replace(/^https:\/\//, "")}
+              </a>
+            </>
+          )}
         </p>
       )}
       {card.status === "ready" && (
-        <p className="card-meta">
-          {card.build ? "Publicar lo chequea entero, lo sube a GitHub y lo despliega. Para pedir cambios, respondé abajo." : "Para pedir cambios, escribilos en el chat."}
-        </p>
+        <p className="card-meta">{readyHint(card)}</p>
       )}
       {buttons.length > 0 && !pending && (
         <div className="card-actions">

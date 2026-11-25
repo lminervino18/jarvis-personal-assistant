@@ -106,6 +106,38 @@ describe("youtube card when playback is blocked", () => {
     expect(playerStatusLabel("blocked")).toMatch(/Tocá reproducir/);
   });
 
+  it("offers to ship a task on a repository or a new project and links the result", () => {
+    const base = {
+      kind: "task" as const,
+      taskId: "3f0c6f53-9a0e-4c4e-9a43-2e0a8a5f1b10",
+      ref: 8,
+      title: "Agregar login",
+      phase: null,
+      paused: false,
+      iteration: 1,
+      costUsd: 0.3,
+      budgetUsd: 5,
+      updatedAt: "2026-11-25T15:00:00.000Z",
+    };
+    const repo = render({ ...base, status: "ready", target: { kind: "github", repo: "owner/app", base: "main" } });
+    expect(repo).toContain("Repositorio owner/app");
+    expect(repo).toContain("Abrir PR");
+    expect(repo).toContain("Subir a main");
+    expect(repo).not.toContain("Aceptar entrega");
+
+    const fresh = render({ ...base, status: "ready", target: { kind: "new", name: "mi-app" } });
+    expect(fresh).toContain("Crear repo y publicar");
+
+    const shipped = render({
+      ...base,
+      status: "accepted",
+      target: { kind: "new", name: "mi-app" },
+      publication: { status: "published", url: "https://mi-app.example.test" },
+    });
+    expect(shipped).toContain('href="https://mi-app.example.test/"');
+    expect(shipped).not.toContain("Crear repo y publicar");
+  });
+
   it("shows a task's state, review evidence and only the actions that fit it", () => {
     const base = {
       kind: "task" as const,

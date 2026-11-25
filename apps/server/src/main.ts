@@ -3,6 +3,8 @@ import { join, resolve } from "node:path";
 import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { ProjectShipper } from "./projects/project-shipper.js";
+import { RepoProjects } from "./projects/repo-projects.js";
 import { createConnections } from "./integrations/connections.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
@@ -82,9 +84,8 @@ const gmail = createGmailIntegration({
   timezone: config.timezone,
 });
 
-const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin, gmailAccounts: gmail.accounts });
-
 const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new PairingStore(db, tokenCipher) : undefined);
+const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin, gmailAccounts: gmail.accounts, whatsapp });
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 
 const services: ToolServices = {
@@ -105,10 +106,16 @@ const tasks =
         workLayout,
         { defaultBudgetUsd: config.tasks.defaultBudgetUsd, maxAttachmentBytes: config.tasks.maxAttachmentBytes },
         config.tasks.publish ? new PublicationSpool(config.tasks.publish.dir, config.tasks.publish.signingKey) : undefined,
+        connections.github && connections.accounts
+          ? new ProjectShipper({ github: connections.github, vercel: connections.vercel, accounts: connections.accounts, layout: workLayout, projectsDomain: connections.projectsDomain })
+          : undefined,
       )
     : undefined;
 if (tasks && config.tasks?.publish) setInterval(() => tasks.syncPublications(new Date()), PUBLICATION_SYNC_MS).unref();
 services.tasks = tasks;
+if (workLayout && connections.github && connections.accounts) {
+  services.repoProjects = new RepoProjects({ github: connections.github, accounts: connections.accounts, projectsDir: workLayout.projectsDir });
+}
 const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
 services.attachments = attachments;
 if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));

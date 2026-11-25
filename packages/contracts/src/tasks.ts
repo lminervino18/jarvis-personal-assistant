@@ -25,12 +25,22 @@ export const TaskBlocker = z.object({
 export type TaskBlocker = z.infer<typeof TaskBlocker>;
 
 /** What the owner can do from a task card, without going through the model. */
-export const TaskCardAction = z.enum(["pause", "resume", "cancel", "accept", "approve", "reject", "publish", "archive"]);
+export const TaskCardAction = z.enum(["pause", "resume", "cancel", "accept", "approve", "reject", "publish", "archive", "ship_pr", "ship_main", "ship_new"]);
 export type TaskCardAction = z.infer<typeof TaskCardAction>;
 
 /** Where a build task's change is on its way to production, after the owner taps Publish. */
 export const PublicationStatus = z.enum(["queued", "running", "published", "failed"]);
 export type PublicationStatus = z.infer<typeof PublicationStatus>;
+
+/**
+ * Where a task's result goes: an existing GitHub repository (as a pull request or onto its base
+ * branch), or a new project that gets its own private repository and a Vercel site.
+ */
+export const TaskTarget = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("github"), repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), base: z.string().min(1).max(200) }),
+  z.object({ kind: z.literal("new"), name: z.string().regex(/^[a-z0-9][a-z0-9-]{1,39}$/) }),
+]);
+export type TaskTarget = z.infer<typeof TaskTarget>;
 
 export const ReviewVerdict = z.enum(["approve", "changes", "blocked"]);
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;

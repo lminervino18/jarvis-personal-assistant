@@ -1,3 +1,4 @@
+import { ProjectError } from "../projects/repo-projects.js";
 import type { Task } from "../tasks/task-store.js";
 import type { TaskOutcome } from "../tasks/task-service.js";
 import { clip } from "./digest.js";
@@ -33,13 +34,13 @@ function respond(ctx: ToolContext, outcome: TaskOutcome) {
 export const taskCreate = defineTool({
   name: "task_create",
   description:
-    "Registra una tarea de trabajo para que la hagan agentes en segundo plano (planificador, ejecutor y revisor independiente). Usala cuando el dueño pide algo que requiere ejecutar trabajo (programar, investigar a fondo, preparar un entregable), no para consultas rápidas. 'request' lleva el pedido completo con todo lo que el dueño dijo, sin resumirlo. 'project' es un slug de task_projects si corresponde. No incluyas datos personales del dueño que no sean necesarios para la tarea.",
+    "Registra una tarea de trabajo para que la hagan agentes en segundo plano (planificador, ejecutor y revisor independiente). Usala cuando el dueño pide algo que requiere ejecutar trabajo (programar, investigar a fondo, preparar un entregable), no para consultas rápidas. 'request' lleva el pedido completo con todo lo que el dueño dijo, sin resumirlo. 'project' es un slug de task_projects si corresponde. 'repo' es un repositorio de GitHub (owner/nombre o URL) para trabajar sobre él; al terminar el dueño elige en la tarjeta abrir un PR o subirlo a la rama base. 'newProject' es un nombre corto (minúsculas y guiones) para un proyecto desde cero; al terminar se crea un repo privado y se publica en <nombre>.lminervino18.com. Usá uno solo de project, repo o newProject. No incluyas datos personales del dueño que no sean necesarios para la tarea.",
   describe(_ctx, input) {
     return {
       title: "Crear tarea delegada",
       summary: input.title,
       details: [
-        { label: "Proyecto", value: input.project ?? "sin proyecto" },
+        { label: "Proyecto", value: input.repo ?? input.newProject ?? input.project ?? "sin proyecto" },
         { label: "Pedido", value: input.request.slice(0, 300) },
       ],
     };
@@ -47,13 +48,26 @@ export const taskCreate = defineTool({
   async execute(ctx, input) {
     const tasks = ctx.services.tasks;
     if (!tasks) return fail("disabled", DISABLED);
+    if ([input.project, input.repo, input.newProject].filter(Boolean).length > 1) return fail("invalid_input", "Usá uno solo de project, repo o newProject.");
+    let destination: Pick<Parameters<typeof tasks.create>[0], "project" | "target"> = {};
+    if (input.repo || input.newProject) {
+      const projects = ctx.services.repoProjects;
+      if (!projects) return fail("disabled", "Los proyectos de GitHub no están configurados en este servidor.");
+      try {
+        destination = input.repo ? await projects.prepare(input.repo) : { target: await projects.newProject(input.newProject as string) };
+      } catch (error) {
+        if (error instanceof ProjectError) return fail(error.code, error.message, error.code === "upstream_error");
+        return fail("upstream_error", "GitHub no respondió; probá de nuevo en un rato.", true);
+      }
+    }
     const attachmentIds = (input.attachmentIds ?? []).map((id) => {
       const personal = ctx.services.attachments?.read(id);
       if (!personal) return id;
       const copy = tasks.saveAttachment({ name: personal.attachment.name, mediaType: personal.attachment.mediaType, data: personal.data }, ctx.now());
       return copy?.id ?? id;
     });
-    return respond(ctx, tasks.create({ ...input, ...(attachmentIds.length ? { attachmentIds } : {}) }, ctx.now()));
+    const { repo: _repo, newProject: _newProject, ...fields } = input;
+    return respond(ctx, tasks.create({ ...fields, ...destination, ...(attachmentIds.length ? { attachmentIds } : {}) }, ctx.now()));
   },
 });
 
