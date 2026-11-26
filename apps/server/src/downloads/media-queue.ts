@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import type { MediaFormat } from "@jarvis/contracts";
 import type { Db } from "../db/database.js";
@@ -8,8 +8,9 @@ import { safeFileName } from "../tasks/workspace.js";
 import type { SendOutcome, SendRequest } from "../transfers/transfer-delivery.js";
 import type { Transfer, TransferOrigin, TransferStore } from "../transfers/transfer-store.js";
 import { Outbox } from "../worker/outbox.js";
+import { beelupId, type BeelupSource } from "./beelup.js";
 import type { ConvertFormat, MediaConverter } from "./media-converter.js";
-import { DownloadError, siteOf, type DownloadFailure, type MediaDownloader, type Site } from "./media-downloader.js";
+import { DownloadError, siteOf, type DownloadFailure, type MediaDownloader, type VideoSite } from "./media-downloader.js";
 import { clock, padded, type Moment, type MomentFinder } from "./moment-finder.js";
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
@@ -152,6 +153,12 @@ function cutNote(job: MediaJob, moments: Moment[], transfer: Transfer, keptFull:
   return `Terminé el recorte que pediste (${parts}; ${clock(seconds)} en total, ${megabytes(transfer.size)}): está en Transferencias.${whole}`;
 }
 
+/** The owner's notice for a whole Beelup match: where it is played, how long and how heavy. */
+function matchNote(bounds: Moment | undefined, transfer: Transfer): string {
+  const where = bounds ? `, desde que arranca hasta que termina (del ${clock(bounds.start)} al ${clock(bounds.end)} de la grabación; ${clock(bounds.end - bounds.start)})` : "";
+  return `Bajé el partido de Beelup entero${where}, ${megabytes(transfer.size)}: está en Transferencias, en su calidad original.`;
+}
+
 /** What one job made, before it lands in Transferencias. */
 interface Made {
   path: string;
@@ -168,6 +175,18 @@ interface Made {
   full?: { path: string; name: string; ext: string };
   /** The Transferencias file a cut came from, to drop when the owner did not want to keep it. */
   source?: Transfer;
+  /** Where the match is played in a whole recorded match, in seconds of the recording. */
+  bounds?: Moment;
+}
+
+/** A video fetched from a link, before it becomes a Transferencias file. */
+interface Fetched {
+  path: string;
+  title: string;
+  ext: string;
+  height?: number;
+  /** Its length, when the source says it. */
+  seconds?: number;
 }
 
 export interface MediaQueueDeps {
@@ -175,6 +194,8 @@ export interface MediaQueueDeps {
   store: TransferStore;
   downloader: MediaDownloader;
   converter?: MediaConverter;
+  /** Matches recorded by Beelup's court cameras. */
+  beelup?: Pick<BeelupSource, "match">;
   /** Sends a finished file to whoever the owner named with the request. */
   send?(transfer: Transfer, request: SendRequest): Promise<SendOutcome>;
   /** Removes a Transferencias file and its previews. */
@@ -358,10 +379,43 @@ export class MediaQueue {
     }
   }
 
-  private async downloadFile(job: MediaJob, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
+  /** The video behind a link: a Beelup match read from its playlist, anything else through yt-dlp. */
+  private async fetchSource(job: MediaJob, format: MediaFormat, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Fetched> {
     if (job.source === "transfer") throw new DownloadError("failed");
-    const file = await this.deps.downloader.run({ source: job.source, target: job.target, site: job.site as Site, format: job.format }, work, onProgress, signal);
+    if (job.site !== "Beelup") return this.deps.downloader.run({ source: job.source, target: job.target, site: job.site as VideoSite, format }, work, onProgress, signal);
+    const id = beelupId(job.target);
+    if (!id || !this.deps.beelup || !this.deps.converter) throw new DownloadError("unsupported");
+    const match = await this.deps.beelup.match(id).catch(() => Promise.reject(new DownloadError("unavailable")));
+    const playlist = join(work, "partido.m3u8");
+    const path = join(work, "partido.mp4");
+    writeFileSync(playlist, match.playlist);
+    await this.deps.converter.remuxHls(playlist, path, match.seconds, onProgress, signal);
+    return { path, title: match.title, ext: "mp4", seconds: match.seconds };
+  }
+
+  private async downloadFile(job: MediaJob, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
+    if (job.site === "Beelup") return this.matchFile(job, work, onProgress, signal);
+    const file = await this.fetchSource(job, job.format, work, onProgress, signal);
     return { path: file.path, name: `${titleForFile(file.title)}.${file.ext}`, ext: file.ext, title: file.title, ...(file.height ? { height: file.height } : {}), origin: "download", sender: job.site };
+  }
+
+  /** A whole Beelup match, without the warm-up before or the greetings after when the finder can tell where it is played. */
+  private async matchFile(job: MediaJob, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
+    const stage = (name: string, from: number, to: number) => {
+      this.update(job.id, { stage: name, progress: from });
+      return (fraction: number) => onProgress(from + fraction * (to - from));
+    };
+    const match = await this.fetchSource(job, "max", work, stage("Bajando", 0, 0.75), signal);
+    const seconds = match.seconds ?? 0;
+    const made: Made = { path: match.path, name: `${titleForFile(match.title)}.mp4`, ext: "mp4", title: match.title, origin: "download", sender: job.site };
+    if (!this.finder || !this.deps.converter || seconds <= 0) return made;
+    stage("Buscando el arranque y el final", 0.75, 0.9);
+    const bounds = await this.finder.matchBounds(match.path, seconds, work, signal).catch(() => undefined);
+    if (!bounds || (bounds.start < 5 && bounds.end > seconds - 5)) return made;
+    stage("Recortando", 0.9, 1);
+    const trimmed = join(work, "partido-recortado.mp4");
+    await this.deps.converter.trimCopy(match.path, bounds.start, bounds.end, trimmed, signal);
+    return { ...made, path: trimmed, bounds };
   }
 
   private async cutFile(job: MediaJob, edit: EditSpec, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
@@ -373,10 +427,7 @@ export class MediaQueue {
     };
     const source = job.source === "transfer" ? this.deps.store.get(job.target, this.now()) : undefined;
     if (job.source === "transfer" && !source) throw new DownloadError("unavailable");
-    const downloaded =
-      job.source === "transfer"
-        ? undefined
-        : await this.deps.downloader.run({ source: job.source, target: job.target, site: job.site as Site, format: "iphone" }, work, stage("Bajando", 0, 0.5), signal);
+    const downloaded = job.source === "transfer" ? undefined : await this.fetchSource(job, "iphone", work, stage("Bajando", 0, 0.5), signal);
     const input = source ? join(this.deps.dir, source.uploadId) : (downloaded?.path ?? "");
     const title = source ? source.name.slice(0, source.name.length - extname(source.name).length) : (downloaded?.title ?? "video");
     const duration = (await converter.probe(input).catch(() => ({ duration: 0 }))).duration;
@@ -428,7 +479,9 @@ export class MediaQueue {
     const kind = AUDIO_FORMATS.has(job.format) ? "el audio" : "el video";
     const done = made.moments
       ? cutNote(job, made.moments, transfer, Boolean(made.full))
-      : job.source === "transfer"
+      : job.site === "Beelup"
+        ? matchNote(made.bounds, transfer)
+        : job.source === "transfer"
         ? `Terminé de convertir el archivo ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`
         : `Terminé de bajar ${kind} de ${job.site} que pediste ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`;
     const push = `Ya está «${made.title}»${job.send && sent?.ok ? ` y se lo mandé a ${job.send.name}` : ""}.`;

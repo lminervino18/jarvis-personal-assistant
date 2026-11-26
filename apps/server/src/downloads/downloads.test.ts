@@ -12,6 +12,7 @@ import { conversionArgs, cutArgs, MediaConverter, parseProbe } from "./media-con
 import { DownloadError, failureOf, MediaDownloader, siteOf, type DownloadedFile } from "./media-downloader.js";
 import { FAILURES, MediaQueue, titleForFile } from "./media-queue.js";
 import { MomentFinder, padded, parseMoments } from "./moment-finder.js";
+import { beelupId, BeelupSource, readPlaylist } from "./beelup.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -481,5 +482,81 @@ describe("cut jobs", () => {
     await env.queue.idle();
     expect(env.queue.get(job!.id)).toMatchObject({ status: "failed", error: FAILURES.no_moment });
     expect(env.store.list(new Date())).toEqual([]);
+  });
+});
+
+describe("Beelup", () => {
+  const segment = (host: string, n: number) => `#EXTINF:2.000,\nhttps://${host}/hls/videoscloud/x/cam.37.file.mp4/segment-${n}-v1-a1.ts`;
+  const playlist = (host: string, count: number) => ["#EXTM3U", "#EXT-X-TARGETDURATION:2", ...Array.from({ length: count }, (_, n) => segment(host, n)), "#EXT-X-ENDLIST"].join("\n");
+
+  it("accepts only match player links, normalized", () => {
+    expect(siteOf("https://beelup.com/player.php?id=38073765&utm=x")).toEqual({ url: "https://beelup.com/player.php?id=38073765", site: "Beelup" });
+    expect(siteOf("http://www.beelup.com/player.php?id=1")?.url).toBe("https://beelup.com/player.php?id=1");
+    for (const link of ["https://beelup.com/otra.php?id=1", "https://beelup.com/player.php?id=abc", "https://beelup.com.evil.example/player.php?id=1"]) expect(siteOf(link), link).toBeUndefined();
+    expect(beelupId("https://beelup.com/player.php?id=38073765")).toBe("38073765");
+  });
+
+  it("measures a playlist and refuses one that points outside Beelup's servers", () => {
+    expect(readPlaylist(playlist("cacheusxl67.do.revivitupartido.com", 3))).toEqual({ seconds: 6, segments: 3, trusted: true });
+    expect(readPlaylist(playlist("169.254.169.254", 1)).trusted).toBe(false);
+  });
+
+  it("names the match by its page and keeps the camera with video", async () => {
+    const answers: Record<string, string> = {
+      "player.php": "<html><title>DISTRITO FUTBOL / Cancha 5 / Jueves 19/11 a las 22:30</title></html>",
+      central: playlist("cacheusxl67.do.revivitupartido.com", 4),
+      izq: "#EXTM3U\n#EXT-X-ENDLIST",
+      der: "#EXTM3U\n#EXT-X-ENDLIST",
+    };
+    const fetchFn = (async (input: string) => {
+      const key = Object.keys(answers).find((name) => String(input).includes(name === "player.php" ? name : `camara=${name}`));
+      return new Response(key ? answers[key] : "", { status: key ? 200 : 404 });
+    }) as unknown as typeof fetch;
+    expect(await new BeelupSource(fetchFn).match("38073765")).toMatchObject({ title: "DISTRITO FUTBOL / Cancha 5 / Jueves 19/11 a las 22:30", seconds: 8 });
+    answers.central = playlist("evil.example.com", 2);
+    await expect(new BeelupSource(fetchFn).match("38073765")).rejects.toThrow("outside Beelup");
+  });
+
+  it("finds where the match is played: a look at every minute, then every 10 seconds at the edges", async () => {
+    const work = tempDir();
+    const asked: { images: number; prompt: string }[] = [];
+    const finder = new MomentFinder({
+      exec: async (_command, args) => {
+        writeFileSync(args.at(-1) ?? "", "jpg");
+        return { stdout: "", stderr: "" };
+      },
+      complete: async (request) => {
+        asked.push({ images: request.files?.length ?? 0, prompt: request.prompt });
+        return asked.length === 1 ? '{"moments":[{"start":300,"end":2990}]}' : '{"moments":[{"start":335,"end":2975}]}';
+      },
+    });
+    expect(await finder.matchBounds("partido.mp4", 3300, work, new AbortController().signal)).toEqual({ start: 335, end: 2975 });
+    expect(asked[0]?.images).toBe(90);
+    expect(asked[1]?.images).toBe(38);
+    expect(asked[1]?.prompt).toContain("imagen 1 = 3:30");
+  });
+
+  it("downloads the whole match into Transferencias, trimmed to where it is played", async () => {
+    const dir = tempDir();
+    const db = openMigratedDatabase(":memory:");
+    const store = new TransferStore(db);
+    const trims: number[][] = [];
+    const converter = {
+      remuxHls: async (_playlist: string, output: string) => writeFileSync(output, "whole match"),
+      trimCopy: async (_input: string, from: number, to: number, output: string) => {
+        trims.push([from, to]);
+        writeFileSync(output, "match");
+      },
+    } as unknown as MediaConverter;
+    const beelup = { match: async () => ({ playlist: "#EXTM3U", seconds: 3300, title: "Cancha 5 / Jueves 19/11 a las 22:30" }) };
+    const queue = new MediaQueue({ db, store, dir, downloader: {} as MediaDownloader, converter, beelup, freeBytes: () => 100 * 1024 ** 3 });
+    queue.useFinder({ matchBounds: async () => ({ start: 335, end: 2975 }) } as unknown as MomentFinder);
+    const job = queue.download({ url: "https://beelup.com/player.php?id=38073765", format: "iphone" });
+    await queue.idle();
+    expect(queue.get(job!.id)?.status).toBe("done");
+    expect(trims).toEqual([[335, 2975]]);
+    expect(store.list(new Date())[0]).toMatchObject({ name: "Cancha 5 Jueves 19 11 a las 22 30.mp4", sender: "Beelup", mediaType: "video/mp4" });
+    const chat = (JSON.parse((db.prepare("SELECT payload_json AS p FROM outbox WHERE kind = 'chat_message'").get() as { p: string }).p) as { text: string }).text;
+    expect(chat).toBe("Bajé el partido de Beelup entero, desde que arranca hasta que termina (del 5:35 al 49:35 de la grabación; 44:00), 0 MB: está en Transferencias, en su calidad original.");
   });
 });

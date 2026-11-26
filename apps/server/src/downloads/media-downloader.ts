@@ -3,13 +3,16 @@ import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { MediaFormat } from "@jarvis/contracts";
 
-export type Site = "YouTube" | "X" | "Instagram";
+/** Sites yt-dlp downloads from. */
+export type VideoSite = "YouTube" | "X" | "Instagram";
+/** Every site a link can come from; Beelup matches are read from its own playlists, not by yt-dlp. */
+export type Site = VideoSite | "Beelup";
 
 /** What to download: a page on one of the three sites, or the first YouTube result for some words. */
 export interface DownloadRequest {
   source: "link" | "search";
   target: string;
-  site: Site;
+  site: VideoSite;
   format: MediaFormat;
 }
 
@@ -39,14 +42,15 @@ const HOSTS: Record<string, Site> = {
   "twitter.com": "X",
   "mobile.twitter.com": "X",
   "instagram.com": "Instagram",
+  "beelup.com": "Beelup",
 };
 
 /** yt-dlp's own extractors for each site; its generic one stays off, so no link can make the server fetch other addresses. */
-const EXTRACTORS: Record<Site, string> = { YouTube: "youtube.*", X: "twitter.*", Instagram: "instagram.*" };
+const EXTRACTORS: Record<VideoSite, string> = { YouTube: "youtube.*", X: "twitter.*", Instagram: "instagram.*" };
 
 const MAX_TITLE = 120;
 
-/** The link and its site when it is a YouTube, X or Instagram page; undefined for anything else. */
+/** The link and its site when it is a YouTube, X or Instagram page or a Beelup match; undefined for anything else. */
 export function siteOf(input: string): { url: string; site: Site } | undefined {
   let url: URL;
   try {
@@ -58,6 +62,10 @@ export function siteOf(input: string): { url: string; site: Site } | undefined {
   if (url.username || url.password || url.port) return undefined;
   const site = HOSTS[url.hostname.toLowerCase().replace(/^www\./, "")];
   if (!site) return undefined;
+  if (site === "Beelup") {
+    const id = url.pathname === "/player.php" ? url.searchParams.get("id") : null;
+    return id && /^\d{1,12}$/.test(id) ? { url: `https://beelup.com/player.php?id=${id}`, site } : undefined;
+  }
   url.protocol = "https:";
   return { url: url.toString(), site };
 }

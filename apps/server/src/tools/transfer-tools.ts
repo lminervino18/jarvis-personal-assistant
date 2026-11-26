@@ -143,11 +143,11 @@ export const transferShareLink = defineTool({
 export const transferFromLink = defineTool({
   name: "transfer_from_link",
   description:
-    "Baja de YouTube, X o Instagram un video, o solo su audio, y lo deja en Transferencias. Pasá url con el link, o search con lo que el dueño nombró sin link (una canción, un video) para bajar el primer resultado de YouTube. format: «iphone» (por defecto: H.264 hasta 1080p, que el iPhone 15 del dueño guarda en Fotos), «max» solo si pide máxima calidad o 4K para la compu (el iPhone 15 no lo guarda), «mp3» o «m4a» para quedarse con el audio (canciones, podcasts). Si el dueño ya dijo a quién mandarlo, pasalo en sendTo: se manda solo apenas está listo, como archivo (un video pesado se comprime para que entre); asLink solo si pidió el link en calidad original. Tarda: al terminar le llega una notificación al dueño.",
+    "Baja de YouTube, X o Instagram un video, o solo su audio, y lo deja en Transferencias. Con un link de un partido de Beelup (beelup.com/player.php?id=…) baja el partido entero en su calidad original, desde que arranca a jugarse hasta que termina (sin la entrada en calor ni la salida). Pasá url con el link, o search con lo que el dueño nombró sin link (una canción, un video) para bajar el primer resultado de YouTube. format: «iphone» (por defecto: H.264 hasta 1080p, que el iPhone 15 del dueño guarda en Fotos), «max» solo si pide máxima calidad o 4K para la compu (el iPhone 15 no lo guarda), «mp3» o «m4a» para quedarse con el audio (canciones, podcasts). Si el dueño ya dijo a quién mandarlo, pasalo en sendTo: se manda solo apenas está listo, como archivo (un video pesado se comprime para que entre); asLink solo si pidió el link en calidad original. Tarda: al terminar le llega una notificación al dueño.",
   prepare(ctx, input) {
     if (!services(ctx)?.media) return { refused: fail("disabled", "Bajar videos no está instalado en el servidor.") };
     if (Boolean(input.url) === Boolean(input.search)) return { refused: fail("invalid_input", "Pasá url o search, uno de los dos.") };
-    if (input.url && !siteOf(input.url)) return { refused: fail("invalid_input", "Solo bajo de YouTube, X o Instagram.") };
+    if (input.url && !siteOf(input.url)) return { refused: fail("invalid_input", "Solo bajo de YouTube, X, Instagram o Beelup.") };
     if (!input.sendTo) return { input };
     const resolved = resolveSendTo(ctx, input.sendTo);
     return "refused" in resolved ? resolved : { input: { ...input, sendTo: resolved.sendTo } };
@@ -170,7 +170,7 @@ export const transferFromLink = defineTool({
       format,
       ...(input.sendTo ? { send: sendRequest(ctx, input.sendTo) } : {}),
     });
-    if (!job) return fail("invalid_input", "Solo bajo de YouTube, X o Instagram.");
+    if (!job) return fail("invalid_input", "Solo bajo de YouTube, X, Instagram o Beelup.");
     return ok(SOURCE, [{ id: job.id, site: job.site, format: FORMAT_NAMES[format], status: job.status, ...(job.send ? { sendTo: job.send.name } : {}) }], {
       note: "Lo estoy bajando; cuando esté en Transferencias (y enviado, si pidió mandarlo) le llega una notificación al dueño. No afirmes que ya terminó ni que se envió.",
     });
@@ -220,14 +220,14 @@ export const transferSuggest = defineTool({
 export const transferEdit = defineTool({
   name: "transfer_edit",
   description:
-    "Edita un video: lo consigue, se queda solo con las partes que el dueño quiere y deja el recorte en Transferencias. La fuente es una de tres: url (YouTube, X o Instagram), search (primer resultado de YouTube) o transferId (algo de Transferencias). Las partes salen de find o de segments. Con find describís lo que quiere en sus palabras («el gol de Paredes de penal», «todos los goles», «cuando habla del dólar»): Jarvis lo encuentra escuchando el relato y mirando cuadros. Con segments pasás los tiempos exactos, si los dio. Opciones: padding (segundos de margen, 2 por defecto), vertical para historias y format «mp3» para quedarse con el audio de esas partes. Por defecto no guarda el video entero, salvo que venga de Transferencias; keepSource lo guarda igual. Con sendTo se manda solo al terminar. Tarda unos minutos y avisa con una notificación.",
+    "Edita un video: lo consigue, se queda solo con las partes que el dueño quiere y deja el recorte en Transferencias. La fuente es una de tres: url (YouTube, X, Instagram o un partido de Beelup), search (primer resultado de YouTube) o transferId (algo de Transferencias). Las partes salen de find o de segments. Con find describís lo que quiere en sus palabras («el gol de Paredes de penal», «todos los goles», «cuando habla del dólar»): Jarvis lo encuentra escuchando el relato y mirando cuadros. Con segments pasás los tiempos exactos, si los dio. Opciones: padding (segundos de margen, 2 por defecto), vertical para historias y format «mp3» para quedarse con el audio de esas partes. Por defecto no guarda el video entero, salvo que venga de Transferencias; keepSource lo guarda igual. Con sendTo se manda solo al terminar. Tarda unos minutos y avisa con una notificación.",
   prepare(ctx, input) {
     const transfers = services(ctx);
     if (!transfers?.media) return { refused: fail("disabled", "Editar videos no está instalado en el servidor.") };
     if ([input.url, input.search, input.transferId].filter(Boolean).length !== 1) return { refused: fail("invalid_input", "Pasá una sola fuente: url, search o transferId.") };
     if (Boolean(input.find) === Boolean(input.segments)) return { refused: fail("invalid_input", "Pasá find (qué buscar) o segments (los tiempos), uno de los dos.") };
     if (input.segments?.some((segment) => segment.end <= segment.start)) return { refused: fail("invalid_input", "Cada parte tiene que terminar después de empezar.") };
-    if (input.url && !siteOf(input.url)) return { refused: fail("invalid_input", "Solo bajo de YouTube, X o Instagram.") };
+    if (input.url && !siteOf(input.url)) return { refused: fail("invalid_input", "Solo bajo de YouTube, X, Instagram o Beelup.") };
     if (input.transferId) {
       const transfer = transfers.store.get(input.transferId, ctx.now());
       if (!transfer) return { refused: fail("not_found", "Ese archivo ya no está en Transferencias.") };

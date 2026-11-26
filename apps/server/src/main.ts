@@ -19,6 +19,7 @@ import { MediaConverter } from "./downloads/media-converter.js";
 import { MediaDownloader } from "./downloads/media-downloader.js";
 import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
+import { BeelupSource } from "./downloads/beelup.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
 import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
 import { Welcome } from "./welcome/welcome.js";
@@ -129,6 +130,7 @@ const media =
         dir: transfersDir,
         freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
         converter: mediaConverter,
+        beelup: new BeelupSource(),
         send: (transfer, request) => transferSender.send(transfer, request, new Date()),
         discard: (transfer) => {
           transfers.markDeleted(transfer.id, new Date());

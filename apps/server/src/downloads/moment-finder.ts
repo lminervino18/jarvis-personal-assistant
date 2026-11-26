@@ -52,7 +52,7 @@ export function clock(seconds: number): string {
 }
 
 /** Moments inside the video, in order, overlaps merged; undefined when the answer is not the JSON asked for. */
-export function parseMoments(text: string, duration: number): Moment[] | undefined {
+export function parseMoments(text: string, duration: number, longest = MAX_MOMENT_SECONDS): Moment[] | undefined {
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (!json) return undefined;
   let parsed: z.infer<typeof Answer>;
@@ -64,7 +64,7 @@ export function parseMoments(text: string, duration: number): Moment[] | undefin
   return merge(
     parsed.moments
       .map((moment) => ({ start: Math.max(0, moment.start), end: Math.min(duration, moment.end) }))
-      .filter((moment) => moment.end > moment.start && moment.end - moment.start <= MAX_MOMENT_SECONDS),
+      .filter((moment) => moment.end > moment.start && moment.end - moment.start <= longest),
   );
 }
 
@@ -122,9 +122,69 @@ export class MomentFinder {
     }
   }
 
-  private async ask(prompt: string, signal: AbortSignal, duration: number, files?: RuntimeFile[]): Promise<Moment[] | undefined> {
+  private async ask(prompt: string, signal: AbortSignal, duration: number, files?: RuntimeFile[], longest?: number): Promise<Moment[] | undefined> {
     const answer = await this.options.complete({ system: SYSTEM, prompt, effort: "medium", ...(this.options.model ? { model: this.options.model } : {}), ...(files ? { files } : {}) }, signal);
-    return parseMoments(answer, duration);
+    return parseMoments(answer, duration, longest);
+  }
+
+  /**
+   * When the match is actually played in a long recording from a fixed court camera: without the
+   * warm-up, people coming in, or the greetings and leaving at the end. It looks at one frame every
+   * minute or so, then at frames every 10 seconds around the start and the end. Undefined when it cannot tell.
+   */
+  async matchBounds(video: string, duration: number, work: string, signal: AbortSignal): Promise<Moment | undefined> {
+    const step = Math.max(30, Math.ceil(duration / 90));
+    const times = Array.from({ length: Math.floor((duration - 1) / step) + 1 }, (_, index) => index * step);
+    const overview = await this.framesAt(video, times, 320, work, "bounds");
+    if (overview.length < 3) return undefined;
+    const rough = (
+      await this.ask(
+        [
+          `Es la grabación de ${clock(duration)} de una cámara fija en una cancha de fútbol amateur.`,
+          `Te paso ${overview.length} cuadros en orden: ${overview.map((frame, index) => `imagen ${index + 1} = ${clock(frame.at)}`).join(", ")}.`,
+          "Marcá un solo momento: desde que arranca a jugarse el partido (los dos equipos jugando, ya sin la entrada en calor ni gente entrando) hasta que termina (antes de que se junten a saludar o se vayan). Un entretiempo queda adentro. Si se juega desde el principio o hasta el final de la grabación, usá 0 o la duración.",
+          ANSWER,
+        ].join("\n\n"),
+        signal,
+        duration,
+        overview.map((frame) => frame.file),
+        duration,
+      )
+    )?.[0];
+    if (!rough) return undefined;
+    const around = (center: number) => Array.from({ length: 19 }, (_, index) => center - 90 + index * 10).filter((time) => time >= 0 && time < duration);
+    const close = await this.framesAt(video, [...around(rough.start), ...around(rough.end)], 320, work, "edges").catch(() => []);
+    if (close.length === 0) return rough;
+    const refined = (
+      await this.ask(
+        [
+          `Es la grabación de ${clock(duration)} de una cámara fija en una cancha de fútbol amateur. El partido se juega más o menos entre ${clock(rough.start)} y ${clock(rough.end)}.`,
+          `Te paso cuadros cada 10 segundos alrededor de esos dos puntos: ${close.map((frame, index) => `imagen ${index + 1} = ${clock(frame.at)}`).join(", ")}.`,
+          "Ajustá el segundo exacto en que arranca a jugarse y el segundo en que termina el partido.",
+          ANSWER,
+        ].join("\n\n"),
+        signal,
+        duration,
+        close.map((frame) => frame.file),
+        duration,
+      ).catch(() => undefined)
+    )?.[0];
+    return refined ?? rough;
+  }
+
+  /** One JPEG frame at each second given, each read with its own fast seek: cheap even on a long recording. */
+  private async framesAt(video: string, times: number[], width: number, work: string, name: string): Promise<{ at: number; file: RuntimeFile }[]> {
+    const frames: { at: number; file: RuntimeFile }[] = [];
+    for (const [index, at] of times.slice(0, MAX_IMAGES).entries()) {
+      const output = join(work, `${name}-${String(index).padStart(3, "0")}.jpg`);
+      try {
+        await this.options.exec(this.options.ffmpeg ?? "ffmpeg", ["-hide_banner", "-nostdin", "-y", "-ss", at.toFixed(2), "-i", video, "-frames:v", "1", "-vf", `scale=${width}:-2`, "-q:v", "6", output]);
+        frames.push({ at, file: { mediaType: "image/jpeg", data: readFileSync(output).toString("base64") } });
+      } catch {
+        continue;
+      }
+    }
+    return frames;
   }
 
   private fromTranscript(cues: Cue[], duration: number, description: string, signal: AbortSignal): Promise<Moment[] | undefined> {

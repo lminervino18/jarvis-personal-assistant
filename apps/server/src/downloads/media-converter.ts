@@ -179,6 +179,26 @@ export class MediaConverter {
     return { path: output, ext, seconds };
   }
 
+  /** Saves an HLS playlist (a Beelup match) as one MP4 without re-encoding: every frame as it was recorded. */
+  async remuxHls(playlist: string, output: string, seconds: number, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<void> {
+    await this.ffmpeg(
+      ["-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,https,tls,tcp,crypto", "-i", playlist, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", output],
+      seconds,
+      onProgress,
+      signal,
+    );
+  }
+
+  /** Keeps `from` to `to` of a video without re-encoding; the cut lands on the nearest keyframe, within a second or two. */
+  async trimCopy(input: string, from: number, to: number, output: string, signal: AbortSignal): Promise<void> {
+    await this.ffmpeg(
+      ["-hide_banner", "-nostdin", "-y", "-ss", from.toFixed(2), "-i", input, "-t", (to - from).toFixed(2), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", output],
+      to - from,
+      () => undefined,
+      signal,
+    );
+  }
+
   /**
    * A copy of a video that weighs at most `targetBytes`, for channels with a size limit: H.264 at
    * the bitrate that fits, at the smallest resolution step that still looks fine. Undefined when the
