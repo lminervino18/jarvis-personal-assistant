@@ -155,7 +155,9 @@ export function Conversation({ session, onLogout, demo }: Props) {
       <div ref={app} className="app app-wide" style={frame}>
         <nav className="sidebar" aria-label="Secciones">
           <button type="button" className="nav-brand" aria-current={panel === "jarvis" ? "page" : undefined} onClick={() => setPanel("jarvis")}>
-            <Core state={snapshot.state} label={label} getLevels={session.getLevels} />
+            <span aria-hidden="true">
+              <Core state={snapshot.state} label={label} getLevels={session.getLevels} />
+            </span>
             <span className="title-text">
               <strong>Jarvis</strong>
               <span className="brand-status" data-state={snapshot.state} data-online={online}>
