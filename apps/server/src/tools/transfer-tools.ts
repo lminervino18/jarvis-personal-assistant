@@ -1,5 +1,6 @@
 import { transferUrls } from "../transfers/transfer-routes.js";
 import type { TransferStore } from "../transfers/transfer-store.js";
+import type { DownloadQueue } from "../downloads/download-queue.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
@@ -8,9 +9,11 @@ const SOURCE = { provider: "transfers" };
 export interface TransferServices {
   store: TransferStore;
   publicOrigin: string;
+  /** Downloads from YouTube, X and Instagram; undefined when yt-dlp is not installed. */
+  downloads?: DownloadQueue;
 }
 
-const FROM = { phone: "el celu", computer: "una compu", link: "un link" } as const;
+const FROM = { phone: "el celu", computer: "una compu", link: "un link", download: "una descarga" } as const;
 
 function services(ctx: ToolContext) {
   return ctx.services.transfers;
@@ -27,7 +30,7 @@ export const transferList = defineTool({
       id: item.id,
       name: item.name,
       size: item.size,
-      from: item.origin === "link" ? `${FROM.link}${item.sender ? ` (${item.sender})` : ""}` : FROM[item.origin],
+      from: item.origin === "link" || item.origin === "download" ? `${FROM[item.origin]}${item.sender ? ` (${item.sender})` : ""}` : FROM[item.origin],
       uploadedAt: item.createdAt,
       deletedAt: item.expiresAt,
     }));
@@ -62,4 +65,18 @@ export const transferShareLink = defineTool({
   },
 });
 
-export const transferTools = [transferList, transferUploadLink, transferShareLink] as const;
+export const transferFromLink = defineTool({
+  name: "transfer_from_link",
+  description:
+    "Baja un video de YouTube, X o Instagram en su máxima calidad (o en «compatible», H.264, si el dueño lo quiere para verlo en cualquier celu) y lo deja en Transferencias. Tarda: al terminar le llega una notificación. Solo esos tres sitios.",
+  describe: (_ctx, input) => ({ title: "Bajar un video a Transferencias", summary: input.url, details: [{ label: "Calidad", value: input.quality === "compatible" ? "Compatible con cualquier celu" : "Máxima" }] }),
+  async execute(ctx, input) {
+    const downloads = services(ctx)?.downloads;
+    if (!downloads) return fail("disabled", "Bajar videos no está instalado en el servidor.");
+    const job = downloads.add(input.url, input.quality ?? "max");
+    if (!job) return fail("invalid_input", "Solo bajo videos de YouTube, X o Instagram.");
+    return ok(SOURCE, [{ id: job.id, site: job.site, status: job.status }], { note: "Lo estoy bajando; cuando esté en Transferencias le llega una notificación al dueño." });
+  },
+});
+
+export const transferTools = [transferList, transferUploadLink, transferShareLink, transferFromLink] as const;

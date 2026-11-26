@@ -6,12 +6,12 @@ export const TRANSFER_TTL_MS = 24 * 3_600_000;
 /** What one upload link can receive in total, so a leaked link cannot fill the server. */
 export const UPLOAD_LINK_MAX_BYTES = 20 * 1024 ** 3;
 
-export type TransferOrigin = "phone" | "computer" | "link";
+export type TransferOrigin = "phone" | "computer" | "link" | "download";
 
 export interface Transfer {
   id: string;
   origin: TransferOrigin;
-  /** Who sent it through an upload link, as the owner named the link. */
+  /** Who sent it through an upload link, as the owner named the link, or the site a download came from. */
   sender?: string;
   linkId?: string;
   name: string;

@@ -294,6 +294,12 @@ export const toolInputs = {
   transfer_share_link: {
     transferId: z.uuid(),
   },
+  transfer_from_link: {
+    /** A YouTube, X or Instagram link. */
+    url: z.string().trim().url().max(500),
+    /** «max» keeps the best quality the site has; «compatible» prefers H.264, which every phone plays. */
+    quality: z.enum(["max", "compatible"]).optional(),
+  },
   image_create: {
     prompt: z.string().trim().min(3).max(4000),
     /** Photos the owner uploaded, used as references to edit or build on. */
@@ -372,6 +378,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "drive_trash",
   "transfer_upload_link",
   "transfer_share_link",
+  "transfer_from_link",
 ]);
 
 export const ToolErrorCode = z.enum([

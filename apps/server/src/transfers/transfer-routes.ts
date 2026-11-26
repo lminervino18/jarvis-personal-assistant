@@ -10,6 +10,7 @@ import type { Db } from "../db/database.js";
 import { NOTIFICATION_TITLE } from "../push/notification.js";
 import { safeFileName } from "../tasks/workspace.js";
 import { Outbox } from "../worker/outbox.js";
+import type { DownloadQueue } from "../downloads/download-queue.js";
 import { previewKind, type PreviewSize, type TransferPreviews } from "./transfer-previews.js";
 import { UPLOAD_LINK_MAX_BYTES, type Transfer, type TransferStore, type UploadLink } from "./transfer-store.js";
 
@@ -29,6 +30,7 @@ const IdParams = z.object({ id: z.uuid() });
 const PreviewQuery = z.object({ size: z.enum(["thumb", "large"]).default("thumb") });
 const TokenParams = z.object({ token: z.string().regex(/^[\w-]{20,40}$/) });
 const LinkBody = z.object({ label: z.string().trim().min(1).max(60).optional() }).optional();
+const DownloadBody = z.object({ url: z.string().trim().min(8).max(500), quality: z.enum(["max", "compatible"]).optional() });
 
 export interface TransferRoutesDeps {
   db: Db;
@@ -41,6 +43,8 @@ export interface TransferRoutesDeps {
   freeBytes(): number;
   /** JPEG previews of photos and videos; without it files show only their name. */
   previews?: TransferPreviews;
+  /** Videos downloaded from YouTube, X or Instagram; undefined when yt-dlp is not installed. */
+  downloads?: DownloadQueue;
   now?(): Date;
 }
 
@@ -207,7 +211,11 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
 
   app.get("/api/transfers", async (request, reply) => {
     if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
-    return { items: store.list(now()).map(view), links: store.uploadLinks(now()) };
+    return {
+      items: store.list(now()).map(view),
+      links: store.uploadLinks(now()),
+      downloads: deps.downloads ? deps.downloads.recent().map(({ id, url, site, quality, status, progress, error }) => ({ id, url, site, quality, status, progress, ...(error ? { error } : {}) })) : null,
+    };
   });
 
   app.get("/api/transfers/:id/content", async (request, reply) => {
@@ -238,6 +246,20 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     const params = IdParams.safeParse(request.params);
     const shared = params.success ? store.createShareLink(params.data.id, now()) : undefined;
     return shared ? { url: urls.share(shared.token), expiresAt: shared.expiresAt } : reply.code(404).send({ error: "not_found" });
+  });
+
+  app.post("/api/transfers/downloads", async (request, reply) => {
+    if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+    if (!deps.downloads) return reply.code(503).send({ error: "disabled" });
+    const body = DownloadBody.safeParse(request.body);
+    const job = body.success ? deps.downloads.add(body.data.url, body.data.quality) : undefined;
+    return job ? { id: job.id, site: job.site, status: job.status } : reply.code(400).send({ error: "unsupported_link" });
+  });
+
+  app.delete("/api/transfers/downloads/:id", async (request, reply) => {
+    if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+    const params = IdParams.safeParse(request.params);
+    return params.success && deps.downloads?.cancel(params.data.id) ? { ok: true } : reply.code(404).send({ error: "not_found" });
   });
 
   app.post("/api/transfers/links", async (request, reply) => {

@@ -15,6 +15,8 @@ import { createConnections } from "./integrations/connections.js";
 import { registerTransferRoutes } from "./transfers/transfer-routes.js";
 import { TransferStore } from "./transfers/transfer-store.js";
 import { TransferPreviews } from "./transfers/transfer-previews.js";
+import { DownloadQueue } from "./downloads/download-queue.js";
+import { MediaDownloader } from "./downloads/media-downloader.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
@@ -98,6 +100,25 @@ const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new
 const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin, gmailAccounts: gmail.accounts, whatsapp });
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 const transfers = new TransferStore(db);
+const transfersDir = join(config.dataDir, "transfers");
+const ytdlp = process.env.YTDLP_BIN;
+const downloads =
+  ytdlp && existsSync(ytdlp)
+    ? new DownloadQueue({
+        db,
+        store: transfers,
+        dir: transfersDir,
+        freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
+        downloader: new MediaDownloader({
+          bin: ytdlp,
+          cacheDir: join(config.dataDir, "yt-dlp-cache"),
+          maxBytes: 8 * 1024 ** 3,
+          timeoutMs: 2 * 3_600_000,
+          ...(process.env.YTDLP_YOUTUBE_PROXY ? { youtubeProxy: process.env.YTDLP_YOUTUBE_PROXY } : {}),
+          ...(process.env.YTDLP_COOKIES_FILE ? { cookiesFile: process.env.YTDLP_COOKIES_FILE } : {}),
+        }),
+      })
+    : undefined;
 
 const services: ToolServices = {
   db,
@@ -107,7 +128,7 @@ const services: ToolServices = {
   drive: gmail.drive,
   gmail: gmail.service,
   youtube,
-  transfers: { store: transfers, publicOrigin: config.publicOrigin },
+  transfers: { store: transfers, publicOrigin: config.publicOrigin, ...(downloads ? { downloads } : {}) },
 };
 
 const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;
@@ -255,12 +276,14 @@ const app = await buildApp({
     const transferRoutes = registerTransferRoutes(instance, helpers, {
       db,
       store: transfers,
-      dir: join(config.dataDir, "transfers"),
+      dir: transfersDir,
       publicOrigin: config.publicOrigin,
       ownerName: config.ownerDisplayName,
       freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
-      previews: new TransferPreviews(join(config.dataDir, "transfers"), defaultExec),
+      previews: new TransferPreviews(transfersDir, defaultExec),
+      ...(downloads ? { downloads } : {}),
     });
+    downloads?.resume();
     setInterval(() => {
       transferRoutes.sweep().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "transfer sweep failed"));
     }, 15 * 60_000).unref();
