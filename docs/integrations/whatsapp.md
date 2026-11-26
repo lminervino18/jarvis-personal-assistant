@@ -123,9 +123,9 @@ Jarvis introduces itself only the first time it talks to a chat with its own voi
   - The push says who («Marti está abajo», plus the group when it comes from one), at most once per person every 10 minutes.
 - **@jarvis:**
   - Anyone in a watched chat, the owner included, can call Jarvis with «@jarvis».
-  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and answers in it, short and sarcastic.
-  - The answer quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
-  - It starts with 🤖, and Jarvis never answers a message that starts with it.
+  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and writes a short, sarcastic answer.
+  - The answer always goes as a voice note in JARVIS's voice (`VoiceNoteMaker`, the same one `whatsapp_voice_note` uses). It quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
+  - Without the ElevenLabs voice, or when it fails, the answer goes as text starting with 🤖. Jarvis never answers a message that starts with 🤖.
   - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
   - Limits, so a chat cannot burn the owner's quota: one answer every 15 seconds, 5 every 30 minutes per chat (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), 60 a day in all. A call beyond the limit goes unanswered.
   - `WHATSAPP_AUTO_REPLY=off` in `jarvis.env` turns the answers off; the alerts stay.

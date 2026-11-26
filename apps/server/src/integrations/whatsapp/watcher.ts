@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { CompletionRequest } from "@jarvis/contracts";
 import type { Db } from "../../db/database.js";
+import type { AttachmentStore } from "../../attachments/attachment-store.js";
 import { NOTIFICATION_TITLE } from "../../push/notification.js";
+import { VOICE_NOTE_TYPE } from "../../voice/voice-note.js";
+import { VOICE_NOTE_NAME } from "./introductions.js";
 import { Outbox } from "../../worker/outbox.js";
 import { WhatsAppOutbox } from "./outbox.js";
 
@@ -105,13 +108,16 @@ export interface WhatsAppWatcherDeps {
   reply?(request: MentionRequest): Promise<string | undefined>;
   /** Answers per chat in any window of so many minutes; 5 every 30 by default. */
   replyLimit?: { replies: number; minutes: number };
+  /** Says the answer with JARVIS's voice; without it, or when it fails, the answer goes as text. */
+  speak?(text: string): Promise<{ data: Buffer }>;
+  attachments?: Pick<AttachmentStore, "save">;
   now?(): Date;
 }
 
 /**
  * Watches new WhatsApp messages as the bridge stores them. «Abajo» in a private chat or a main
  * group becomes a push with who is downstairs, by rules, with no model involved. «@jarvis»
- * gets a short answer in the same chat, written by the model from that chat alone.
+ * gets a short voice note in the same chat, quoting the call, written by the model from that chat alone.
  */
 export class WhatsAppWatcher {
   private running = false;
@@ -223,7 +229,10 @@ export class WhatsAppWatcher {
     const clean = text?.replace(/@\s?jarvis/giu, "Jarvis").trim().slice(0, MAX_REPLY_CHARS);
     if (!clean) return;
     const quote = { id: row.id, fromMe: row.from_me === 1, text: row.text.slice(0, 1000), ...(row.chat_jid.endsWith("@g.us") && row.sender_jid ? { participant: row.sender_jid } : {}) };
-    new WhatsAppOutbox(this.deps.db).enqueue({ id: randomUUID(), chatJid: row.chat_jid, text: `${JARVIS_MARK} ${clean}`, quote }, this.now());
+    const note = await this.deps.speak?.(clean).catch(() => undefined);
+    const saved = note ? this.deps.attachments?.save({ name: VOICE_NOTE_NAME, mediaType: VOICE_NOTE_TYPE, data: note.data }, this.now()) : undefined;
+    const message = saved ? { text: "", attachmentId: saved.id } : { text: `${JARVIS_MARK} ${clean}` };
+    new WhatsAppOutbox(this.deps.db).enqueue({ id: randomUUID(), chatJid: row.chat_jid, ...message, quote }, this.now());
   }
 }
 
@@ -236,7 +245,7 @@ export function sarcasticReplier(options: { complete(request: CompletionRequest,
     `Sos Jarvis, el asistente de inteligencia artificial de ${owner}, como el JARVIS de Iron Man pero rioplatense.`,
     `Alguien te llamó con @jarvis en un chat de WhatsApp de ${owner}. Respondé lo que te preguntaron o pidieron con humor sarcástico, ingenioso y canchero, como JARVIS con Tony Stark.`,
     "Reglas:",
-    "- Corto: de una a tres frases. Sin hashtags y casi sin emojis.",
+    "- Tu respuesta sale como nota de voz con tu voz: escribí como se habla, corto (una a tres frases), sin emojis, hashtags, links ni listas.",
     "- Nunca ofendas de verdad ni insultes, ni bromees sobre el cuerpo, la salud, la religión, el origen u otros temas sensibles de nadie.",
     `- No tenés acceso a nada de ${owner} (agenda, mails, ubicación, otros chats). No inventes datos ni compromisos en su nombre: si te piden algo así, decí con gracia que eso lo ve ${owner}.`,
     "- Si es una pregunta de cultura general o un dato, respondela bien, con el sarcasmo de costado.",

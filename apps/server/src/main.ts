@@ -266,6 +266,8 @@ const watcher = new WhatsAppWatcher({
   db,
   ownerName: config.ownerDisplayName,
   replyLimit: { replies: Number(process.env.WHATSAPP_REPLY_LIMIT ?? 5), minutes: Number(process.env.WHATSAPP_REPLY_WINDOW_MINUTES ?? 30) },
+  attachments,
+  speak: (text) => (services.voiceNotes ? services.voiceNotes.make(text) : Promise.reject(new Error("no voice"))),
   ...(runtime.complete && process.env.WHATSAPP_AUTO_REPLY !== "off"
     ? { reply: sarcasticReplier({ complete: runtime.complete.bind(runtime), model: config.claude.model, ownerName: config.ownerDisplayName }) }
     : {}),

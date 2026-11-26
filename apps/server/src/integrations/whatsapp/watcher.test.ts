@@ -1,4 +1,8 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { AttachmentStore } from "../../attachments/attachment-store.js";
 import { openMigratedDatabase } from "../../db/database.js";
 import { JARVIS_MARK, mentionsJarvis, saysAbajo, WhatsAppWatcher, type MentionRequest } from "./watcher.js";
 
@@ -105,6 +109,28 @@ describe("watching WhatsApp", () => {
     }
     expect(env.sent()).toHaveLength(6);
     expect(env.db.prepare("SELECT message_id FROM wa_auto_replies ORDER BY created_at").all()).toHaveLength(6);
+  });
+
+  it("answers with a voice note quoting the call, and with text when the voice is not available", async () => {
+    const env = setup();
+    const said: string[] = [];
+    const attachments = new AttachmentStore(env.db, mkdtempSync(join(tmpdir(), "jarvis-watch-")));
+    const voiced = new WhatsAppWatcher({ db: env.db, ownerName: "Loren", now: () => now, reply: async () => "Cuatro, genio.", attachments, speak: async (text) => (said.push(text), { data: Buffer.from("OggS") }) });
+    await voiced.tick();
+    env.message(MARTI, "@jarvis cuánto es 2+2");
+    await voiced.tick();
+    expect(said).toEqual(["Cuatro, genio."]);
+    const row = env.db.prepare("SELECT text, attachment_id AS attachment, quote_json AS quote FROM wa_outbox").get() as { text: string; attachment: string; quote: string };
+    expect(row.text).toBe("");
+    expect(attachments.get(row.attachment)).toMatchObject({ name: "nota-de-voz.ogg", mediaType: "audio/ogg; codecs=opus" });
+    expect(JSON.parse(row.quote)).toMatchObject({ text: "@jarvis cuánto es 2+2" });
+
+    const silent = setup();
+    const textOnly = new WhatsAppWatcher({ db: silent.db, ownerName: "Loren", now: () => now, reply: async () => "Cuatro.", attachments: new AttachmentStore(silent.db, mkdtempSync(join(tmpdir(), "jarvis-watch-"))), speak: async () => Promise.reject(new Error("no voice")) });
+    await textOnly.tick();
+    silent.message(MARTI, "@jarvis cuánto es 2+2");
+    await textOnly.tick();
+    expect(silent.sent()).toEqual([{ chat: MARTI, text: `${JARVIS_MARK} Cuatro.` }]);
   });
 
   it("stays quiet in groups the owner does not write in, and when the model gives nothing", async () => {
