@@ -104,6 +104,9 @@ Details:
 
 ## Voice notes
 
+Jarvis introduces itself only the first time it talks to a chat with its own voice, meaning no earlier voice note or video was sent there. `whatsapp_voice_note` refuses a first note without the introduction, and any later note with one. Its message says whether to greet: it greets after 4 hours of silence or on another day, and goes straight to the point otherwise.
+
+
 `whatsapp_voice_note` sends a voice note in JARVIS's voice that arrives like a fresh recording (microphone, waveform, duration), not like an audio file.
 - The model writes what JARVIS says. The server refuses a note that does not open by naming JARVIS and the owner («Hola Carme, soy Jarvis, el asistente de Loren…»), so whoever listens knows it is the assistant's voice.
 - It goes out directly when the owner asks clearly, or after the confirmation card when the turn read third-party content. The audio is only made at that point.
@@ -120,7 +123,9 @@ Details:
   - The push says who («Marti está abajo», plus the group when it comes from one), at most once per person every 10 minutes.
 - **@jarvis:**
   - Anyone in a watched chat, the owner included, can call Jarvis with «@jarvis».
-  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and answers in it, short and sarcastic. The answer starts with 🤖, and Jarvis never answers a message that starts with it.
+  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and answers in it, short and sarcastic.
+  - The answer quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
+  - It starts with 🤖, and Jarvis never answers a message that starts with it.
   - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
   - Limits, so a chat cannot burn the owner's quota: one answer every 15 seconds, 5 every 30 minutes per chat (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), 60 a day in all. A call beyond the limit goes unanswered.
   - `WHATSAPP_AUTO_REPLY=off` in `jarvis.env` turns the answers off; the alerts stay.
