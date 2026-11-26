@@ -179,6 +179,25 @@ function narratedVideos(now: Date): Card[] {
 function reply(text: string, now: Date): { text: string; cards: Card[] } {
   const lower = text.toLowerCase();
   if (lower.includes("prueba")) return { text: STRESS_TEXT, cards: stressCards() };
+  if (lower.includes("opciones")) {
+    return {
+      text: "Encontré tres versiones (datos ficticios): tocá la que es y la bajo en MP3.",
+      cards: [
+        {
+          kind: "media_choice",
+          choiceId: "00000000-0000-4000-8000-0000000000c1",
+          format: "mp3",
+          sendTo: "Marti",
+          options: [
+            { videoId: "aaaaaaaaaaa", title: "Gustavo Cerati - Crimen (Official Video)", channel: "Gustavo Cerati", duration: 253, thumbnailUrl: "https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg" },
+            { videoId: "bbbbbbbbbbb", title: "Gustavo Cerati - Crimen (En vivo en el Gran Rex, versión acústica con orquesta y un título largo)", channel: "Cerati Oficial", duration: 312, thumbnailUrl: "https://i.ytimg.com/vi/bbbbbbbbbbb/mqdefault.jpg" },
+            { videoId: "ccccccccccc", title: "Crimen - cover", channel: "Canal de covers", thumbnailUrl: "https://i.ytimg.com/vi/ccccccccccc/mqdefault.jpg" },
+          ],
+          expiresAt: new Date(now.getTime() + 86_400_000).toISOString(),
+        },
+      ],
+    };
+  }
   if (lower.includes("narrado")) return { text: "Uno se está renderizando y el otro ya está (datos ficticios).", cards: narratedVideos(now) };
   if (lower.includes("recordatorio") || lower.includes("recordame")) {
     return {

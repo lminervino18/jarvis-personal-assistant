@@ -5,6 +5,7 @@ import type { PlayerState } from "../../ws/client-connection.js";
 import { decodeEntities } from "../google/text.js";
 
 const SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
+const VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 const REQUEST_TIMEOUT_MS = 10_000;
 const REMEMBERED_VIDEOS = 50;
 const DESCRIPTION_CHARS = 200;
@@ -18,6 +19,9 @@ export interface YoutubeVideo {
   url: string;
   thumbnailUrl: string;
 }
+
+/** A video that may be what the owner wants to download, with its length to tell versions apart. */
+export type YoutubeCandidate = YoutubeVideo & { duration?: number };
 
 export type YoutubeSearchOutcome = { mode: "api"; videos: YoutubeVideo[] } | { mode: "link"; url: string };
 
@@ -53,6 +57,19 @@ const SearchResponse = z.object({
     )
     .default([]),
 });
+
+const DetailsResponse = z.object({
+  items: z.array(z.object({ id: z.string(), contentDetails: z.object({ duration: z.string() }) })).default([]),
+});
+
+/** A YouTube length («PT1H4M13S») in seconds; undefined for live streams («P0D») or anything else. */
+export function durationSeconds(iso: string): number | undefined {
+  const match = iso.match(/^P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!match) return undefined;
+  const [, days, hours, minutes, seconds] = match.map((part) => Number(part ?? 0));
+  const total = (days ?? 0) * 86_400 + (hours ?? 0) * 3600 + (minutes ?? 0) * 60 + (seconds ?? 0);
+  return total > 0 ? total : undefined;
+}
 
 const STATE_LABELS: Record<PlayerState["state"], string> = {
   ready: "listo",
@@ -119,19 +136,38 @@ export class YoutubeService implements IntegrationStatusSource {
 
   async search(query: string, maxResults: number): Promise<YoutubeSearchOutcome> {
     if (!this.apiKey) return { mode: "link", url: searchPageUrl(query) };
-    const params = new URLSearchParams({
-      part: "snippet",
-      type: "video",
-      videoEmbeddable: "true",
-      relevanceLanguage: "es",
-      q: query,
-      maxResults: String(maxResults),
-      key: this.apiKey,
-    });
-    const body = await this.requestSearch(`${SEARCH_URL}?${params.toString()}`);
-    const videos = SearchResponse.parse(body).items.map(toVideo).filter((video): video is YoutubeVideo => video !== undefined);
+    const videos = await this.find(this.apiKey, query, maxResults, { videoEmbeddable: "true" });
     videos.forEach((video) => this.remember(video));
     return { mode: "api", videos };
+  }
+
+  /** The most likely videos to download for some words, embeddable or not, with their length. Undefined without an API key. */
+  async candidates(query: string, maxResults: number): Promise<YoutubeCandidate[] | undefined> {
+    if (!this.apiKey) return undefined;
+    const videos = await this.find(this.apiKey, query, maxResults, {});
+    const durations = await this.durations(this.apiKey, videos.map((video) => video.videoId)).catch(() => new Map<string, number>());
+    return videos.map((video) => {
+      const duration = durations.get(video.videoId);
+      return duration ? { ...video, duration } : video;
+    });
+  }
+
+  private async find(key: string, query: string, maxResults: number, extra: Record<string, string>): Promise<YoutubeVideo[]> {
+    const params = new URLSearchParams({ part: "snippet", type: "video", relevanceLanguage: "es", ...extra, q: query, maxResults: String(maxResults), key });
+    const body = await this.requestSearch(`${SEARCH_URL}?${params.toString()}`);
+    return SearchResponse.parse(body).items.map(toVideo).filter((video): video is YoutubeVideo => video !== undefined);
+  }
+
+  private async durations(key: string, ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const params = new URLSearchParams({ part: "contentDetails", id: ids.join(","), key });
+    const body = await this.requestSearch(`${VIDEOS_URL}?${params.toString()}`);
+    return new Map(
+      DetailsResponse.parse(body).items.flatMap((item) => {
+        const seconds = durationSeconds(item.contentDetails.duration);
+        return seconds ? [[item.id, seconds] as const] : [];
+      }),
+    );
   }
 
   async status(): Promise<IntegrationStatusItem[]> {

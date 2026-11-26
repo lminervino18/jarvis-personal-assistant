@@ -6,6 +6,8 @@ The owner can ask for a video or a song in two ways:
 
 The server downloads it and leaves it in Transferencias for 24 hours. A push and a chat line arrive when it is done or fails.
 
+When the request is not clear, `transfer_suggest` searches YouTube through the Data API, with no embeddable filter and with durations from `videos.list`. It shows the three likeliest videos on a `media_choice` card. The owner's tap (`POST /api/transfers/choices/:id`) starts the download with the format and recipient fixed when the proposal was made. A second tap never starts a second download, and a proposal lasts a day.
+
 Files already in Transferencias can be converted (`transfer_convert`, or «Convertir a» in the viewer) and sent by WhatsApp or mail (`transfer_send`). Downloads and conversions take a `sendTo`, so one request covers the whole chain. For example, «bajá Crimen de Cerati en MP3 y mandáselo a Marti» is a single tool call: the owner confirms one card when the turn read third-party content, and the job sends the file once it is ready.
 
 Status: *validated with real service* for X and Instagram from the server's own address without an account, and for YouTube through Cloudflare WARP (4K AV1 from the server on 2026-11-26).

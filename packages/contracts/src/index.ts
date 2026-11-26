@@ -3,6 +3,7 @@ export * from "./audio.js";
 export * from "./activity.js";
 export * from "./tasks.js";
 export * from "./videos.js";
+export * from "./media.js";
 export * from "./cards.js";
 export * from "./protocol.js";
 export * from "./tools.js";

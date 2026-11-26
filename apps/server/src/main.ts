@@ -17,6 +17,7 @@ import { TransferStore } from "./transfers/transfer-store.js";
 import { TransferPreviews } from "./transfers/transfer-previews.js";
 import { MediaConverter } from "./downloads/media-converter.js";
 import { MediaDownloader } from "./downloads/media-downloader.js";
+import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
 import { TransferSender } from "./transfers/transfer-delivery.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
@@ -126,6 +127,8 @@ const media =
       })
     : undefined;
 
+const mediaChoices = media ? new MediaChoices(db, media) : undefined;
+
 const services: ToolServices = {
   db,
   timezone: config.timezone,
@@ -134,7 +137,7 @@ const services: ToolServices = {
   drive: gmail.drive,
   gmail: gmail.service,
   youtube,
-  transfers: { store: transfers, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media } : {}) },
+  transfers: { store: transfers, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media, choices: mediaChoices } : {}) },
 };
 
 const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;
@@ -287,6 +290,7 @@ const app = await buildApp({
       freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
       previews: new TransferPreviews(transfersDir, defaultExec),
       ...(media ? { media } : {}),
+      ...(mediaChoices ? { choices: mediaChoices } : {}),
     });
     media?.resume();
     setInterval(() => {
@@ -316,6 +320,10 @@ const app = await buildApp({
     if (card.kind === "task") return tasks?.cardFor(card.taskId) ?? card;
     if (card.kind === "video") return videos.card(card.videoId, card.version) ?? card;
     if (card.kind === "confirm") return currentConfirmCard(db, card, new Date());
+    if (card.kind === "media_choice" && mediaChoices) {
+      const choice = mediaChoices.get(card.choiceId);
+      return choice ? mediaChoices.card(choice) : card;
+    }
     return card;
   },
   speaker,

@@ -11,6 +11,7 @@ import type { Db } from "../db/database.js";
 import { NOTIFICATION_TITLE } from "../push/notification.js";
 import { safeFileName } from "../tasks/workspace.js";
 import { Outbox } from "../worker/outbox.js";
+import type { MediaChoices } from "../downloads/media-choices.js";
 import type { MediaJob, MediaQueue } from "../downloads/media-queue.js";
 import { previewKind, type PreviewSize, type TransferPreviews } from "./transfer-previews.js";
 import { UPLOAD_LINK_MAX_BYTES, type Transfer, type TransferStore, type UploadLink } from "./transfer-store.js";
@@ -35,6 +36,7 @@ const DownloadBody = z
   .object({ url: z.string().trim().min(8).max(500).optional(), search: z.string().trim().min(2).max(200).optional(), format: MediaFormat.optional() })
   .refine((body) => Boolean(body.url) !== Boolean(body.search));
 const ConvertBody = z.object({ format: MediaFormat.exclude(["max"]) });
+const ChooseBody = z.object({ option: z.number().int().min(0).max(2) });
 
 export interface TransferRoutesDeps {
   db: Db;
@@ -49,6 +51,8 @@ export interface TransferRoutesDeps {
   previews?: TransferPreviews;
   /** Downloads from YouTube, X or Instagram and conversions; undefined when yt-dlp is not installed. */
   media?: MediaQueue;
+  /** YouTube videos proposed to the owner; a tap downloads one. */
+  choices?: MediaChoices;
   now?(): Date;
 }
 
@@ -282,6 +286,18 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     const body = ConvertBody.safeParse(request.body);
     const job = params.success && body.success ? deps.media.convert(params.data.id, body.data.format) : undefined;
     return job ? jobView(job) : reply.code(404).send({ error: "not_found" });
+  });
+
+  app.post("/api/transfers/choices/:id", async (request, reply) => {
+    if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+    if (!deps.choices) return reply.code(503).send({ error: "disabled" });
+    const params = IdParams.safeParse(request.params);
+    const body = ChooseBody.safeParse(request.body);
+    if (!params.success || !body.success) return reply.code(400).send({ error: "invalid" });
+    const outcome = deps.choices.choose(params.data.id, body.data.option, now());
+    if (outcome.ok) return { card: deps.choices.card(outcome.choice) };
+    const status = { not_found: 404, expired: 410, chosen: 409, failed: 500 }[outcome.reason];
+    return reply.code(status).send({ error: outcome.reason, ...(outcome.choice ? { card: deps.choices.card(outcome.choice) } : {}) });
   });
 
   app.delete("/api/transfers/downloads/:id", async (request, reply) => {

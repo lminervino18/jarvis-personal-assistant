@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MediaFormat } from "./media.js";
 import { PublicationStatus, ReviewVerdict, TaskBlocker, TaskPhase, TaskStatus, TaskTarget } from "./tasks.js";
 import { VideoFile, VideoFormat, VideoSendState, VideoStatus } from "./videos.js";
 
@@ -180,6 +181,30 @@ export const TableShape = {
 
 export const TableCard = z.object({ kind: z.literal("table"), ...TableShape });
 
+/** Up to three YouTube videos that may be what the owner asked for; tapping one downloads it. */
+export const MediaChoiceCard = z.object({
+  kind: z.literal("media_choice"),
+  choiceId: z.uuid(),
+  format: MediaFormat,
+  /** Who gets the file once it is downloaded, as the owner calls them. */
+  sendTo: z.string().optional(),
+  options: z
+    .array(
+      z.object({
+        videoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
+        title: z.string(),
+        channel: z.string().optional(),
+        /** Seconds. */
+        duration: z.number().int().nonnegative().optional(),
+        thumbnailUrl: z.url(),
+      }),
+    )
+    .min(1)
+    .max(3),
+  chosen: z.number().int().min(0).max(2).optional(),
+  expiresAt: IsoDateTime,
+});
+
 export const Card = z.discriminatedUnion("kind", [
   YoutubeCard,
   SourcesCard,
@@ -195,5 +220,6 @@ export const Card = z.discriminatedUnion("kind", [
   TableCard,
   AttachmentCard,
   VideoCard,
+  MediaChoiceCard,
 ]);
 export type Card = z.infer<typeof Card>;

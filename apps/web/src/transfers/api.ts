@@ -1,3 +1,5 @@
+import type { Card } from "@jarvis/contracts";
+
 export interface TransferFile {
   id: string;
   origin: "phone" | "computer" | "link" | "download";
@@ -116,4 +118,18 @@ export async function convertTransfer(id: string, format: Exclude<MediaFormat, "
 
 export async function cancelDownload(id: string): Promise<boolean> {
   return (await json<{ ok: boolean }>(`/api/transfers/downloads/${id}`, { method: "DELETE" })) !== null;
+}
+
+export type ChoiceCard = Extract<Card, { kind: "media_choice" }>;
+
+/** Downloads one of the proposed videos; answers the card as it stands now, or null when the server could not be reached. */
+export async function chooseOption(choiceId: string, option: number): Promise<{ card?: ChoiceCard; error?: string } | null> {
+  const response = await fetch(`/api/transfers/choices/${choiceId}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ option }),
+  }).catch(() => null);
+  if (!response) return null;
+  return ((await response.json().catch(() => ({}))) as { card?: ChoiceCard; error?: string }) ?? {};
 }

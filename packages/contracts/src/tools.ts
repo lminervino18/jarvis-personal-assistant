@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ChartShape, TableShape } from "./cards.js";
+import { MediaFormat } from "./media.js";
 import { VideoBrief, VideoSendRequest } from "./videos.js";
 
 const isoDateTimeWithOffset = z.iso.datetime({ offset: true });
@@ -16,13 +17,6 @@ export const MemoryCategory = z.enum(["preference", "fact", "person", "routine",
 export type MemoryCategory = z.infer<typeof MemoryCategory>;
 
 export const GmailAccountLabel = z.enum(["personal", "work"]);
-
-/**
- * What a media job produces: «iphone» is H.264 and AAC in MP4, which an iPhone saves to Photos;
- * «max» is the best the site has (AV1 or VP9 in 4K on YouTube); «mp3» and «m4a» are only the audio.
- */
-export const MediaFormat = z.enum(["iphone", "max", "mp3", "m4a"]);
-export type MediaFormat = z.infer<typeof MediaFormat>;
 
 /** Who gets a file once it is ready: a WhatsApp chat or an email address. */
 export const SendFileTo = z.object({
@@ -319,6 +313,12 @@ export const toolInputs = {
     format: MediaFormat.optional(),
     sendTo: SendFileTo.optional(),
   },
+  transfer_suggest: {
+    /** What the owner asked for, as words to search on YouTube («crimen cerati en vivo»). */
+    query: z.string().trim().min(2).max(200),
+    format: MediaFormat.optional(),
+    sendTo: SendFileTo.optional(),
+  },
   transfer_convert: {
     transferId: z.uuid(),
     format: MediaFormat.exclude(["max"]),
@@ -364,6 +364,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "drive_search",
   "drive_download",
   "transfer_list",
+  "transfer_suggest",
 ]);
 
 /** Built-in Claude tools the runtime may expose. They are all treated as untrusted sources. */

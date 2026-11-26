@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AttachmentStore } from "../attachments/attachment-store.js";
 import { openMigratedDatabase } from "../db/database.js";
 import { DownloadError, type MediaDownloader } from "../downloads/media-downloader.js";
+import { MediaChoices } from "../downloads/media-choices.js";
 import { MediaQueue } from "../downloads/media-queue.js";
+import { YoutubeService } from "../integrations/youtube/youtube-service.js";
 import { TransferSender } from "../transfers/transfer-delivery.js";
 import { TransferStore } from "../transfers/transfer-store.js";
 import { toolsByName } from "./index.js";
@@ -41,9 +43,24 @@ function setup(options: { gmail?: { sent: unknown[] } } = {}) {
     run: (_job: unknown, _work: string, _progress: unknown, signal: AbortSignal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new DownloadError("cancelled")))),
   } as unknown as MediaDownloader;
   const media = new MediaQueue({ db, store, dir, downloader, freeBytes: () => 100 * 1024 ** 3, now: () => now });
-  const cards: { kind: string; details?: { label: string; value: string }[] }[] = [];
+  const choices = new MediaChoices(db, media);
+  const youtubeFetch: typeof fetch = async (input) =>
+    new Response(
+      JSON.stringify(
+        String(input).includes("/videos?")
+          ? { items: [{ id: "aqz-KE-bpKQ", contentDetails: { duration: "PT4M13S" } }] }
+          : {
+              items: [
+                { id: { videoId: "aqz-KE-bpKQ" }, snippet: { title: "Crimen (en vivo)", channelTitle: "Cerati" } },
+                { id: { videoId: "C64IB36LzCQ" }, snippet: { title: "Crimen", channelTitle: "Gustavo Cerati" } },
+              ],
+            },
+      ),
+    );
+  const youtube = new YoutubeService({ apiKey: "key.example.test", fetchFn: youtubeFetch });
+  const cards: { kind: string; details?: { label: string; value: string }[]; choiceId?: string; options?: { title: string }[] }[] = [];
   const ctx: ToolContext = {
-    services: { db, timezone: "America/Argentina/Buenos_Aires", backupRetentionDays: 30, statusSources: [], attachments, transfers: { store, publicOrigin: "https://jarvis.example", media, sender } },
+    services: { db, timezone: "America/Argentina/Buenos_Aires", backupRetentionDays: 30, statusSources: [], attachments, youtube, transfers: { store, publicOrigin: "https://jarvis.example", media, sender, choices } },
     conversationId: "conv-1",
     turnId: "turn-1",
     now: () => now,
@@ -57,7 +74,7 @@ function setup(options: { gmail?: { sent: unknown[] } } = {}) {
     return store.add({ origin: "download", sender: "YouTube", name, mediaType, size: Math.min(size, 1024), uploadId }, now);
   };
   const outbox = () => db.prepare("SELECT chat_jid AS chat, text, attachment_id AS attachment FROM wa_outbox").all() as { chat: string; text: string; attachment: string | null }[];
-  return { db, dir, store, media, sender, ctx, cards, file, outbox };
+  return { db, dir, store, media, sender, choices, ctx, cards, file, outbox };
 }
 
 const error = (result: ToolResult<unknown>) => (result.ok ? undefined : result.error);
@@ -140,6 +157,33 @@ describe("transfer_convert", () => {
     expect(error(await runTool(env.ctx, tool("transfer_convert"), { transferId: song.id, format: "iphone" }))?.message).toBe("Para el iPhone solo convierto videos.");
     expect(error(await runTool(env.ctx, tool("transfer_convert"), { transferId: notes.id, format: "mp3" }))?.message).toBe("Solo le saco el audio a videos y audios.");
     expect(await runTool(env.ctx, tool("transfer_convert"), { transferId: song.id, format: "m4a" })).toMatchObject({ ok: true, items: [{ format: "Audio M4A" }] });
+    await env.media.stop();
+  });
+});
+
+describe("transfer_suggest", () => {
+  it("shows the likely videos on a card, and the owner's tap downloads one, only once", async () => {
+    const env = setup();
+    const result = await runTool(env.ctx, tool("transfer_suggest"), { query: "crimen cerati", format: "mp3", sendTo: { channel: "whatsapp", to: "Ana Vivo" } });
+    expect(result).toMatchObject({ ok: true, items: [{ option: 1, title: "Crimen (en vivo)", duration: "4:13" }, { option: 2, title: "Crimen", duration: null }] });
+    expect(env.ctx.security.taintSources.has("transfer_suggest")).toBe(true);
+    const card = env.cards[0]!;
+    expect(card).toMatchObject({ kind: "media_choice", format: "mp3", sendTo: "Ana Vivo", options: [{ title: "Crimen (en vivo)" }, { title: "Crimen" }] });
+
+    const picked = env.choices.choose(card.choiceId!, 1, now);
+    expect(picked.ok).toBe(true);
+    expect(env.media.recent()[0]).toMatchObject({ source: "link", target: "https://www.youtube.com/watch?v=C64IB36LzCQ", format: "mp3", send: { to: ANA, name: "Ana Vivo" } });
+    expect(env.choices.choose(card.choiceId!, 0, now)).toMatchObject({ ok: false, reason: "chosen" });
+    expect(env.choices.card(env.choices.get(card.choiceId!)!).chosen).toBe(1);
+    expect(env.choices.choose(card.choiceId!, 2, now)).toMatchObject({ ok: false, reason: "not_found" });
+    await env.media.stop();
+  });
+
+  it("lets a proposal expire after a day", async () => {
+    const env = setup();
+    await runTool(env.ctx, tool("transfer_suggest"), { query: "crimen" });
+    const late = new Date(now.getTime() + 25 * 3_600_000);
+    expect(env.choices.choose(env.cards[0]!.choiceId!, 0, late)).toMatchObject({ ok: false, reason: "expired" });
     await env.media.stop();
   });
 });

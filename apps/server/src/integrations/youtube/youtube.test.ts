@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadFixture } from "../google/test-support.js";
-import { YoutubeService } from "./youtube-service.js";
+import { durationSeconds, YoutubeService } from "./youtube-service.js";
 
 function fakeFetch(status = 200, body: unknown = loadFixture("youtube/search.json")) {
   const urls: string[] = [];
@@ -31,6 +31,26 @@ describe("YoutubeService", () => {
     expect(url.searchParams.get("videoEmbeddable")).toBe("true");
     expect(url.searchParams.get("maxResults")).toBe("3");
     expect(service.describeVideo("bbbbbbbbbbb")).toEqual({ title: "Segundo video de prueba", channel: "Otro Canal" });
+  });
+
+  it("proposes any video to download, not only embeddable ones, with its length", async () => {
+    const urls: string[] = [];
+    const fetchFn: typeof fetch = async (input) => {
+      urls.push(String(input));
+      const body = String(input).includes("/videos?")
+        ? { items: [{ id: "aaaaaaaaaaa", contentDetails: { duration: "PT4M13S" } }, { id: "bbbbbbbbbbb", contentDetails: { duration: "P0D" } }] }
+        : loadFixture("youtube/search.json");
+      return new Response(JSON.stringify(body));
+    };
+    const found = await new YoutubeService({ apiKey: "key.example.test", fetchFn }).candidates("crimen cerati", 3);
+    expect(found?.map((video) => [video.videoId, video.duration])).toEqual([
+      ["aaaaaaaaaaa", 253],
+      ["bbbbbbbbbbb", undefined],
+    ]);
+    expect(new URL(urls[0] as string).searchParams.has("videoEmbeddable")).toBe(false);
+    expect(new URL(urls[1] as string).searchParams.get("id")).toBe("aaaaaaaaaaa,bbbbbbbbbbb");
+    expect(await new YoutubeService({ fetchFn }).candidates("x", 3)).toBeUndefined();
+    expect([durationSeconds("PT1H4M13S"), durationSeconds("PT45S"), durationSeconds("P1DT1S"), durationSeconds("P0D")]).toEqual([3853, 45, 86401, undefined]);
   });
 
   it("returns a search link and never calls the network without a key", async () => {
