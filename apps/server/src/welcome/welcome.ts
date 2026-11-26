@@ -14,15 +14,16 @@ export interface WelcomeSettings {
   musicStart: number;
 }
 
-/** Seconds of music in the welcome; the voice comes in after the first riff and the music fades at the end. */
-const LENGTH_SECONDS = 12;
-const VOICE_DELAY_MS = 1500;
-const FADE_SECONDS = 3;
+/** A short sting, like the suit booting: the riff starts, the voice comes in right away and the music fades a second after it ends. */
+const VOICE_DELAY_MS = 350;
+const TAIL_SECONDS = 1;
+const FADE_SECONDS = 0.7;
+const MIN_SECONDS = 2.5;
 const MUSIC_FILE = "music";
 
 /**
- * The greeting the app plays when it opens: JARVIS's voice saying the owner's phrase over a piece
- * of music they chose, mixed once by ffmpeg and kept until the phrase or the music change.
+ * The greeting the app plays when it opens: a few seconds of JARVIS's voice saying the owner's
+ * phrase over the riff of their song, mixed once by ffmpeg and kept until the phrase or the music change.
  */
 export class Welcome {
   constructor(
@@ -89,7 +90,7 @@ export class Welcome {
     const settings = this.settings();
     const voice = await narrator.narrate(settings.phrase);
     const music = this.music();
-    await this.options.exec(this.options.ffmpeg ?? "ffmpeg", music ? mixArgs(music, settings.musicStart, voice.path, target) : ["-hide_banner", "-nostdin", "-y", "-i", voice.path, "-c:a", "libmp3lame", "-q:a", "2", target]);
+    await this.options.exec(this.options.ffmpeg ?? "ffmpeg", music ? mixArgs(music, settings.musicStart, voice.path, voice.durationMs, target) : ["-hide_banner", "-nostdin", "-y", "-i", voice.path, "-c:a", "libmp3lame", "-q:a", "2", target]);
     return target;
   }
 
@@ -104,12 +105,18 @@ export class Welcome {
   }
 }
 
-/** ffmpeg mixing the song from `start` under the voice, which comes in after the first riff. */
-export function mixArgs(music: string, start: number, voice: string, output: string): string[] {
+/** How long the welcome lasts: the phrase plus a second of riff, never shorter than two and a half seconds. */
+export function welcomeSeconds(voiceMs: number): number {
+  return Math.max(MIN_SECONDS, Math.round((VOICE_DELAY_MS + voiceMs) / 100) / 10 + TAIL_SECONDS);
+}
+
+/** ffmpeg mixing the song from `start`, the riff, with the voice coming in right after it starts. */
+export function mixArgs(music: string, start: number, voice: string, voiceMs: number, output: string): string[] {
+  const length = welcomeSeconds(voiceMs);
   const graph = [
-    `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.55,afade=t=in:d=0.3,afade=t=out:st=${LENGTH_SECONDS - FADE_SECONDS}:d=${FADE_SECONDS}[music]`,
-    `[1:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${VOICE_DELAY_MS}|${VOICE_DELAY_MS},volume=1.8[voice]`,
+    `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.75,afade=t=out:st=${(length - FADE_SECONDS).toFixed(2)}:d=${FADE_SECONDS}[music]`,
+    `[1:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${VOICE_DELAY_MS}|${VOICE_DELAY_MS},volume=1.9[voice]`,
     "[music][voice]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]",
   ].join(";");
-  return ["-hide_banner", "-nostdin", "-y", "-ss", String(start), "-t", String(LENGTH_SECONDS), "-i", music, "-i", voice, "-filter_complex", graph, "-map", "[out]", "-c:a", "libmp3lame", "-q:a", "2", output];
+  return ["-hide_banner", "-nostdin", "-y", "-ss", String(start), "-t", String(length), "-i", music, "-i", voice, "-filter_complex", graph, "-map", "[out]", "-c:a", "libmp3lame", "-q:a", "2", output];
 }

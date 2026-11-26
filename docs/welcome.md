@@ -1,16 +1,12 @@
 # Welcome
 
-When the app opens, or when the owner comes back after a while (the same moment it shows «Hola, …» again), JARVIS's voice greets them over a piece of music, like the Iron Man suit booting.
+When the app opens, or when the owner comes back after a while (the same moment it shows «Hola, …» again), a short sting plays, like the Iron Man suit booting. It is the riff of the owner's song, with JARVIS's voice coming in right away. It is not configurable from the app.
 
-- **Settings** (Configuración › Saludo al abrir):
-  - on or off;
-  - the phrase (by default «Bienvenido, {OWNER_DISPLAY_NAME}.»);
-  - a song from Transferencias, and the second it starts at, to land on the riff;
-  - «Probar».
-- **The song** is copied into `/data/welcome/`, so it outlives the 24 hours of Transferencias. The owner brings their own file: nothing copyrighted is in the repository or downloaded by Jarvis.
 - **The audio** (`apps/server/src/welcome/welcome.ts`) is made once and cached until the phrase, the song or its start change:
-  - the phrase is said by the same ElevenLabs voice and robotic effect as calls, through the narrator;
-  - ffmpeg mixes 12 seconds of the song, with the voice coming in at 1.5 s and the song fading out over the last 3.
-- **Playback:** iOS and most browsers refuse sound before the first touch, so the welcome plays right away when allowed, and otherwise on the first touch anywhere. Opening the app from a notification does not play it.
-
-Routes, owner only: `GET`/`PUT /api/welcome`, `PUT`/`DELETE /api/welcome/music` (with a Transferencias `transferId`), and `GET /api/welcome/audio`.
+  - the phrase is said by the ElevenLabs voice with the robotic effect at 0.6, stronger than in calls;
+  - ffmpeg mixes it over the song from its riff: the voice enters at 0.35 s and the music fades a second after the voice ends, about three seconds in all.
+- **Setup:**
+  - It lives in `/data/welcome/` on the server, outside the repository.
+  - It is set once through owner-only routes: `PUT /api/welcome` (`phrase`, `musicStart`, `enabled`), and `PUT /api/welcome/music` with a Transferencias `transferId`, whose file is copied so it outlives the 24 hours.
+  - `GET /api/welcome/audio` serves the mix.
+- **Playback:** iOS and most browsers refuse sound before the first touch. The welcome plays right away when allowed, and otherwise on the first touch anywhere. Opening the app from a notification does not play it.

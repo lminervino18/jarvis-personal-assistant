@@ -266,8 +266,11 @@ const watchWhatsApp = () => {
 };
 watchWhatsApp();
 setInterval(watchWhatsApp, 4000).unref();
+/** The welcome sounds more robotic than calls, like the suit's JARVIS. */
+const WELCOME_ROBOTIC_INTENSITY = 0.6;
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
-const welcome = new Welcome({ dir: join(config.dataDir, "welcome"), ownerName: config.ownerDisplayName, exec: defaultExec, ...(voiceNarrator ? { narrator: voiceNarrator } : {}) });
+const welcomeNarrator = narratorFromEnv({ ...process.env, VOICE_ROBOTIC_INTENSITY: String(WELCOME_ROBOTIC_INTENSITY) }, join(config.dataDir, "welcome", "voice"));
+const welcome = new Welcome({ dir: join(config.dataDir, "welcome"), ownerName: config.ownerDisplayName, exec: defaultExec, ...(welcomeNarrator ? { narrator: welcomeNarrator } : {}) });
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {
   services.chatStudies = new ChatStudies({ db, runtime, outbox: new Outbox(db), ownerName: config.ownerDisplayName, timezone: config.timezone, model: config.claude.summaryModel, log: logger });

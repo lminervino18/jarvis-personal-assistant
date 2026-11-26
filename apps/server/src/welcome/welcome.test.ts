@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Narrator } from "../videos/narrator.js";
-import { mixArgs, Welcome } from "./welcome.js";
+import { mixArgs, Welcome, welcomeSeconds } from "./welcome.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -18,7 +18,7 @@ function setup(withVoice = true) {
     narrate: async (text: string) => {
       said.push(text);
       writeFileSync(join(dir, "voice.wav"), "wav");
-      return { path: join(dir, "voice.wav") };
+      return { path: join(dir, "voice.wav"), durationMs: 1900 };
     },
   } as unknown as Narrator;
   const exec = async (_command: string, args: string[]) => {
@@ -48,7 +48,7 @@ describe("welcome", () => {
     expect(await env.welcome.audio()).toBe(first);
     expect(env.said).toEqual(["Bienvenido, Loren."]);
     expect(env.runs).toHaveLength(1);
-    expect(env.runs[0]?.slice(3, 9)).toEqual(["-ss", "5", "-t", "12", "-i", join(env.dir, "welcome", "music.mp3")]);
+    expect(env.runs[0]?.slice(3, 9)).toEqual(["-ss", "5", "-t", "3.3", "-i", join(env.dir, "welcome", "music.mp3")]);
 
     const version = env.welcome.version();
     env.welcome.update({ phrase: "Bienvenido, ingeniero." });
@@ -67,10 +67,11 @@ describe("welcome", () => {
     expect(await welcome.audio()).toBeUndefined();
   });
 
-  it("brings the voice in after the riff and fades the song out", () => {
-    const graph = mixArgs("song.mp3", 3, "voice.wav", "out.mp3").join(" ");
-    expect(graph).toContain("adelay=1500|1500");
-    expect(graph).toContain("afade=t=out:st=9:d=3");
+  it("is a short sting: the riff, the voice right after it starts, and a quick fade", () => {
+    expect([welcomeSeconds(1900), welcomeSeconds(600)]).toEqual([3.3, 2.5]);
+    const graph = mixArgs("song.mp3", 3, "voice.wav", 1900, "out.mp3").join(" ");
+    expect(graph).toContain("adelay=350|350");
+    expect(graph).toContain("afade=t=out:st=2.60:d=0.7");
     expect(graph).toContain("amix=inputs=2:duration=first");
   });
 });
