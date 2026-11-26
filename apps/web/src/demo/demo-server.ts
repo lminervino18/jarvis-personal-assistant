@@ -1,4 +1,5 @@
 import type { Card, ClientMessage, HistoryItem, OutgoingServerMessage } from "@jarvis/contracts";
+import { activityScenario, type ActivityScenario, type ScriptedChange } from "./activity-scenarios.js";
 import type { Transport, TransportFactory, TransportHandlers } from "../protocol/client.js";
 
 const TIME_ZONE = "America/Argentina/Buenos_Aires";
@@ -206,6 +207,7 @@ export class DemoServer {
   private counter = 100;
   private conversation = uuid(1000);
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  private readonly openCalls = new Map<string, { turnId: string; tool: string; version: number }>();
 
   constructor(
     private readonly handlers: TransportHandlers,
@@ -235,6 +237,8 @@ export class DemoServer {
         break;
       case "turn.cancel":
         this.close();
+        this.cancelOpenCalls(message.turnId);
+        this.emit({ type: "turn.end", turnId: message.turnId, status: "cancelled" });
         this.emit({ type: "state", state: "idle" });
         break;
       case "action.decide":
@@ -284,7 +288,47 @@ export class DemoServer {
     this.emit({ type: "state", state: "idle" });
   }
 
+  private change(turnId: string, step: ScriptedChange): void {
+    const id = `${turnId}:${step.call}`;
+    const known = this.openCalls.get(id);
+    const version = (known?.version ?? 0) + 1;
+    const final = step.phase === "succeeded" || step.phase === "failed" || step.phase === "needs_approval" || step.phase === "cancelled";
+    if (final) this.openCalls.delete(id);
+    else this.openCalls.set(id, { turnId, tool: step.tool, version });
+    this.emit({
+      type: "activity",
+      conversationId: this.conversation,
+      turnId,
+      executionId: id,
+      tool: step.tool,
+      phase: step.phase,
+      version,
+      at: this.now().getTime(),
+      ...(step.errorCode ? { errorCode: step.errorCode } : {}),
+    });
+  }
+
+  private cancelOpenCalls(turnId: string): void {
+    for (const [id, call] of [...this.openCalls]) {
+      if (call.turnId === turnId) this.change(turnId, { at: 0, call: id.slice(turnId.length + 1), tool: call.tool, phase: "cancelled" });
+    }
+  }
+
+  private runScenario(turnId: string, scenario: ActivityScenario): void {
+    this.emit({ type: "state", state: "thinking", turnId });
+    for (const step of scenario.changes) this.later(step.at, () => this.change(turnId, step));
+    const pieces = scenario.text.match(/[\s\S]{1,24}/g) ?? [];
+    pieces.forEach((piece, index) => this.later(scenario.replyAt + (index + 1) / 6, () => this.emit({ type: "assistant.delta", turnId, text: piece })));
+    this.later(scenario.replyAt + 1 + pieces.length / 6, () => {
+      this.emit({ type: "assistant.done", turnId, messageId: `demo-reply-${turnId}`, text: scenario.text, interrupted: false });
+      this.emit({ type: "turn.end", turnId, status: "completed" });
+      this.emit({ type: "state", state: "idle" });
+    });
+  }
+
   private runTurn(turnId: string, text: string): void {
+    const scenario = activityScenario(text);
+    if (scenario) return this.runScenario(turnId, scenario);
     const answer = reply(text, this.now());
     this.emit({ type: "state", state: "thinking", turnId });
     this.later(2, () => this.emit({ type: "state", state: "using_tool", turnId, tool: "demo" }));
