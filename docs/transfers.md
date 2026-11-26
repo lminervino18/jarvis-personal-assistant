@@ -20,7 +20,11 @@ Uploads are resumable (tus, 4 MB chunks, so a slow mobile connection fits Caddy'
 
 ## How files get out
 
-- Transferencias shows photos and videos as thumbnails, made once by ffmpeg (480 px, and 1600 px for the viewer).
+- Transferencias shows photos and videos as thumbnails, made once by ffmpeg (480 px, and 1600 px for the viewer). Music gets an icon and plays in the viewer; GIFs animate. Any other type shows its extension and downloads as is.
+- Each thumbnail has its own buttons:
+  - download: downloads the original without opening the file;
+  - delete: the first tap asks «¿Borrar?», the second deletes.
+- In the viewer, a photo always fits the screen. «Ampliar», a double tap or a double click zooms it: a tall image fills the width and scrolls from the top, other photos grow up to three times. On a computer the arrows sit in the side margins, on a phone in the top bar, so they never cover the photo.
 - Videos play from the original by ranges, so only what is watched is downloaded.
 - «Bajar original» downloads the exact bytes.
 - A share link (`/bajar/<token>`) lets anyone download one file while it exists.

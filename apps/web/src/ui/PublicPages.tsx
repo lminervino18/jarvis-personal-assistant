@@ -95,7 +95,8 @@ export function PublicDownload({ token }: { token: string }) {
       <div className="public-card public-file">
         {file.preview === "image" && <img src={sharedPreviewUrl(token)} alt={file.name} />}
         {file.preview === "video" && <video src={sharedContentUrl(token)} controls playsInline preload="metadata" />}
-        {!file.preview && <Core state="idle" label="Jarvis" getLevels={QUIET} />}
+        {file.preview === "audio" && <audio src={sharedContentUrl(token)} controls preload="metadata" />}
+        {(!file.preview || file.preview === "audio") && <Core state="idle" label="Jarvis" getLevels={QUIET} />}
         <h1>{file.name}</h1>
         <p>
           {formatSize(file.size)} · te lo compartió {file.ownerName} · disponible hasta el {formatDateTime(file.expiresAt)}

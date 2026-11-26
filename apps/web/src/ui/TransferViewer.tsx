@@ -3,7 +3,10 @@ import { useDialogFocus } from "../hooks.js";
 import { contentUrl, formatSize, previewUrl, type TransferFile } from "../transfers/api.js";
 
 const SWIPE_PX = 60;
+const TAP_PX = 10;
+const DOUBLE_TAP_MS = 300;
 const ARMED_MS = 4000;
+const MAX_ZOOM = 3;
 
 interface Props {
   items: TransferFile[];
@@ -12,6 +15,14 @@ interface Props {
   onClose(): void;
   onShare(item: TransferFile): Promise<string | null>;
   onDelete(item: TransferFile): Promise<boolean>;
+}
+
+export function MusicIcon() {
+  return (
+    <svg className="transfer-music" viewBox="0 0 24 24" aria-hidden="true" width="56" height="56">
+      <path fill="currentColor" d="M9 18.5a3 3 0 1 1-2-2.83V5.5l12-2.5v12.5a3 3 0 1 1-2-2.83V7.6L9 9.3v9.2Z" />
+    </svg>
+  );
 }
 
 function FileIcon({ name }: { name: string }) {
@@ -25,15 +36,33 @@ function FileIcon({ name }: { name: string }) {
   );
 }
 
-/** Full-screen look at one file of Transferencias at a time: photos large, videos streamed, the rest by name; arrows, keys or a swipe move between them. */
+interface Size {
+  width: number;
+  height: number;
+}
+
+/** Width in pixels to zoom an image to: tall ones fill the width and scroll down, the rest grow up to three times. */
+export function zoomWidth(image: Size, stage: Size): number {
+  const tall = image.height / image.width > stage.height / stage.width;
+  return tall ? stage.width : Math.max(stage.width, Math.min(image.width, stage.width * MAX_ZOOM));
+}
+
+/**
+ * Full-screen look at one file of Transferencias at a time. Photos always fit the screen and zoom
+ * with a double tap or «Ampliar»; videos stream; arrows, keys or a swipe move between files.
+ */
 export function TransferViewer({ items, index, onIndex, onClose, onShare, onDelete }: Props) {
   const item = items[index];
   const dialog = useRef<HTMLDivElement>(null);
-  const swipe = useRef<number | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const image = useRef<HTMLImageElement>(null);
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const lastTap = useRef(0);
   const [link, setLink] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [unplayable, setUnplayable] = useState(false);
+  const [zoom, setZoom] = useState<number | null>(null);
   useDialogFocus(dialog);
 
   const go = (step: number) => {
@@ -46,13 +75,14 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
     setMessage(null);
     setArmed(false);
     setUnplayable(false);
+    setZoom(null);
   }, [index]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-      if (event.key === "ArrowRight") go(1);
-      if (event.key === "ArrowLeft") go(-1);
+      if (event.key === "Escape") return zoom ? setZoom(null) : onClose();
+      if (event.key === "ArrowRight" && !zoom) go(1);
+      if (event.key === "ArrowLeft" && !zoom) go(-1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -65,6 +95,17 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
   }, [armed]);
 
   if (!item) return null;
+  const animated = item.mediaType === "image/gif";
+  const zoomable = item.preview === "image" && !unplayable && !animated;
+
+  const toggleZoom = () => {
+    if (zoom) return setZoom(null);
+    if (!image.current || !stage.current || !image.current.naturalWidth) return;
+    setZoom(
+      zoomWidth({ width: image.current.naturalWidth, height: image.current.naturalHeight }, { width: stage.current.clientWidth, height: stage.current.clientHeight }),
+    );
+    requestAnimationFrame(() => stage.current?.scrollTo({ top: 0, left: 0 }));
+  };
 
   const share = async () => {
     setMessage(null);
@@ -85,15 +126,35 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
     if (!(await onDelete(item))) setMessage("No pude borrarlo. Probá de nuevo.");
   };
 
-  const start = (event: PointerEvent) => {
-    if (event.pointerType !== "mouse") swipe.current = event.clientX;
+  const down = (event: PointerEvent) => {
+    if (event.pointerType !== "mouse") pointer.current = { x: event.clientX, y: event.clientY };
   };
-  const end = (event: PointerEvent) => {
-    if (swipe.current === null) return;
-    const distance = event.clientX - swipe.current;
-    swipe.current = null;
-    if (Math.abs(distance) > SWIPE_PX) go(distance < 0 ? 1 : -1);
+  const up = (event: PointerEvent) => {
+    const start = pointer.current;
+    pointer.current = null;
+    if (!start) return;
+    const dx = event.clientX - start.x;
+    if (Math.abs(dx) < TAP_PX && Math.abs(event.clientY - start.y) < TAP_PX) {
+      if (zoomable && event.timeStamp - lastTap.current < DOUBLE_TAP_MS) toggleZoom();
+      lastTap.current = event.timeStamp;
+      return;
+    }
+    if (!zoom && Math.abs(dx) > SWIPE_PX) go(dx < 0 ? 1 : -1);
   };
+
+  const arrow = (step: -1 | 1) => (
+    <button
+      type="button"
+      className={`glass-button glass transfer-nav ${step < 0 ? "prev" : "next"}`}
+      aria-label={step < 0 ? "Anterior" : "Siguiente"}
+      disabled={index + step < 0 || index + step >= items.length}
+      onClick={() => go(step)}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
+        <path fill="currentColor" d={step < 0 ? "M15.4 6.4 14 5l-7 7 7 7 1.4-1.4L9.8 12l5.6-5.6Z" : "M8.6 17.6 10 19l7-7-7-7-1.4 1.4 5.6 5.6-5.6 5.6Z"} />
+      </svg>
+    </button>
+  );
 
   return (
     <div ref={dialog} className="transfer-viewer" role="dialog" aria-modal="true" aria-label={`Archivo ${index + 1} de ${items.length}: ${item.name}`} tabIndex={-1}>
@@ -104,15 +165,51 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
             {formatSize(item.size)} · {index + 1} de {items.length}
           </span>
         </div>
-        <button type="button" className="glass-button glass" aria-label="Cerrar" onClick={onClose}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
-            <path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z" />
-          </svg>
-        </button>
+        <div className="transfer-viewer-tools">
+          {zoomable && (
+            <button type="button" className="glass-button glass" aria-label={zoom ? "Ajustar a la pantalla" : "Ampliar"} aria-pressed={zoom !== null} onClick={toggleZoom}>
+              <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+                <path
+                  fill="currentColor"
+                  d={
+                    zoom
+                      ? "M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10ZM7 9h6v2H7V9Z"
+                      : "M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3Zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm-1 2h2v2h2v2h-2v2H9v-2H7V9h2V7Z"
+                  }
+                />
+              </svg>
+            </button>
+          )}
+          {arrow(-1)}
+          {arrow(1)}
+          <button type="button" className="glass-button glass" aria-label="Cerrar" onClick={onClose}>
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
+              <path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z" />
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <div className="transfer-viewer-stage" onPointerDown={start} onPointerUp={end} onPointerCancel={() => (swipe.current = null)}>
-        {item.preview === "image" && !unplayable && <img key={item.id} src={previewUrl(item.id, "large")} alt={item.name} draggable={false} onError={() => setUnplayable(true)} />}
+      <div ref={stage} className="transfer-viewer-stage" data-zoom={zoom !== null} onPointerDown={down} onPointerUp={up} onPointerCancel={() => (pointer.current = null)}>
+        {animated && !unplayable && <img key={item.id} src={contentUrl(item.id)} alt={item.name} draggable={false} onError={() => setUnplayable(true)} />}
+        {item.preview === "audio" && !unplayable && (
+          <div className="transfer-audio">
+            <MusicIcon />
+            <audio key={item.id} src={contentUrl(item.id)} controls preload="metadata" onError={() => setUnplayable(true)} />
+          </div>
+        )}
+        {zoomable && (
+          <img
+            ref={image}
+            key={item.id}
+            src={previewUrl(item.id, "large")}
+            alt={item.name}
+            draggable={false}
+            style={zoom ? { width: zoom } : undefined}
+            onDoubleClick={toggleZoom}
+            onError={() => setUnplayable(true)}
+          />
+        )}
         {item.preview === "video" && !unplayable && (
           <video key={item.id} src={contentUrl(item.id)} poster={previewUrl(item.id, "thumb")} controls playsInline preload="metadata" onError={() => setUnplayable(true)} />
         )}
@@ -121,20 +218,6 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
             <FileIcon name={item.name} />
             {unplayable && <p>No se puede ver acá. Bajalo para abrirlo con otra app.</p>}
           </div>
-        )}
-        {index > 0 && (
-          <button type="button" className="glass-button glass transfer-nav prev" aria-label="Anterior" onClick={() => go(-1)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
-              <path fill="currentColor" d="M15.4 6.4 14 5l-7 7 7 7 1.4-1.4L9.8 12l5.6-5.6Z" />
-            </svg>
-          </button>
-        )}
-        {index < items.length - 1 && (
-          <button type="button" className="glass-button glass transfer-nav next" aria-label="Siguiente" onClick={() => go(1)}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
-              <path fill="currentColor" d="M8.6 17.6 10 19l7-7-7-7-1.4 1.4 5.6 5.6-5.6 5.6Z" />
-            </svg>
-          </button>
         )}
       </div>
 

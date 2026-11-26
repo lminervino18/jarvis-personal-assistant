@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { useDialogFocus } from "../hooks.js";
 import {
+  contentUrl,
   createUploadLink,
   deleteTransfer,
   fetchTransfers,
@@ -13,9 +14,10 @@ import {
   type TransfersState,
 } from "../transfers/api.js";
 import { ownerUploads, TRANSFER_ARRIVED, type UploadItem, type UploadQueue } from "../transfers/uploads.js";
-import { TransferViewer } from "./TransferViewer.js";
+import { MusicIcon, TransferViewer } from "./TransferViewer.js";
 
 const REFRESH_MS = 15_000;
+const ARMED_MS = 4000;
 /** How long a finished upload stays listed before only its tile remains. */
 const DONE_VISIBLE_MS = 4000;
 
@@ -53,13 +55,30 @@ export function UploadProgress({ queue }: { queue: UploadQueue }) {
   );
 }
 
-function Tile({ item, now, onOpen }: { item: TransferFile; now: Date; onOpen(): void }) {
+function Tile({ item, now, onOpen, onDelete }: { item: TransferFile; now: Date; onOpen(): void; onDelete(item: TransferFile): Promise<boolean> }) {
   const [broken, setBroken] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(false), ARMED_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  const remove = async () => {
+    if (!armed) return setArmed(true);
+    setArmed(false);
+    setDeleting(true);
+    if (!(await onDelete(item))) setDeleting(false);
+  };
   return (
-    <li>
-      <button type="button" className="transfer-tile" onClick={onOpen} aria-label={`${item.name}, ${formatSize(item.size)}, ${from(item).toLowerCase()}`}>
+    <li className="transfer-item">
+      <button type="button" className="transfer-tile" onClick={onOpen} aria-label={`Ver ${item.name}, ${formatSize(item.size)}, ${from(item).toLowerCase()}`}>
         <span className="transfer-thumb" data-kind={item.preview ?? "file"}>
-          {item.preview && !broken ? (
+          {item.preview === "audio" ? (
+            <MusicIcon />
+          ) : item.preview && !broken ? (
             <img src={previewUrl(item.id, "thumb")} alt="" loading="lazy" onError={() => setBroken(true)} />
           ) : (
             <span className="transfer-ext">{item.name.split(".").pop()?.toUpperCase().slice(0, 5)}</span>
@@ -75,6 +94,27 @@ function Tile({ item, now, onOpen }: { item: TransferFile; now: Date; onOpen(): 
           {formatSize(item.size)} · {from(item)} · se borra en {timeLeft(item.expiresAt, now)}
         </span>
       </button>
+      <button
+        type="button"
+        className="transfer-tile-delete glass"
+        data-armed={armed}
+        disabled={deleting}
+        aria-label={armed ? `Confirmar: borrar ${item.name}` : `Borrar ${item.name}`}
+        onClick={() => void remove()}
+      >
+        {armed ? (
+          "¿Borrar?"
+        ) : (
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+            <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
+          </svg>
+        )}
+      </button>
+      <a className="transfer-tile-download glass" href={contentUrl(item.id)} download={item.name} aria-label={`Bajar ${item.name}`}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+          <path fill="currentColor" d="M11 4h2v9.2l3.3-3.3 1.4 1.4-5.7 5.7-5.7-5.7 1.4-1.4 3.3 3.3V4ZM5 18h14v2H5v-2Z" />
+        </svg>
+      </a>
     </li>
   );
 }
@@ -202,6 +242,12 @@ export function TransfersScreen({ onClose, embedded }: Props) {
   };
 
   const items = typeof state === "object" ? state.items : [];
+
+  const removeFile = async (item: TransferFile) => {
+    const done = await deleteTransfer(item.id);
+    if (done) refresh();
+    return done;
+  };
   const now = new Date();
 
   return (
@@ -257,7 +303,7 @@ export function TransfersScreen({ onClose, embedded }: Props) {
         {items.length > 0 && (
           <ul className="transfer-grid" aria-label="Archivos">
             {items.map((item, index) => (
-              <Tile key={item.id} item={item} now={now} onOpen={() => setOpen(index)} />
+              <Tile key={item.id} item={item} now={now} onOpen={() => setOpen(index)} onDelete={removeFile} />
             ))}
           </ul>
         )}
@@ -273,11 +319,9 @@ export function TransfersScreen({ onClose, embedded }: Props) {
           onClose={() => setOpen(null)}
           onShare={async (item) => (await shareTransfer(item.id))?.url ?? null}
           onDelete={async (item) => {
-            const done = await deleteTransfer(item.id);
-            if (!done) return false;
-            setOpen(items.length > 1 ? Math.min(open, items.length - 2) : null);
-            refresh();
-            return true;
+            const done = await removeFile(item);
+            if (done) setOpen(items.length > 1 ? Math.min(open, items.length - 2) : null);
+            return done;
           }}
         />
       )}

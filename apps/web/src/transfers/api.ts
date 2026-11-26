@@ -7,8 +7,8 @@ export interface TransferFile {
   size: number;
   createdAt: string;
   expiresAt: string;
-  /** Whether the server can show it small: a photo or a video. */
-  preview: "image" | "video" | null;
+  /** How it can be shown: a photo or video has a small preview, music plays; anything else only downloads. */
+  preview: "image" | "video" | "audio" | null;
 }
 
 export interface UploadLink {
@@ -49,7 +49,7 @@ export async function revokeUploadLink(id: string): Promise<boolean> {
 export const fetchUploadLink = (token: string) => json<{ ownerName: string; expiresAt: string }>(`/api/public/upload-links/${encodeURIComponent(token)}`);
 
 export const fetchSharedFile = (token: string) =>
-  json<{ name: string; mediaType: string; size: number; expiresAt: string; ownerName: string; preview: "image" | "video" | null }>(`/api/public/files/${encodeURIComponent(token)}`);
+  json<{ name: string; mediaType: string; size: number; expiresAt: string; ownerName: string; preview: "image" | "video" | "audio" | null }>(`/api/public/files/${encodeURIComponent(token)}`);
 
 export const sharedContentUrl = (token: string) => `/api/public/files/${encodeURIComponent(token)}/content`;
 export const sharedPreviewUrl = (token: string) => `/api/public/files/${encodeURIComponent(token)}/preview?size=large`;
