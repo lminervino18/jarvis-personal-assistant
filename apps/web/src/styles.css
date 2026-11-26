@@ -1560,6 +1560,44 @@ button {
   text-align: center;
 }
 
+.chat-empty-core {
+  width: min(240px, 56vw);
+  aspect-ratio: 1;
+  margin-bottom: 18px;
+  pointer-events: none;
+}
+
+.chat-empty-core .core,
+.chat-top-core .core {
+  width: 100%;
+  height: 100%;
+}
+
+.chat-top-core {
+  display: none;
+}
+
+.app-wide .chat-top-core {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  z-index: 2;
+  display: block;
+  width: 56px;
+  height: 56px;
+  translate: -50% 0;
+  pointer-events: none;
+  animation: core-rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes core-rise {
+  from {
+    translate: -50% 34vh;
+    scale: 4;
+    opacity: 0.2;
+  }
+}
+
 .chat-empty h2 {
   margin: 0 0 4px;
   font-size: 28px;

@@ -1,8 +1,10 @@
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { uploadChatAttachment } from "../attachments/upload.js";
+import { stateLabel } from "../conversation/assistant-state.js";
+import { Core } from "../core/Core.js";
 import type { Session, SessionSnapshot } from "../conversation/session.js";
 import { useFreshStart } from "../hooks.js";
-import { playWelcome } from "../welcome.js";
+import { fetchWelcomeAudio, opensInCall, playWelcome } from "../welcome.js";
 import { Composer } from "./Composer.js";
 import { Thread } from "./Thread.js";
 
@@ -49,15 +51,30 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
   const online = snapshot.connection === "ready";
   const { thread } = snapshot;
   const fresh = useFreshStart(snapshot.callActive || snapshot.busy);
+  const greeted = useRef<number | null>(null);
+  const callable = snapshot.capabilities?.stt === true && online && !demo;
   useEffect(() => {
-    if (fresh.since !== null) void playWelcome();
-  }, [fresh.since]);
+    if (fresh.since === null || greeted.current === fresh.since) return;
+    if (!opensInCall()) {
+      greeted.current = fresh.since;
+      void playWelcome();
+      return;
+    }
+    if (!callable) return;
+    greeted.current = fresh.since;
+    void fetchWelcomeAudio().then((audio) => session.startCall(audio ?? undefined));
+  }, [fresh.since, callable, session]);
   const since = fresh.since;
   const earlier = since === null ? 0 : thread.messages.filter((message) => Date.parse(message.at) <= since).length;
   const empty = thread.messages.length === earlier && !thread.transcript && (earlier > 0 || !thread.hasMore);
 
   return (
     <div className="chat" hidden={hidden} inert={!active}>
+      {!empty && (
+        <div className="chat-top-core" aria-hidden="true">
+          <Core state={snapshot.state} label={stateLabel(snapshot.state)} getLevels={session.getLevels} />
+        </div>
+      )}
       <Thread
         thread={thread}
         actions={session}
@@ -69,6 +86,9 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
         placeholder={
           empty && (
             <section className="chat-empty" aria-label="Inicio">
+              <div className="chat-empty-core">
+                <Core state={snapshot.state} label={stateLabel(snapshot.state)} getLevels={session.getLevels} />
+              </div>
               <h2>{snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}</h2>
               <p>Escribime, dictame o llamame.</p>
               {earlier > 0 && (
