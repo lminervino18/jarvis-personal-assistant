@@ -1836,12 +1836,65 @@ button {
   padding: 8px 0;
 }
 
-.connection-name small {
+.connection-account {
   overflow: hidden;
-  color: var(--secondary);
-  font-size: 13px;
+  font-size: 15px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.connection-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.connection-status[data-status="connected"] {
+  color: var(--green);
+}
+
+.connection-status[data-status="warning"] {
+  color: var(--orange);
+}
+
+.connection-button {
+  flex: none;
+  min-width: 92px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.16);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.connection-button[data-danger="true"] {
+  background: rgba(255, 69, 58, 0.12);
+  color: var(--red);
+}
+
+.connection-button[data-armed="true"] {
+  background: var(--red);
+  color: #fff;
+}
+
+.connection-button:disabled {
+  opacity: 0.6;
 }
 
 .row-link-danger {
