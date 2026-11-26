@@ -23,6 +23,7 @@ function repeatsPrompt(transcript: string, prompt: string): boolean {
 const MIN_AUDIO_MS = 150;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const FILE_TIMEOUT_MS = 60_000;
+const SEGMENTS_TIMEOUT_MS = 5 * 60_000;
 
 export interface OpenAiSttOptions {
   provider: string;
@@ -98,6 +99,31 @@ export class OpenAiCompatibleStt implements SpeechToTextService {
     const body = (await response.json()) as { text?: unknown };
     if (typeof body.text !== "string") throw new Error(`${this.provider} returned no transcript`);
     return body.text.trim();
+  }
+
+  /** A recording transcribed with when each phrase is said, in seconds from the start. */
+  async transcribeSegments(file: { data: Uint8Array; mediaType: string; fileName: string }, signal?: AbortSignal): Promise<{ start: number; end: number; text: string }[]> {
+    const form = new FormData();
+    form.set("file", new Blob([file.data], { type: file.mediaType }), file.fileName);
+    form.set("model", this.options.model);
+    form.set("response_format", "verbose_json");
+    form.append("timestamp_granularities[]", "segment");
+    form.set("temperature", "0");
+    if (this.options.language) form.set("language", this.options.language);
+    const timeout = AbortSignal.timeout(SEGMENTS_TIMEOUT_MS);
+    const response = await (this.options.fetch ?? fetch)(`${this.options.baseUrl}/audio/transcriptions`, {
+      method: "POST",
+      headers: this.options.apiKey ? { authorization: `Bearer ${this.options.apiKey}` } : {},
+      body: form,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (!response.ok) throw new Error(`${this.provider} transcription failed with status ${response.status}`);
+    const body = (await response.json()) as { segments?: { start?: unknown; end?: unknown; text?: unknown }[] };
+    return (body.segments ?? []).flatMap((segment) =>
+      typeof segment.start === "number" && typeof segment.end === "number" && typeof segment.text === "string" && segment.text.trim()
+        ? [{ start: segment.start, end: segment.end, text: segment.text.trim() }]
+        : [],
+    );
   }
 
   private buildForm(pcm: Uint8Array, format: AudioFormat): FormData {

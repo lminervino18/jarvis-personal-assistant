@@ -216,6 +216,65 @@ export const transferSuggest = defineTool({
   },
 });
 
+export const transferEdit = defineTool({
+  name: "transfer_edit",
+  description:
+    "Edita un video: lo consigue, se queda solo con las partes que el dueño quiere y deja el recorte en Transferencias. La fuente es una de tres: url (YouTube, X o Instagram), search (primer resultado de YouTube) o transferId (algo de Transferencias). Las partes salen de find o de segments. Con find describís lo que quiere en sus palabras («el gol de Paredes de penal», «todos los goles», «cuando habla del dólar»): Jarvis lo encuentra escuchando el relato y mirando cuadros. Con segments pasás los tiempos exactos, si los dio. Opciones: padding (segundos de margen, 2 por defecto), vertical para historias y format «mp3» para quedarse con el audio de esas partes. Por defecto no guarda el video entero, salvo que venga de Transferencias; keepSource lo guarda igual. Con sendTo se manda solo al terminar. Tarda unos minutos y avisa con una notificación.",
+  prepare(ctx, input) {
+    const transfers = services(ctx);
+    if (!transfers?.media) return { refused: fail("disabled", "Editar videos no está instalado en el servidor.") };
+    if ([input.url, input.search, input.transferId].filter(Boolean).length !== 1) return { refused: fail("invalid_input", "Pasá una sola fuente: url, search o transferId.") };
+    if (Boolean(input.find) === Boolean(input.segments)) return { refused: fail("invalid_input", "Pasá find (qué buscar) o segments (los tiempos), uno de los dos.") };
+    if (input.segments?.some((segment) => segment.end <= segment.start)) return { refused: fail("invalid_input", "Cada parte tiene que terminar después de empezar.") };
+    if (input.url && !siteOf(input.url)) return { refused: fail("invalid_input", "Solo bajo de YouTube, X o Instagram.") };
+    if (input.transferId) {
+      const transfer = transfers.store.get(input.transferId, ctx.now());
+      if (!transfer) return { refused: fail("not_found", "Ese archivo ya no está en Transferencias.") };
+      const kind = previewKind(transfer);
+      if (kind !== "video" && !(kind === "audio" && input.format === "mp3")) return { refused: fail("invalid_input", "Solo edito videos, o audios si es para sacar un MP3.") };
+    }
+    if (!input.sendTo) return { input };
+    const resolved = resolveSendTo(ctx, input.sendTo);
+    return "refused" in resolved ? resolved : { input: { ...input, sendTo: resolved.sendTo } };
+  },
+  describe: (ctx, input) => {
+    const keep = input.keepSource ?? Boolean(input.transferId);
+    const source = input.url ?? (input.search ? `Buscar en YouTube: «${input.search}»` : (services(ctx)?.store.get(input.transferId ?? "", ctx.now())?.name ?? "Archivo de Transferencias"));
+    return {
+      title: "Recortar un video",
+      summary: source,
+      details: [
+        { label: "Quedarme con", value: input.find ?? (input.segments ?? []).map((segment) => `${clock(Math.round(segment.start))}–${clock(Math.round(segment.end))}`).join(", ") },
+        { label: "Formato", value: input.format === "mp3" ? "Solo el audio (MP3)" : input.vertical ? "Video vertical (9:16)" : "Video para el iPhone" },
+        { label: "El video entero", value: keep ? "Se guarda también" : input.transferId ? "Lo borro de Transferencias" : "No se guarda" },
+        ...sendDetails(ctx, input.sendTo),
+      ],
+    };
+  },
+  async execute(ctx, input) {
+    const media = services(ctx)?.media;
+    if (!media) return fail("disabled", "Editar videos no está instalado en el servidor.");
+    const job = media.edit({
+      ...(input.url ? { url: input.url } : {}),
+      ...(input.search ? { search: input.search } : {}),
+      ...(input.transferId ? { transferId: input.transferId } : {}),
+      format: input.format ?? "iphone",
+      edit: {
+        ...(input.find ? { find: input.find } : {}),
+        ...(input.segments ? { segments: input.segments } : {}),
+        padding: input.padding ?? 2,
+        vertical: input.vertical ?? false,
+        keepSource: input.keepSource ?? Boolean(input.transferId),
+      },
+      ...(input.sendTo ? { send: sendRequest(ctx, input.sendTo) } : {}),
+    });
+    if (!job) return fail("not_found", "No pude encontrar ese video.");
+    return ok(SOURCE, [{ id: job.id, site: job.site, status: job.status, ...(job.send ? { sendTo: job.send.name } : {}) }], {
+      note: "El recorte está en marcha: tarda unos minutos y al terminar le llega una notificación al dueño con las partes que quedaron. No afirmes que ya está ni que encontraste el momento.",
+    });
+  },
+});
+
 export const transferConvert = defineTool({
   name: "transfer_convert",
   description:
@@ -289,4 +348,4 @@ export const transferSend = defineTool({
   },
 });
 
-export const transferTools = [transferList, transferUploadLink, transferShareLink, transferFromLink, transferSuggest, transferConvert, transferSend] as const;
+export const transferTools = [transferList, transferUploadLink, transferShareLink, transferFromLink, transferSuggest, transferEdit, transferConvert, transferSend] as const;

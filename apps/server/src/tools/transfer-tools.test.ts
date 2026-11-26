@@ -187,3 +187,39 @@ describe("transfer_suggest", () => {
     await env.media.stop();
   });
 });
+
+describe("transfer_edit", () => {
+  it("needs one source and either what to find or the exact times", async () => {
+    const env = setup();
+    const video = env.file("partido.mp4", "video/mp4", 500);
+    const song = env.file("Crimen.mp3", "audio/mpeg", 500);
+    const refused = async (input: object) => error(await runTool(env.ctx, tool("transfer_edit"), input))?.message;
+    expect(await refused({ find: "el gol" })).toBe("Pasá una sola fuente: url, search o transferId.");
+    expect(await refused({ url: "https://youtu.be/aqz-KE-bpKQ", transferId: video.id, find: "el gol" })).toBe("Pasá una sola fuente: url, search o transferId.");
+    expect(await refused({ url: "https://youtu.be/aqz-KE-bpKQ" })).toBe("Pasá find (qué buscar) o segments (los tiempos), uno de los dos.");
+    expect(await refused({ transferId: video.id, segments: [{ start: 20, end: 10 }] })).toBe("Cada parte tiene que terminar después de empezar.");
+    expect(await refused({ transferId: song.id, find: "el estribillo" })).toBe("Solo edito videos, o audios si es para sacar un MP3.");
+    expect((await runTool(env.ctx, tool("transfer_edit"), { transferId: song.id, find: "el estribillo", format: "mp3" })).ok).toBe(true);
+    await env.media.stop();
+  });
+
+  it("shows the whole plan on one card after third-party content, and queues it as confirmed", async () => {
+    const env = setup();
+    env.ctx.security.tainted = true;
+    const result = await runTool(env.ctx, tool("transfer_edit"), { url: "https://youtu.be/aqz-KE-bpKQ", find: "el gol de Paredes de penal", sendTo: { channel: "whatsapp", to: "me" } });
+    expect(env.cards[0]?.details).toEqual([
+      { label: "Quedarme con", value: "el gol de Paredes de penal" },
+      { label: "Formato", value: "Video para el iPhone" },
+      { label: "El video entero", value: "No se guarda" },
+      { label: "Después", value: "Mandárselo a vos por WhatsApp" },
+    ]);
+    await decidePendingAction(env.ctx, toolsByName, error(result)!.actionId!, "confirm");
+    expect(env.media.recent()[0]).toMatchObject({
+      source: "link",
+      format: "iphone",
+      edit: { find: "el gol de Paredes de penal", padding: 2, vertical: false, keepSource: false },
+      send: { channel: "whatsapp", to: "me", name: "vos" },
+    });
+    await env.media.stop();
+  });
+});

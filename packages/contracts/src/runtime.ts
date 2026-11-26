@@ -60,6 +60,8 @@ export type RuntimeEvent =
 export interface CompletionRequest {
   system: string;
   prompt: string;
+  /** Images or PDFs the model looks at, in order, before the prompt. */
+  files?: RuntimeFile[];
   model?: string;
   effort?: "low" | "medium" | "high";
 }

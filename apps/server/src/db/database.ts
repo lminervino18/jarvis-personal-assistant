@@ -16,6 +16,7 @@ import { sql as transfersSql } from "./migrations/012-transfers.js";
 import { sql as mediaDownloadsSql } from "./migrations/013-media-downloads.js";
 import { sql as mediaJobsSql } from "./migrations/014-media-jobs.js";
 import { sql as mediaChoicesSql } from "./migrations/015-media-choices.js";
+import { sql as mediaEditsSql } from "./migrations/016-media-edits.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as taskArchiveSql } from "./work-migrations/004-task-archive.js";
@@ -47,6 +48,7 @@ export const migrations: Migration[] = [
   { version: 13, name: "media_downloads", sql: mediaDownloadsSql },
   { version: 14, name: "media_jobs", sql: mediaJobsSql },
   { version: 15, name: "media_choices", sql: mediaChoicesSql },
+  { version: 16, name: "media_edits", sql: mediaEditsSql },
 ];
 
 /**

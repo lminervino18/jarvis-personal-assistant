@@ -13,7 +13,7 @@ export interface DownloadRequest {
   format: MediaFormat;
 }
 
-export type DownloadFailure = "blocked" | "login" | "unavailable" | "too_big" | "unsupported" | "unconvertible" | "timeout" | "cancelled" | "failed";
+export type DownloadFailure = "blocked" | "login" | "unavailable" | "too_big" | "unsupported" | "unconvertible" | "no_moment" | "timeout" | "cancelled" | "failed";
 
 /** A failed download, with a reason the owner can act on. Never carries cookies, proxies or raw tool output. */
 export class DownloadError extends Error {

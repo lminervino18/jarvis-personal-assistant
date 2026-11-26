@@ -319,6 +319,31 @@ export const toolInputs = {
     format: MediaFormat.optional(),
     sendTo: SendFileTo.optional(),
   },
+  transfer_edit: {
+    /** A YouTube, X or Instagram link to cut. */
+    url: z.string().trim().url().max(500).optional(),
+    /** Words to search on YouTube; the first result is cut. */
+    search: z.string().trim().min(2).max(200).optional(),
+    /** A video or song already in Transferencias. */
+    transferId: z.uuid().optional(),
+    /** What to keep, in the owner's words; Jarvis finds it by listening and looking («el gol de Paredes de penal», «todos los goles»). */
+    find: z.string().trim().min(3).max(300).optional(),
+    /** Exact parts to keep, in seconds from the start, when the owner gave the times. */
+    segments: z
+      .array(z.object({ start: z.number().min(0), end: z.number().positive() }))
+      .min(1)
+      .max(10)
+      .optional(),
+    /** Seconds kept before and after each moment found; 2 by default. */
+    padding: z.number().min(0).max(30).optional(),
+    /** Cropped to 9:16 for stories or reels. */
+    vertical: z.boolean().optional(),
+    /** «iphone» (default) keeps the video; «mp3» only the audio of the parts. */
+    format: z.enum(["iphone", "mp3"]).optional(),
+    /** Also keep the whole video in Transferencias. By default only the cut stays (a file already in Transferencias is kept). */
+    keepSource: z.boolean().optional(),
+    sendTo: SendFileTo.optional(),
+  },
   transfer_convert: {
     transferId: z.uuid(),
     format: MediaFormat.exclude(["max"]),
@@ -410,6 +435,7 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "transfer_from_link",
   "transfer_convert",
   "transfer_send",
+  "transfer_edit",
 ]);
 
 export const ToolErrorCode = z.enum([

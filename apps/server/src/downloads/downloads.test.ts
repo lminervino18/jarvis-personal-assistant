@@ -8,9 +8,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openMigratedDatabase } from "../db/database.js";
 import { TransferStore } from "../transfers/transfer-store.js";
 import type { SendRequest } from "../transfers/transfer-delivery.js";
-import { conversionArgs, MediaConverter, parseProbe } from "./media-converter.js";
+import { conversionArgs, cutArgs, MediaConverter, parseProbe } from "./media-converter.js";
 import { DownloadError, failureOf, MediaDownloader, siteOf, type DownloadedFile } from "./media-downloader.js";
 import { FAILURES, MediaQueue, titleForFile } from "./media-queue.js";
+import { MomentFinder, padded, parseMoments } from "./moment-finder.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -127,6 +128,7 @@ describe("file names from video titles", () => {
   it("drop emoji and the dot before the extension", () => {
     expect(titleForFile("Oshtru - gm ✨️ now I can post image and video. nice update.")).toBe("Oshtru - gm now I can post image and video. nice update");
     expect(titleForFile("🔥🔥")).toBe("video");
+    expect(titleForFile("Boca 2-1 Racing | Resumen (Fecha 5)")).toBe("Boca 2-1 Racing Resumen Fecha 5");
   });
 });
 
@@ -338,5 +340,140 @@ describe("media queue", () => {
     await env.queue.idle();
     expect(calls).toBe(1);
     expect(env.queue.get("00000000-0000-4000-8000-000000000001")?.status).toBe("done");
+  });
+});
+
+describe("cuts", () => {
+  const probe = parseProbe(JSON.stringify({ format: { duration: "600" }, streams: [{ codec_type: "video", codec_name: "h264", width: 1920, height: 1080 }, { codec_type: "audio", codec_name: "aac" }] }));
+  const moments = [
+    { start: 192, end: 221 },
+    { start: 400, end: 410.5 },
+  ];
+
+  it("seeks each part on its own and joins them, cropped to 9:16 when asked", () => {
+    const args = cutArgs(probe, moments, { format: "iphone", vertical: true }, "in.mp4", "out.mp4") ?? [];
+    expect(args.slice(3, 15)).toEqual(["-ss", "192.000", "-t", "29.000", "-i", "in.mp4", "-ss", "400.000", "-t", "10.500", "-i", "in.mp4"]);
+    const graph = args[args.indexOf("-filter_complex") + 1];
+    expect(graph).toContain("[0:v:0][0:a:0][1:v:0][1:a:0]concat=n=2:v=1:a=1[v][a]");
+    expect(graph).toContain("crop=w='trunc(min(iw,ih*9/16)/2)*2':h=ih");
+    expect(args).toEqual(expect.arrayContaining(["-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart"]));
+  });
+
+  it("keeps only the audio of the parts for an MP3, and refuses a video without one", () => {
+    const mp3 = cutArgs(probe, moments, { format: "mp3", vertical: false }, "in.mp4", "out.mp3") ?? [];
+    expect(mp3[mp3.indexOf("-filter_complex") + 1]).toBe("[0:a:0][1:a:0]concat=n=2:v=0:a=1[a]");
+    expect(mp3).toEqual(expect.arrayContaining(["-map", "[a]", "-c:a", "libmp3lame"]));
+    expect(cutArgs(parseProbe(JSON.stringify({ streams: [{ codec_type: "audio", codec_name: "mp3" }] })), moments, { format: "iphone", vertical: false }, "in", "out")).toBeUndefined();
+  });
+
+  it("reads the model's moments even with text around them, inside the video and in order", () => {
+    expect(parseMoments('Acá está: {"moments":[{"start":400,"end":420},{"start":-3,"end":12},{"start":5,"end":20}]}', 410)).toEqual([
+      { start: 0, end: 20 },
+      { start: 400, end: 410 },
+    ]);
+    expect(parseMoments('{"moments":[{"start":0,"end":2000}]}', 5000)).toEqual([]);
+    expect(parseMoments("no lo encontré", 100)).toBeUndefined();
+    expect(padded([{ start: 1, end: 10 }, { start: 13, end: 20 }], 2, 21)).toEqual([{ start: 0, end: 21 }]);
+  });
+});
+
+describe("finding a moment", () => {
+  function fakeExec() {
+    return async (_command: string, args: string[]) => {
+      const output = args.at(-1) ?? "";
+      if (args.includes("-vn")) writeFileSync(output, "ogg");
+      else for (const n of ["001", "002", "003"]) writeFileSync(output.replace("%03d", n), "jpg");
+      return { stdout: "", stderr: "" };
+    };
+  }
+
+  it("listens first, then looks at frames around what it heard to set the exact cut", async () => {
+    const work = tempDir();
+    const calls: { prompt: string; images: number }[] = [];
+    const finder = new MomentFinder({
+      exec: fakeExec(),
+      transcribe: async () => [
+        { start: 190, end: 196, text: "penal para Boca, va Paredes" },
+        { start: 200, end: 205, text: "¡gol de Paredes!" },
+      ],
+      complete: async (request) => {
+        calls.push({ prompt: request.prompt, images: request.files?.length ?? 0 });
+        return calls.length === 1 ? '{"moments":[{"start":188,"end":215}]}' : '{"moments":[{"start":191,"end":212}]}';
+      },
+    });
+    expect(await finder.find("in.mp4", 600, "el gol de Paredes de penal", work, new AbortController().signal)).toEqual([{ start: 191, end: 212 }]);
+    expect(calls[0]).toMatchObject({ images: 0 });
+    expect(calls[0]?.prompt).toContain("[3:20–3:25] ¡gol de Paredes!");
+    expect(calls[1]?.images).toBe(3);
+    expect(calls[1]?.prompt).toContain("imagen 1 = 2:48");
+  });
+
+  it("keeps what it heard when the frames do not help, and finds nothing when nothing matches", async () => {
+    const work = tempDir();
+    let call = 0;
+    const finder = new MomentFinder({
+      exec: fakeExec(),
+      transcribe: async () => [{ start: 10, end: 12, text: "hola" }],
+      complete: async () => (++call === 1 ? '{"moments":[{"start":10,"end":30}]}' : "no sé"),
+    });
+    expect(await finder.find("in.mp4", 600, "el gol", work, new AbortController().signal)).toEqual([{ start: 10, end: 30 }]);
+    const none = new MomentFinder({ exec: fakeExec(), transcribe: async () => [{ start: 1, end: 2, text: "hola" }], complete: async () => '{"moments":[]}' });
+    expect(await none.find("in.mp4", 600, "el gol", work, new AbortController().signal)).toEqual([]);
+  });
+});
+
+describe("cut jobs", () => {
+  function setupCut(find: () => Promise<{ start: number; end: number }[]>) {
+    const dir = tempDir();
+    const db = openMigratedDatabase(":memory:");
+    const store = new TransferStore(db);
+    const discarded: string[] = [];
+    const downloader = {
+      run: async (_job: unknown, work: string) => {
+        writeFileSync(join(work, "video.mp4"), "full match");
+        return { path: join(work, "video.mp4"), title: "Boca 2-1 Racing | Resumen", ext: "mp4", height: 1080 };
+      },
+    } as unknown as MediaDownloader;
+    const cuts: unknown[] = [];
+    const converter = {
+      probe: async () => ({ duration: 600 }),
+      cut: async (_input: string, moments: unknown, options: unknown, work: string) => {
+        cuts.push({ moments, options });
+        writeFileSync(join(work, "cut.mp4"), "clip");
+        return { path: join(work, "cut.mp4"), ext: "mp4", seconds: 25 };
+      },
+    } as unknown as MediaConverter;
+    const queue = new MediaQueue({ db, store, dir, downloader, converter, freeBytes: () => 100 * 1024 ** 3, discard: (transfer) => discarded.push(transfer.name) });
+    queue.useFinder({ find } as unknown as MomentFinder);
+    const chat = () => (JSON.parse((db.prepare("SELECT payload_json AS payload FROM outbox WHERE kind = 'chat_message'").get() as { payload: string }).payload) as { text: string }).text;
+    return { dir, store, queue, cuts, discarded, chat };
+  }
+
+  it("downloads, finds the play, keeps only the cut and tells the owner which part it kept", async () => {
+    const env = setupCut(async () => [{ start: 191, end: 212 }]);
+    const job = env.queue.edit({ url: "https://youtu.be/aqz-KE-bpKQ", format: "iphone", edit: { find: "el gol de Paredes de penal", padding: 2, vertical: false, keepSource: false } });
+    await env.queue.idle();
+    expect(env.queue.get(job!.id)?.status).toBe("done");
+    expect(env.cuts).toEqual([{ moments: [{ start: 189, end: 214 }], options: { format: "iphone", vertical: false } }]);
+    expect(env.store.list(new Date()).map((item) => item.name)).toEqual(["Boca 2-1 Racing Resumen - recorte.mp4"]);
+    expect(env.chat()).toBe("Terminé el recorte que pediste (del 3:09 al 3:34; 0:25 en total, 0 MB): está en Transferencias. El video entero no lo guardé.");
+  });
+
+  it("drops the original from Transferencias only when the owner said so", async () => {
+    const env = setupCut(async () => []);
+    writeFileSync(join(env.dir, "up-1"), "video");
+    const source = env.store.add({ origin: "phone", name: "partido.mp4", mediaType: "video/mp4", size: 5, uploadId: "up-1" }, new Date());
+    env.queue.edit({ transferId: source.id, format: "iphone", edit: { segments: [{ start: 10, end: 20 }], padding: 2, vertical: true, keepSource: false } });
+    await env.queue.idle();
+    expect(env.discarded).toEqual(["partido.mp4"]);
+    expect(env.chat()).toContain("Borré el original de Transferencias.");
+  });
+
+  it("says plainly when the moment is not in the video", async () => {
+    const env = setupCut(async () => []);
+    const job = env.queue.edit({ search: "boca racing resumen", format: "iphone", edit: { find: "el gol de Messi", padding: 2, vertical: false, keepSource: false } });
+    await env.queue.idle();
+    expect(env.queue.get(job!.id)).toMatchObject({ status: "failed", error: FAILURES.no_moment });
+    expect(env.store.list(new Date())).toEqual([]);
   });
 });

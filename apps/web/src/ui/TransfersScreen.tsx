@@ -42,13 +42,14 @@ const DOWNLOAD_FORMATS: { format: MediaFormat; label: string; hint: string }[] =
 const FORMAT_SHORT: Record<MediaFormat, string> = { iphone: "para iPhone", max: "máxima calidad", mp3: "MP3", m4a: "M4A" };
 
 function jobTitle(job: MediaJob): string {
+  if (job.edit) return `Recorte · ${job.source === "search" ? `«${job.label}»` : job.label}`;
   if (job.source === "transfer") return `${job.label} → ${FORMAT_SHORT[job.format]}`;
   return job.source === "search" ? `YouTube · «${job.label}» · ${FORMAT_SHORT[job.format]}` : `${job.site} · ${job.label}`;
 }
 
 function jobStatus(job: MediaJob, now: Date): string {
   if (job.status === "failed") return "Falló";
-  if (job.status === "running") return `${job.source === "transfer" ? "Convirtiendo" : "Bajando"} · ${Math.floor(job.progress * 100)} %`;
+  if (job.status === "running") return `${job.stage ?? (job.source === "transfer" ? "Convirtiendo" : "Bajando")} · ${Math.floor(job.progress * 100)} %`;
   return job.retryAt ? `Reintenta en ${timeLeft(job.retryAt, now)}` : "En espera";
 }
 

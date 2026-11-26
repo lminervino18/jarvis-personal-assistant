@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { MediaFormat } from "@jarvis/contracts";
 import type { Exec } from "../videos/video-qa.js";
 import { DownloadError } from "./media-downloader.js";
+import type { Moment } from "./moment-finder.js";
 
 export type ConvertFormat = Exclude<MediaFormat, "max">;
 
@@ -73,6 +74,49 @@ export function conversionArgs(probe: Probe, format: ConvertFormat, input: strin
   return [...head, "-map", "0:v:0", "-map", "0:a:0?", ...iphoneVideo(probe.video), ...audio, "-movflags", "+faststart", ...tail];
 }
 
+export interface CutOptions {
+  format: "iphone" | "mp3";
+  /** Cropped to 9:16 from the middle, for stories or reels. */
+  vertical: boolean;
+}
+
+/**
+ * The ffmpeg arguments that keep only `moments`, joined in order. Each part is read with its own
+ * fast seek, so a short cut of a two-hour match does not decode the whole match.
+ */
+export function cutArgs(probe: Probe, moments: Moment[], options: CutOptions, input: string, output: string): string[] | undefined {
+  const video = options.format === "iphone" ? probe.video : undefined;
+  if (options.format === "iphone" && !video) return undefined;
+  if (options.format === "mp3" && !probe.audio) return undefined;
+  const audio = Boolean(probe.audio);
+  const inputs = moments.flatMap((moment) => ["-ss", moment.start.toFixed(3), "-t", (moment.end - moment.start).toFixed(3), "-i", input]);
+  const streams = moments.map((_moment, index) => `${video ? `[${index}:v:0]` : ""}${audio ? `[${index}:a:0]` : ""}`).join("");
+  const joined = `${streams}concat=n=${moments.length}:v=${video ? 1 : 0}:a=${audio ? 1 : 0}${video ? "[v]" : ""}${audio ? "[a]" : ""}`;
+  const head = ["-hide_banner", "-nostdin", "-y", ...inputs];
+  const tail = ["-progress", "pipe:1", "-nostats", output];
+  if (!video) return [...head, "-filter_complex", joined, "-map", "[a]", "-c:a", "libmp3lame", "-q:a", "0", ...tail];
+  const portrait = options.vertical || video.height > video.width;
+  const crop = options.vertical ? "crop=w='trunc(min(iw,ih*9/16)/2)*2':h=ih," : "";
+  const scale = portrait ? `scale=w='trunc(min(iw,${MAX_SHORT_SIDE})/2)*2':h=-2` : `scale=w=-2:h='trunc(min(ih,${MAX_SHORT_SIDE})/2)*2'`;
+  return [
+    ...head,
+    "-filter_complex",
+    `${joined};[v]${crop}${scale},format=yuv420p[out]`,
+    "-map",
+    "[out]",
+    ...(audio ? ["-map", "[a]", "-c:a", "aac", "-b:a", "192k"] : []),
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-crf",
+    "20",
+    "-movflags",
+    "+faststart",
+    ...tail,
+  ];
+}
+
 /** How tall the converted video comes out, for the owner's notice. */
 function outputHeight(probe: Probe, format: ConvertFormat): number | undefined {
   const video = probe.video;
@@ -113,6 +157,23 @@ export class MediaConverter {
     await this.ffmpeg(args, probe.duration, onProgress, signal);
     const height = outputHeight(probe, format);
     return { path: output, ext, ...(height ? { height } : {}) };
+  }
+
+  /** Keeps only `moments` of a file, joined in order, as an iPhone video or as MP3. */
+  async cut(input: string, moments: Moment[], options: CutOptions, dir: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<{ path: string; ext: string; seconds: number }> {
+    let probe: Probe;
+    try {
+      probe = await this.probe(input);
+    } catch {
+      throw new DownloadError("unconvertible");
+    }
+    const ext = options.format === "mp3" ? "mp3" : "mp4";
+    const output = join(dir, `cut.${ext}`);
+    const args = cutArgs(probe, moments, options, input, output);
+    if (!args) throw new DownloadError("unconvertible");
+    const seconds = moments.reduce((total, moment) => total + moment.end - moment.start, 0);
+    await this.ffmpeg(args, seconds, onProgress, signal);
+    return { path: output, ext, seconds };
   }
 
   private ffmpeg(args: string[], duration: number, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<void> {

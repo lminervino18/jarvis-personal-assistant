@@ -40,6 +40,10 @@ export interface MediaJob {
   retryAt?: string;
   /** Who gets the file when it is ready. */
   sendTo?: string;
+  /** A cut: only some parts of the video are kept. */
+  edit?: boolean;
+  /** What a long job is doing now («Buscando el momento»). */
+  stage?: string;
 }
 
 export interface TransfersState {

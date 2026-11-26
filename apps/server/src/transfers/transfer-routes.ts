@@ -218,6 +218,8 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     ...(job.error && job.status !== "done" ? { error: job.error } : {}),
     ...(job.retryAt ? { retryAt: job.retryAt } : {}),
     ...(job.send ? { sendTo: job.send.name } : {}),
+    ...(job.edit ? { edit: true } : {}),
+    ...(job.stage ? { stage: job.stage } : {}),
   });
 
   const remove = async (transfer: Transfer) => {

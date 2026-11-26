@@ -10,8 +10,20 @@ import type { Transfer, TransferOrigin, TransferStore } from "../transfers/trans
 import { Outbox } from "../worker/outbox.js";
 import type { ConvertFormat, MediaConverter } from "./media-converter.js";
 import { DownloadError, siteOf, type DownloadFailure, type MediaDownloader, type Site } from "./media-downloader.js";
+import { clock, padded, type Moment, type MomentFinder } from "./moment-finder.js";
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+/** What to keep of a video: the parts the owner described, or the exact times they gave. */
+export interface EditSpec {
+  find?: string;
+  segments?: Moment[];
+  /** Seconds kept before and after each moment found. */
+  padding: number;
+  vertical: boolean;
+  /** Whether the whole video also stays in Transferencias. */
+  keepSource: boolean;
+}
 export type JobSource = "link" | "search" | "transfer";
 
 export interface MediaJob {
@@ -23,6 +35,10 @@ export interface MediaJob {
   site: string;
   format: MediaFormat;
   send?: SendRequest;
+  /** Present when the job cuts a video instead of keeping it whole. */
+  edit?: EditSpec;
+  /** What a long job is doing now («Buscando el momento»). */
+  stage?: string;
   status: JobStatus;
   progress: number;
   attempts: number;
@@ -40,6 +56,8 @@ interface Row {
   site: string;
   format: MediaFormat;
   send_json: string | null;
+  edit_json: string | null;
+  stage: string | null;
   status: JobStatus;
   progress: number;
   attempts: number;
@@ -57,6 +75,7 @@ export const FAILURES: Record<DownloadFailure, string> = {
   too_big: "El video es más grande que el máximo que bajo (8 GB).",
   unsupported: "No encontré un video en ese link.",
   unconvertible: "No pude convertir ese archivo a ese formato.",
+  no_moment: "No encontré en el video lo que pediste. Si me decís el minuto, lo recorto igual.",
   timeout: "Tardó demasiado y lo corté.",
   cancelled: "Cancelada.",
   failed: "No pude bajarlo. Probá de nuevo en un rato.",
@@ -81,6 +100,8 @@ function toJob(row: Row): MediaJob {
     site: row.site,
     format: row.format,
     ...(row.send_json ? { send: JSON.parse(row.send_json) as SendRequest } : {}),
+    ...(row.edit_json ? { edit: JSON.parse(row.edit_json) as EditSpec } : {}),
+    ...(row.stage && row.status === "running" ? { stage: row.stage } : {}),
     status: row.status,
     progress: row.progress,
     attempts: row.attempts,
@@ -91,10 +112,11 @@ function toJob(row: Row): MediaJob {
   };
 }
 
-/** A video title as a file name: no emoji or symbols, no trailing dots before the extension. */
+/** A video title as a file name: symbols and emoji dropped, no trailing dots before the extension. */
 export function titleForFile(title: string): string {
   const cleaned = title
-    .replace(/[\p{Extended_Pictographic}️‍]/gu, "")
+    .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "")
+    .replace(/[^\p{L}\p{N}._ -]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[.\s]+$/, "");
@@ -113,6 +135,22 @@ function deliveryNote(send: SendRequest | undefined, sent: SendOutcome | undefin
   return sent.via === "file" ? ` Se lo mandé ${to}.` : ` Como pesa mucho, le mandé ${to} un link para bajarlo en calidad original.`;
 }
 
+/** The owner's notice for a cut: which parts, how long, and what happened to the whole video. Only numbers, never what the video says. */
+function cutNote(job: MediaJob, moments: Moment[], transfer: Transfer, keptFull: boolean): string {
+  const seconds = moments.reduce((total, moment) => total + moment.end - moment.start, 0);
+  const [only] = moments;
+  const parts = moments.length === 1 && only ? `del ${clock(only.start)} al ${clock(only.end)}` : `${moments.length} partes: ${moments.map((moment) => `${clock(moment.start)}–${clock(moment.end)}`).join(", ")}`;
+  const whole =
+    job.source === "transfer"
+      ? job.edit?.keepSource
+        ? ""
+        : " Borré el original de Transferencias."
+      : keptFull
+        ? " También dejé el video entero."
+        : " El video entero no lo guardé.";
+  return `Terminé el recorte que pediste (${parts}; ${clock(seconds)} en total, ${megabytes(transfer.size)}): está en Transferencias.${whole}`;
+}
+
 /** What one job made, before it lands in Transferencias. */
 interface Made {
   path: string;
@@ -123,6 +161,12 @@ interface Made {
   height?: number;
   origin: TransferOrigin;
   sender?: string;
+  /** The parts a cut kept. */
+  moments?: Moment[];
+  /** The whole downloaded video, when the owner wanted to keep it too. */
+  full?: { path: string; name: string; ext: string };
+  /** The Transferencias file a cut came from, to drop when the owner did not want to keep it. */
+  source?: Transfer;
 }
 
 export interface MediaQueueDeps {
@@ -132,6 +176,8 @@ export interface MediaQueueDeps {
   converter?: MediaConverter;
   /** Sends a finished file to whoever the owner named with the request. */
   send?(transfer: Transfer, request: SendRequest): Promise<SendOutcome>;
+  /** Removes a Transferencias file and its previews. */
+  discard?(transfer: Transfer): void;
   /** Transferencias' folder: finished files land here; work in progress goes under `downloads/`. */
   dir: string;
   /** Free bytes on the disk; a job only starts with room to spare. */
@@ -148,9 +194,15 @@ export class MediaQueue {
   private running: { id: string; controller: AbortController } | undefined;
   private stopping = false;
   private wake: NodeJS.Timeout | undefined;
+  private finder: MomentFinder | undefined;
 
   constructor(private readonly deps: MediaQueueDeps) {
     this.outbox = new Outbox(deps.db);
+  }
+
+  /** Lets cuts find moments by what is said and seen; it needs the model, which starts after the queue. */
+  useFinder(finder: MomentFinder): void {
+    this.finder = finder;
   }
 
   private now(): Date {
@@ -175,6 +227,15 @@ export class MediaQueue {
   convert(transferId: string, format: ConvertFormat, send?: SendRequest): MediaJob | undefined {
     if (!this.deps.store.get(transferId, this.now())) return undefined;
     return this.insert({ source: "transfer", target: transferId, site: CONVERSION_SITE, format, send });
+  }
+
+  /** Queues a cut of a video from a link, a YouTube search or Transferencias; undefined when the source is not valid. */
+  edit(input: { url?: string; search?: string; transferId?: string; format: "iphone" | "mp3"; edit: EditSpec; send?: SendRequest }): MediaJob | undefined {
+    const common = { format: input.format, send: input.send, edit: input.edit };
+    if (input.transferId) return this.deps.store.get(input.transferId, this.now()) ? this.insert({ source: "transfer", target: input.transferId, site: CONVERSION_SITE, ...common }) : undefined;
+    if (input.search) return this.insert({ source: "search", target: input.search, site: "YouTube", ...common });
+    const link = input.url ? siteOf(input.url) : undefined;
+    return link ? this.insert({ source: "link", target: link.url, site: link.site, ...common }) : undefined;
   }
 
   get(id: string): MediaJob | undefined {
@@ -212,22 +273,22 @@ export class MediaQueue {
     while (this.running) await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
-  private insert(job: { source: JobSource; target: string; site: string; format: MediaFormat; send: SendRequest | undefined }): MediaJob | undefined {
+  private insert(job: { source: JobSource; target: string; site: string; format: MediaFormat; send: SendRequest | undefined; edit?: EditSpec }): MediaJob | undefined {
     const id = randomUUID();
     const at = this.now().toISOString();
     this.deps.db
-      .prepare("INSERT INTO media_jobs (id, source, target, site, format, send_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)")
-      .run(id, job.source, job.target, job.site, job.format, job.send ? JSON.stringify(job.send) : null, at, at);
+      .prepare("INSERT INTO media_jobs (id, source, target, site, format, send_json, edit_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)")
+      .run(id, job.source, job.target, job.site, job.format, job.send ? JSON.stringify(job.send) : null, job.edit ? JSON.stringify(job.edit) : null, at, at);
     void this.pump();
     return this.get(id);
   }
 
-  private update(id: string, patch: { status?: JobStatus; progress?: number; error?: string; transferId?: string }): void {
+  private update(id: string, patch: { status?: JobStatus; progress?: number; error?: string; transferId?: string; stage?: string }): void {
     this.deps.db
       .prepare(
-        "UPDATE media_jobs SET status = COALESCE(?, status), progress = COALESCE(?, progress), error = COALESCE(?, error), transfer_id = COALESCE(?, transfer_id), updated_at = ? WHERE id = ?",
+        "UPDATE media_jobs SET status = COALESCE(?, status), progress = COALESCE(?, progress), error = COALESCE(?, error), transfer_id = COALESCE(?, transfer_id), stage = COALESCE(?, stage), updated_at = ? WHERE id = ?",
       )
-      .run(patch.status ?? null, patch.progress ?? null, patch.error ?? null, patch.transferId ?? null, this.now().toISOString(), id);
+      .run(patch.status ?? null, patch.progress ?? null, patch.error ?? null, patch.transferId ?? null, patch.stage ?? null, this.now().toISOString(), id);
   }
 
   private retryLater(job: MediaJob): void {
@@ -266,8 +327,14 @@ export class MediaQueue {
         reported = fraction;
         this.update(job.id, { progress: fraction });
       };
-      const made = job.source === "transfer" ? await this.convertFile(job, work, onProgress, controller.signal) : await this.downloadFile(job, work, onProgress, controller.signal);
+      const made = job.edit
+        ? await this.cutFile(job, job.edit, work, onProgress, controller.signal)
+        : job.source === "transfer"
+          ? await this.convertFile(job, work, onProgress, controller.signal)
+          : await this.downloadFile(job, work, onProgress, controller.signal);
       const transfer = this.keep(job, made);
+      if (made.full) this.keep({ ...job, id: `${job.id}-full` }, { ...made, ...made.full });
+      if (made.source && !job.edit?.keepSource) this.deps.discard?.(made.source);
       this.update(job.id, { status: "done", progress: 1, transferId: transfer.id });
       const sent = job.send && this.deps.send ? await this.deps.send(transfer, job.send) : undefined;
       this.notifyDone(job, made, transfer, sent);
@@ -296,13 +363,52 @@ export class MediaQueue {
     return { path: file.path, name: `${titleForFile(file.title)}.${file.ext}`, ext: file.ext, title: file.title, ...(file.height ? { height: file.height } : {}), origin: "download", sender: job.site };
   }
 
+  private async cutFile(job: MediaJob, edit: EditSpec, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
+    const converter = this.deps.converter;
+    if (!converter || (job.format !== "iphone" && job.format !== "mp3")) throw new DownloadError("unconvertible");
+    const stage = (name: string, from: number, to: number) => {
+      this.update(job.id, { stage: name, progress: from });
+      return (fraction: number) => onProgress(from + fraction * (to - from));
+    };
+    const source = job.source === "transfer" ? this.deps.store.get(job.target, this.now()) : undefined;
+    if (job.source === "transfer" && !source) throw new DownloadError("unavailable");
+    const downloaded =
+      job.source === "transfer"
+        ? undefined
+        : await this.deps.downloader.run({ source: job.source, target: job.target, site: job.site as Site, format: "iphone" }, work, stage("Bajando", 0, 0.5), signal);
+    const input = source ? join(this.deps.dir, source.uploadId) : (downloaded?.path ?? "");
+    const title = source ? source.name.slice(0, source.name.length - extname(source.name).length) : (downloaded?.title ?? "video");
+    const duration = (await converter.probe(input).catch(() => ({ duration: 0 }))).duration;
+
+    let moments = edit.segments?.map((moment) => ({ start: moment.start, end: Math.min(moment.end, duration || moment.end) })).filter((moment) => moment.end > moment.start) ?? [];
+    if (edit.find) {
+      if (!this.finder) throw new DownloadError("unconvertible");
+      stage("Buscando el momento", 0.5, 0.8);
+      moments = padded(await this.finder.find(input, duration, edit.find, work, signal), edit.padding, duration);
+    }
+    if (moments.length === 0) throw new DownloadError("no_moment");
+    const cut = await converter.cut(input, moments, { format: job.format, vertical: edit.vertical }, work, stage("Recortando", 0.8, 1), signal);
+    const name = `${titleForFile(title)} - recorte.${cut.ext}`;
+    return {
+      path: cut.path,
+      name,
+      ext: cut.ext,
+      title: downloaded?.title ?? name,
+      moments,
+      origin: source?.origin ?? "download",
+      ...(source?.sender ? { sender: source.sender } : downloaded ? { sender: job.site } : {}),
+      ...(source ? { source } : {}),
+      ...(downloaded && edit.keepSource ? { full: { path: downloaded.path, name: `${titleForFile(downloaded.title)}.${downloaded.ext}`, ext: downloaded.ext } } : {}),
+    };
+  }
+
   private async convertFile(job: MediaJob, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
     const source = this.deps.store.get(job.target, this.now());
     if (!source) throw new DownloadError("unavailable");
     if (!this.deps.converter || job.format === "max") throw new DownloadError("unconvertible");
     const file = await this.deps.converter.run(join(this.deps.dir, source.uploadId), job.format, work, onProgress, signal);
-    const stem = source.name.slice(0, source.name.length - extname(source.name).length) || "archivo";
-    const name = job.format === "iphone" ? `${stem} (iPhone).${file.ext}` : `${stem}.${file.ext}`;
+    const stem = titleForFile(source.name.slice(0, source.name.length - extname(source.name).length));
+    const name = job.format === "iphone" ? `${stem} - iPhone.${file.ext}` : `${stem}.${file.ext}`;
     return { path: file.path, name, ext: file.ext, title: name, ...(file.height ? { height: file.height } : {}), origin: source.origin, ...(source.sender ? { sender: source.sender } : {}) };
   }
 
@@ -319,8 +425,9 @@ export class MediaQueue {
   private notifyDone(job: MediaJob, made: Made, transfer: Transfer, sent: SendOutcome | undefined): void {
     const details = [made.height ? `${made.height}p` : undefined, megabytes(transfer.size)].filter(Boolean).join(", ");
     const kind = AUDIO_FORMATS.has(job.format) ? "el audio" : "el video";
-    const done =
-      job.source === "transfer"
+    const done = made.moments
+      ? cutNote(job, made.moments, transfer, Boolean(made.full))
+      : job.source === "transfer"
         ? `Terminé de convertir el archivo ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`
         : `Terminé de bajar ${kind} de ${job.site} que pediste ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`;
     const push = `Ya está «${made.title}»${job.send && sent?.ok ? ` y se lo mandé a ${job.send.name}` : ""}.`;
@@ -328,7 +435,11 @@ export class MediaQueue {
   }
 
   private notifyFailed(job: MediaJob, reason: DownloadFailure): void {
-    const what = job.source === "transfer" ? `convertir el archivo ${FORMAT_NAMES[job.format]}` : `bajar ${AUDIO_FORMATS.has(job.format) ? "el audio" : "el video"} de ${job.site}`;
+    const what = job.edit
+      ? "recortar el video"
+      : job.source === "transfer"
+        ? `convertir el archivo ${FORMAT_NAMES[job.format]}`
+        : `bajar ${AUDIO_FORMATS.has(job.format) ? "el audio" : "el video"} de ${job.site}`;
     this.notify(job, `No pude ${what}.`, `No pude ${what} que pediste. ${FAILURES[reason]}`);
   }
 

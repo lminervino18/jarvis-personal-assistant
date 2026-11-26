@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { join, resolve } from "node:path";
@@ -19,6 +19,7 @@ import { MediaConverter } from "./downloads/media-converter.js";
 import { MediaDownloader } from "./downloads/media-downloader.js";
 import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
+import { MomentFinder } from "./downloads/moment-finder.js";
 import { TransferSender } from "./transfers/transfer-delivery.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
@@ -104,6 +105,7 @@ const connections = createConnections({ db, env: process.env, cipher: tokenCiphe
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 const transfers = new TransferStore(db);
 const transfersDir = join(config.dataDir, "transfers");
+const transferPreviews = new TransferPreviews(transfersDir, defaultExec);
 const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
 const transferSender = new TransferSender({ db, store: transfers, attachments, dir: transfersDir, publicOrigin: config.publicOrigin, ...(gmail.service ? { gmail: gmail.service } : {}) });
 const ytdlp = process.env.YTDLP_BIN;
@@ -116,6 +118,11 @@ const media =
         freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
         converter: new MediaConverter({ timeoutMs: 2 * 3_600_000, exec: defaultExec }),
         send: (transfer, request) => transferSender.send(transfer, request, new Date()),
+        discard: (transfer) => {
+          transfers.markDeleted(transfer.id, new Date());
+          rmSync(join(transfersDir, transfer.uploadId), { force: true });
+          transferPreviews.remove(transfer.uploadId);
+        },
         downloader: new MediaDownloader({
           bin: ytdlp,
           cacheDir: join(config.dataDir, "yt-dlp-cache"),
@@ -231,6 +238,18 @@ const videoSendsInFlight = new Set<string>();
 setInterval(() => {
   sendRequestedVideos(services, videoSendsInFlight, new Date()).catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "video auto-send failed"));
 }, 5000).unref();
+if (media && runtime.complete) {
+  const complete = runtime.complete.bind(runtime);
+  const stt = voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined;
+  media.useFinder(
+    new MomentFinder({
+      complete,
+      exec: defaultExec,
+      model: config.claude.model,
+      ...(stt ? { transcribe: (audio, signal) => stt.transcribeSegments(audio, signal) } : {}),
+    }),
+  );
+}
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {
@@ -288,7 +307,7 @@ const app = await buildApp({
       publicOrigin: config.publicOrigin,
       ownerName: config.ownerDisplayName,
       freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
-      previews: new TransferPreviews(transfersDir, defaultExec),
+      previews: transferPreviews,
       ...(media ? { media } : {}),
       ...(mediaChoices ? { choices: mediaChoices } : {}),
     });

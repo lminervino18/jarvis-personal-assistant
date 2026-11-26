@@ -142,7 +142,7 @@ export class ClaudeAgentRuntime implements ModelRuntime {
     if (signal.aborted) abort();
     signal.addEventListener("abort", abort, { once: true });
     const stream = query({
-      prompt: request.prompt,
+      prompt: request.files?.length ? single(userMessage(request.prompt, request.files)) : request.prompt,
       options: {
         abortController,
         cwd: options.workspaceDir,
