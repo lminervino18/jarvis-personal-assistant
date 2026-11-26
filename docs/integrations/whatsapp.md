@@ -122,5 +122,5 @@ Details:
   - Anyone in a watched chat, the owner included, can call Jarvis with «@jarvis».
   - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and answers in it, short and sarcastic. The answer starts with 🤖, and Jarvis never answers a message that starts with it.
   - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
-  - Limits, so a chat cannot burn the owner's quota: one answer every 15 seconds, 3 an hour per chat (`WHATSAPP_REPLIES_PER_HOUR`), 60 a day in all. A call beyond the limit goes unanswered.
+  - Limits, so a chat cannot burn the owner's quota: one answer every 15 seconds, 5 every 30 minutes per chat (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), 60 a day in all. A call beyond the limit goes unanswered.
   - `WHATSAPP_AUTO_REPLY=off` in `jarvis.env` turns the answers off; the alerts stay.
