@@ -72,6 +72,7 @@ describe("welcome", () => {
     const graph = mixArgs("song.mp3", 3, "voice.wav", 1900, "out.mp3").join(" ");
     expect(graph).toContain("adelay=350|350");
     expect(graph).toContain("afade=t=out:st=2.60:d=0.7");
-    expect(graph).toContain("amix=inputs=2:duration=first");
+    expect(graph).toContain("[music][key]sidechaincompress");
+    expect(graph).toContain("[ducked][voice]amix=inputs=2:duration=first");
   });
 });
