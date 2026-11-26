@@ -42,7 +42,7 @@ export interface BridgeSocket {
 export interface BridgeOptions {
   store: WhatsAppStore;
   auth: Pick<DbAuthState, "state" | "saveCreds" | "clear">;
-  pairing: Pick<PairingStore, "publish" | "clear">;
+  pairing: Pick<PairingStore, "publish" | "clear" | "publishAccount" | "forgetAccount">;
   /** Messages the owner confirmed. Without it the bridge never sends anything. */
   outbox?: Pick<WhatsAppOutbox, "claimNext" | "markSent" | "markFailed" | "abandonInterrupted">;
   /** Reads chat attachments for outgoing photos and documents. */
@@ -157,6 +157,9 @@ export class WhatsAppBridge {
     this.heartbeat = setInterval(() => this.options.store.setStatus("baileys", "connected", this.now()), HEARTBEAT_MS);
     this.stableTimer = setTimeout(() => this.options.policy.reset(), STABLE_MS);
     if (this.options.outbox) this.outboxTimer = setInterval(() => void this.sendNextConfirmed(), OUTBOX_POLL_MS);
+    const me = this.options.auth.state.creds.me;
+    const number = me?.id ? ownChat(me.id)?.split("@")[0] : undefined;
+    if (number) this.options.pairing.publishAccount({ number, ...(me?.name ? { name: me.name } : {}) }, this.now());
     this.options.log.info("whatsapp connection open");
   }
 
@@ -219,7 +222,10 @@ export class WhatsAppBridge {
   }
 
   private halt(decision: Extract<CloseDecision, { action: "stop" }>): void {
-    if (decision.clearSession) this.options.auth.clear();
+    if (decision.clearSession) {
+      this.options.auth.clear();
+      this.options.pairing.forgetAccount();
+    }
     this.options.store.refreshSyncState("baileys", decision.status, this.now(), decision.detail);
     this.phase = "stopped";
     this.options.log.warn({ status: decision.status }, "whatsapp bridge stopped, it will not reconnect on its own");

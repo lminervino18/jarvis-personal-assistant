@@ -401,6 +401,15 @@ describe("conservative configuration", () => {
     expect(ignore("5490000000001@s.whatsapp.net")).toBe(false);
   });
 
+  it("tells the server which account is linked, and forgets it when the phone unlinks the device", () => {
+    const { pairing, bridge, sockets } = setup();
+    bridge.start();
+    sockets[0]?.open();
+    expect(pairing.account()).toEqual({ number: "5490000000099" });
+    sockets[0]?.close(401);
+    expect(pairing.account()).toBeUndefined();
+  });
+
   it("shows the message it answers quoted above the reply", async () => {
     const { outbox, bridge, sockets } = setup();
     bridge.start();
@@ -557,7 +566,7 @@ describe("authenticated state type", () => {
     const spy = new WhatsAppBridge({
       store: new WhatsAppStore(openMigratedDatabase(":memory:")),
       auth,
-      pairing: { publish() {}, clear() {} },
+      pairing: { publish() {}, clear() {}, publishAccount() {}, forgetAccount() {} },
       policy: new ReconnectPolicy(),
       log: { info() {}, warn() {}, error() {} },
       connect: (state) => {

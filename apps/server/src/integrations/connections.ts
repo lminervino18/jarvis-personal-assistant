@@ -12,7 +12,7 @@ import { VercelClient, VercelError } from "./vercel/vercel-client.js";
 export interface ConnectionsDeps {
   db: Db;
   /** The live WhatsApp bridge's status and, while it waits for a scan, its pairing card. */
-  whatsapp?: IntegrationStatusSource;
+  whatsapp?: IntegrationStatusSource & { linkedAccount?(): { number: string; name?: string } | undefined };
   /** Gmail accounts, shown with the other connections; undefined when Gmail is not configured. */
   gmailAccounts?(): { label: string; email: string; status: string; drive: boolean }[];
   env: NodeJS.ProcessEnv;
@@ -73,7 +73,9 @@ export function createConnections(deps: ConnectionsDeps): Connections {
       const gmail = deps.gmailAccounts?.();
       const bridge = (await deps.whatsapp?.status())?.find((item) => item.account === "baileys");
       return {
-        whatsapp: bridge ? { status: bridge.status, detail: bridge.detail, pairing: deps.whatsapp?.pairingCard?.() ?? null } : null,
+        whatsapp: bridge
+          ? { status: bridge.status, detail: bridge.detail, account: deps.whatsapp?.linkedAccount?.() ?? null, pairing: deps.whatsapp?.pairingCard?.() ?? null }
+          : null,
         gmail: {
           available: Boolean(gmail),
           accounts: (gmail ?? []).filter((account) => account.status !== "revoked").map(({ label, email, status, drive }) => ({ label, email, status, drive })),

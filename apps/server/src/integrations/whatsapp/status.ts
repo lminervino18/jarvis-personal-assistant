@@ -3,7 +3,7 @@ import type { Db } from "../../db/database.js";
 import type { IntegrationStatusItem, IntegrationStatusSource } from "../../tools/types.js";
 import { toZonedIso } from "../../util/time.js";
 import { WhatsAppReader, type SourceCoverage } from "./message-reader.js";
-import type { PairingStore } from "./pairing-store.js";
+import type { LinkedAccount, PairingStore } from "./pairing-store.js";
 
 const BRIDGE_STALE_MS = 3 * 60_000;
 
@@ -26,7 +26,7 @@ export class WhatsAppStatusSource implements IntegrationStatusSource {
   constructor(
     private readonly db: Db,
     private readonly timezone: string,
-    private readonly pairing?: Pick<PairingStore, "card">,
+    private readonly pairing?: Pick<PairingStore, "card" | "account">,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -38,6 +38,11 @@ export class WhatsAppStatusSource implements IntegrationStatusSource {
 
   pairingCard(): Card | undefined {
     return this.pairing?.card(this.now());
+  }
+
+  /** The WhatsApp account the bridge is linked to, for Configuración. */
+  linkedAccount(): LinkedAccount | undefined {
+    return this.pairing?.account();
   }
 
   private range(source: SourceCoverage | undefined): IntegrationStatusItem["coverage"] {
