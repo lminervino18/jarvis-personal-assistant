@@ -116,6 +116,8 @@ services:
       target: warp
     volumes:
       - ${JARVIS_WARP_DIR:-/etc/jarvis/warp}:/etc/wireproxy:ro
+    tmpfs:
+      - /var/run:size=1m,mode=1777
     expose: ["40000"]
     deploy:
       resources:

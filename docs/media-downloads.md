@@ -37,6 +37,7 @@ Both go in `/etc/jarvis/jarvis.env`; the cookies file lives on the server, never
 The `warp` compose service (profile `warp`) runs [wireproxy](https://github.com/windtf/wireproxy):
 - a userspace WireGuard tunnel to Cloudflare WARP, exposing SOCKS5 on `warp:40000` inside the compose network only;
 - the image is built `FROM scratch` with the checksum-pinned binary, read-only and without capabilities.
+- It needs a small writable `/var/run` (a tmpfs) for WireGuard's control socket: without it the handshake silently never completes.
 
 The server uses it with `YTDLP_YOUTUBE_PROXY=socks5h://warp:40000`.
 
