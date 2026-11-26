@@ -43,6 +43,30 @@ describe("protocol", () => {
   });
 });
 
+describe("activity events", () => {
+  const base = {
+    type: "activity",
+    seq: 1,
+    conversationId: crypto.randomUUID(),
+    turnId: crypto.randomUUID(),
+    executionId: "toolu_1",
+    tool: "gmail_search",
+    phase: "running",
+    version: 1,
+    at: 1_700_000_000_000,
+  };
+
+  it("accepts an execution update without arguments or content", () => {
+    expect(ServerMessage.safeParse(base).success).toBe(true);
+    expect(ServerMessage.safeParse({ ...base, phase: "failed", errorCode: "upstream_error" }).success).toBe(true);
+  });
+
+  it("rejects unknown phases and invented progress", () => {
+    expect(ServerMessage.safeParse({ ...base, phase: "almost" }).success).toBe(false);
+    expect(ServerMessage.safeParse({ ...base, progress: { done: 1, total: 0 } }).success).toBe(false);
+  });
+});
+
 describe("tool contracts", () => {
   it("requires timezone offsets on reminder due dates", () => {
     const schema = z.object(toolInputs.reminders_create);

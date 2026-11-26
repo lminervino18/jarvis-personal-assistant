@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ActivityEvent } from "./activity.js";
 import { AudioFormat } from "./audio.js";
 import { Card, TaskCard } from "./cards.js";
 import { ReplyMode, ServerAssistantState } from "./states.js";
@@ -266,6 +267,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     phase: z.enum(["start", "end"]),
     ok: z.boolean().optional(),
   }),
+  ServerBase.extend({ type: z.literal("activity"), ...ActivityEvent.shape }),
   ServerBase.extend({ type: z.literal("card"), turnId: Id.optional(), card: Card }),
   ServerBase.extend({ type: z.literal("audio.begin"), turnId: Id, format: AudioFormat, processed: z.boolean() }),
   ServerBase.extend({

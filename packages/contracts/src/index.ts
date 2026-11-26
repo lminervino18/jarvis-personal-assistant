@@ -1,5 +1,6 @@
 export * from "./states.js";
 export * from "./audio.js";
+export * from "./activity.js";
 export * from "./tasks.js";
 export * from "./videos.js";
 export * from "./cards.js";
