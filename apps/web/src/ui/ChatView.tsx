@@ -57,6 +57,7 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
       <Thread
         thread={thread}
         actions={session}
+        activity={session.activity}
         since={since}
         earlier={earlier}
         onReveal={fresh.reveal}

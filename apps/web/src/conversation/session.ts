@@ -10,6 +10,7 @@ import {
   type TaskCardAction,
   type ViewportReport,
 } from "@jarvis/contracts";
+import { ActivityStore } from "../activity/activity-store.js";
 import { MicError, type AudioEngine } from "../audio/engine.js";
 import { levelFromDbfs, pcm16ToBytes, rmsDbfs } from "../audio/pcm.js";
 import type { PcmPlayerOptions } from "../audio/playback.js";
@@ -103,6 +104,8 @@ const threadEventTypes = new Set<ServerMessage["type"]>(["history", "assistant.d
 
 /** Owns one conversation with the server: protocol, thread, microphone, playback and the derived UI state. */
 export class Session {
+  /** What the tools of each turn are doing; it notifies on its own so the thread does not re-render with it. */
+  readonly activity = new ActivityStore();
   private readonly client: ProtocolClient;
   private readonly voice: VoiceLoop;
   private readonly listeners = new Set<() => void>();
@@ -582,6 +585,7 @@ export class Session {
   private onStatus(status: ConnectionStatus): void {
     this.status = status;
     if (status !== "ready") {
+      this.activity.connectionLost();
       if (this.dictation === "recording") this.engine?.stopMicrophone();
       this.dictation = "idle";
       this.dictationTurn = null;
@@ -601,6 +605,10 @@ export class Session {
   }
 
   private onMessage(message: ServerMessage): void {
+    if (message.type === "activity") {
+      this.activity.apply(message);
+      return;
+    }
     if ("turnId" in message && message.turnId && this.dictationTurns.has(message.turnId)) {
       this.onDictationMessage(message as ServerMessage & { turnId: string });
       return;
@@ -609,6 +617,7 @@ export class Session {
     if (message.type === "history") this.flushLocalCards();
     switch (message.type) {
       case "ready":
+        this.activity.reconnected();
         this.capabilities = message.capabilities;
         this.ownerName = message.owner.displayName;
         this.thread = reduceThread(this.thread, message, this.isoNow());
@@ -619,13 +628,16 @@ export class Session {
         if (message.state === "transcribing" && message.turnId) this.onUtteranceClosed(message.turnId);
         this.serverState = message.state;
         if (message.turnId) this.activeTurn = message.turnId;
+        if (message.state === "thinking" && message.turnId) this.activity.begin(message.turnId);
         if (message.state === "idle") this.activeTurn = null;
         if (message.state === "idle") this.rearm();
         break;
       case "assistant.delta":
+        this.activity.replying(message.turnId);
         this.recordFirstText(message.turnId);
         break;
       case "turn.end":
+        this.activity.end(message.turnId, message.status);
         if (message.turnId === this.captureTurn) this.onUtteranceClosed(message.turnId);
         if (message.turnId === this.bargeCandidate) this.dropBargeCandidate();
         this.onTurnEnd(message.turnId, message.status);

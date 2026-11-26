@@ -1,8 +1,10 @@
 import type { AssistantState } from "@jarvis/contracts";
+import type { ActivityStore } from "../activity/activity-store.js";
 import { Core } from "../core/Core.js";
 import type { LevelReading } from "../core/core-style.js";
 import type { Subtitle } from "../conversation/subtitle.js";
 import { useElapsed } from "../hooks.js";
+import { ActivityLive } from "./ActivityGroup.js";
 import { HangUpIcon, MicIcon } from "./icons.js";
 
 interface Props {
@@ -10,16 +12,18 @@ interface Props {
   label: string;
   muted: boolean;
   subtitle: Subtitle | null;
+  activity: ActivityStore;
   getLevels(): LevelReading;
   onMute(): void;
   onHangUp(): void;
 }
 
 /** The call on a phone: the big core, a live caption of the conversation, mute and hang up. Everything said is saved in the chat. */
-export function CallScreen({ state, label, muted, subtitle, getLevels, onMute, onHangUp }: Props) {
+export function CallScreen({ state, label, muted, subtitle, activity, getLevels, onMute, onHangUp }: Props) {
   const elapsed = useElapsed();
   return (
     <div className="call" role="dialog" aria-modal="true" aria-label="Llamada con Jarvis" data-state={state}>
+      <ActivityLive store={activity} />
       <div className="call-core">
         <Core state={state} label={label} getLevels={getLevels} />
       </div>

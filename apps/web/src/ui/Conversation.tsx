@@ -251,6 +251,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
           label={label}
           muted={snapshot.callMuted}
           subtitle={subtitle}
+          activity={session.activity}
           getLevels={session.getLevels}
           onMute={() => void session.toggleCallMute()}
           onHangUp={() => session.endCall()}

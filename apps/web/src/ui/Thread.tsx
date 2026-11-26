@@ -1,9 +1,11 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { ActivityStore } from "../activity/activity-store.js";
 import type { CardActions } from "../cards/actions.js";
 import type { ThreadState } from "../conversation/thread.js";
-import { threadView } from "../conversation/thread.js";
+import { threadView, type ThreadMessage } from "../conversation/thread.js";
 import { useStickToBottom } from "../hooks.js";
 import { shouldShowInstallHint, readPlatform } from "../pwa/platform.js";
+import { ActivityGroup } from "./ActivityGroup.js";
 import { ArrowDownIcon } from "./icons.js";
 import { MessageView } from "./MessageView.js";
 
@@ -43,9 +45,26 @@ function InstallHint() {
   );
 }
 
+type Entry = { kind: "message"; message: ThreadMessage } | { kind: "activity"; turnId: string };
+
+/** Puts each turn's activity between the owner's message and the reply it belongs to. */
+function withActivity(messages: ThreadMessage[], turns: readonly string[]): Entry[] {
+  if (turns.length === 0) return messages.map((message) => ({ kind: "message", message }));
+  const known = new Set(turns);
+  const asked = new Set(messages.filter((message) => message.role === "user" && message.turnId).map((message) => message.turnId));
+  return messages.flatMap((message): Entry[] => {
+    const turnId = message.turnId;
+    if (turnId === null || !known.has(turnId)) return [{ kind: "message", message }];
+    if (message.role === "user") return [{ kind: "message", message }, { kind: "activity", turnId }];
+    if (message.role === "assistant" && !asked.has(turnId)) return [{ kind: "activity", turnId }, { kind: "message", message }];
+    return [{ kind: "message", message }];
+  });
+}
+
 interface Props {
   thread: ThreadState;
   actions: CardActions;
+  activity: ActivityStore;
   /** Only messages after this moment are shown until the owner reveals the rest; null shows all. */
   since: number | null;
   /** How many messages are kept behind «Ver conversación anterior». */
@@ -56,11 +75,12 @@ interface Props {
   placeholder?: ReactNode;
 }
 
-export function Thread({ thread, actions, since, earlier, onReveal, onLoadOlder, placeholder }: Props) {
+export function Thread({ thread, actions, activity, since, earlier, onReveal, onLoadOlder, placeholder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const all = useMemo(() => threadView(thread.messages), [thread.messages]);
   const messages = useMemo(() => (since === null ? all : all.filter((message) => Date.parse(message.at) > since)), [all, since]);
+  const activeTurns = useSyncExternalStore(activity.subscribe, activity.turnIds);
   const stick = useStickToBottom(scroller, content);
   const first = messages[0]?.id;
   const last = messages.at(-1);
@@ -89,9 +109,13 @@ export function Thread({ thread, actions, since, earlier, onReveal, onLoadOlder,
           )}
           <ol className="messages">
             <InstallHint />
-            {messages.map((message) => (
-              <MessageView key={message.id} message={message} actions={actions} />
-            ))}
+            {withActivity(messages, activeTurns).map((entry) =>
+              entry.kind === "activity" ? (
+                <ActivityGroup key={`activity:${entry.turnId}`} store={activity} turnId={entry.turnId} />
+              ) : (
+                <MessageView key={entry.message.id} message={entry.message} actions={actions} />
+              ),
+            )}
           </ol>
           {thread.transcript && (
             <p className="transcript" data-final={thread.transcript.final}>
