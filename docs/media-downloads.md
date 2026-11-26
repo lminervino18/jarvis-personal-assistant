@@ -65,11 +65,10 @@ An installed web app on iOS cannot download files: the link goes nowhere. On pho
 
 ## Sending
 
-`TransferSender` (`apps/server/src/transfers/transfer-delivery.ts`) sends the file itself when the channel carries it:
-- WhatsApp: videos up to 16 MB, other files up to 64 MB. WhatsApp may compress photos and videos.
-- Mail: up to 20 MB.
-
-A heavier file goes as a link to download it in original quality while it lasts.
+`TransferSender` (`apps/server/src/transfers/transfer-delivery.ts`) sends the file itself, as the owner wants (2026-11-26):
+- **Limits:** WhatsApp carries videos up to 16 MB and other files up to 64 MB; mail carries up to 20 MB.
+- **A heavier video is compressed to fit** (`MediaConverter.compress`, 95% of the limit). It becomes H.264 at the bitrate that fits, with the short side at 1080, 720, 540 or 360 depending on that bitrate. It retries at lower bitrates if the first pass comes out too big.
+- **A link** to download it in original quality goes only when the owner asks for one (`asLink`), or when the file does not fit even compressed: under 100 kbps of video, or a non-video file over the limit.
 
 ## YouTube from a server
 
