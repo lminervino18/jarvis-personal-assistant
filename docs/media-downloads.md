@@ -40,7 +40,7 @@ The `warp` compose service (profile `warp`) runs [wireproxy](https://github.com/
 
 The server uses it with `YTDLP_YOUTUBE_PROXY=socks5h://warp:40000`.
 
-The identity is anonymous and was registered with [wgcf](https://github.com/ViRb3/wgcf), which accepts Cloudflare's WARP terms (the owner approved it on 2026-11-26). Its keys live in `/etc/jarvis/warp/`, owned by uid 10001 with mode 600:
+The identity is anonymous and was registered with [wgcf](https://github.com/ViRb3/wgcf), which accepts Cloudflare's WARP terms (the owner approved it on 2026-11-26). Its keys live in `/etc/jarvis/warp/`, owned by uid 65532 with mode 600. That uid belongs to no host user: not the agents' 10001, so agents can never read them. The files are:
 - `wgcf-account.toml`;
 - `wgcf-profile.conf`;
 - `wireproxy.conf`, which points `WGConfig` at `/etc/wireproxy/wgcf-profile.conf` and binds SOCKS5 to `0.0.0.0:40000`.

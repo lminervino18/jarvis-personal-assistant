@@ -97,6 +97,6 @@ CMD ["node", "dist/agent-runner.js"]
 
 FROM scratch AS warp
 COPY --from=media-tools /opt/wireproxy/wireproxy /wireproxy
-USER 10001:10001
+USER 65532:65532
 EXPOSE 40000
 ENTRYPOINT ["/wireproxy", "-c", "/etc/wireproxy/wireproxy.conf"]

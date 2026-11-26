@@ -19,6 +19,6 @@ trap 'rm -rf "$work"' EXIT
 cd "$work"
 wgcf register --accept-tos >/dev/null
 wgcf generate >/dev/null
-install -m 600 -o 10001 -g 10001 wgcf-account.toml wgcf-profile.conf "$warp_dir"/
+install -m 600 -o 65532 -g 65532 wgcf-account.toml wgcf-profile.conf "$warp_dir"/
 cd "$dir"
 docker compose restart warp
