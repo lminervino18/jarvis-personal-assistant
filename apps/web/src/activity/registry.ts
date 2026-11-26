@@ -124,6 +124,7 @@ export const toolPresentations: Record<ToolName, ToolPresentation> = {
   transfer_convert: t("transfers", "Preparando la conversión…", "Conversión iniciada"),
   transfer_send: t("transfers", "Mandando el archivo…", "Archivo enviado"),
   image_create: t("images", "Generando la imagen…", "Imagen encargada"),
+  pdf_create: t("transfers", "Armando el PDF…", "PDF listo"),
 };
 
 /** Tools that do not belong to this server but still run in a turn, such as the SDK's own web search. */

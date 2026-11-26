@@ -27,6 +27,35 @@ export const SendFileTo = z.object({
   account: GmailAccountLabel.optional(),
 });
 export type SendFileTo = z.infer<typeof SendFileTo>;
+
+/** One piece of a PDF, in reading order. */
+export const PdfBlock = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("heading"), text: z.string().trim().min(1).max(160) }),
+  z.object({ type: z.literal("text"), text: z.string().trim().min(1).max(4000) }),
+  z.object({ type: z.literal("list"), items: z.array(z.string().trim().min(1).max(500)).min(1).max(40), ordered: z.boolean().optional() }),
+  z.object({
+    type: z.literal("table"),
+    columns: z.array(z.string().trim().max(60)).min(1).max(8),
+    rows: z.array(z.array(z.string().trim().max(300)).min(1).max(8)).min(1).max(100),
+    caption: z.string().trim().max(200).optional(),
+  }),
+  z.object({
+    type: z.literal("chart"),
+    kind: z.enum(["bar", "line", "pie"]),
+    title: z.string().trim().max(120).optional(),
+    labels: z.array(z.string().trim().min(1).max(40)).min(1).max(24),
+    series: z.array(z.object({ name: z.string().trim().min(1).max(40), values: z.array(z.number().finite()).min(1).max(24) })).min(1).max(5),
+    /** Shown next to the values («US$», «%», «km»). */
+    unit: z.string().trim().max(12).optional(),
+  }),
+  /** A photo from the chat (JPEG or PNG). */
+  z.object({ type: z.literal("image"), attachmentId: z.uuid(), caption: z.string().trim().max(200).optional() }),
+  /** A highlighted box for what matters most. */
+  z.object({ type: z.literal("note"), text: z.string().trim().min(1).max(1000) }),
+  z.object({ type: z.literal("link"), text: z.string().trim().min(1).max(160), url: z.url().max(500).regex(/^https?:\/\//) }),
+  z.object({ type: z.literal("pagebreak") }),
+]);
+export type PdfBlock = z.infer<typeof PdfBlock>;
 export type GmailAccountLabel = z.infer<typeof GmailAccountLabel>;
 
 /**
@@ -312,6 +341,13 @@ export const toolInputs = {
     search: z.string().trim().min(2).max(200).optional(),
     format: MediaFormat.optional(),
     sendTo: SendFileTo.optional(),
+  },
+  pdf_create: {
+    title: z.string().trim().min(1).max(120),
+    subtitle: z.string().trim().max(200).optional(),
+    blocks: z.array(PdfBlock).min(1).max(80),
+    /** The file name without extension; the title by default. */
+    fileName: z.string().trim().min(1).max(80).optional(),
   },
   transfer_suggest: {
     /** What the owner asked for, as words to search on YouTube («crimen cerati en vivo»). */
