@@ -168,11 +168,15 @@ describe("previews", () => {
     const env = await setup();
     await env.upload(OWNER, "viaje.mov", video);
     await env.upload(OWNER, "notas.txt", Buffer.from("hola"), "text/plain");
+    await env.upload(OWNER, "tema.mp3", Buffer.from("ID3"), "audio/mpeg");
     const items = (await env.list()).items as unknown as { id: string; name: string; preview: string | null }[];
     expect(items.map((item) => [item.name, item.preview]).sort()).toEqual([
       ["notas.txt", null],
+      ["tema.mp3", "audio"],
       ["viaje.mov", "video"],
     ]);
+    const song = items.find((item) => item.name === "tema.mp3")!;
+    expect((await env.call(`/api/transfers/${song.id}/preview`, { headers: OWNER })).status).toBe(404);
     const movie = items.find((item) => item.name === "viaje.mov")!;
     for (let i = 0; i < 2; i++) {
       const thumb = await env.call(`/api/transfers/${movie.id}/preview?size=thumb`, { headers: OWNER });

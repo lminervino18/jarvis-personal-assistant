@@ -9,16 +9,17 @@ const WIDTH: Record<PreviewSize, number> = { thumb: 480, large: 1600 };
 const MAX_RUNNING = 2;
 const IMAGE_NAMES = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".bmp"]);
 const VIDEO_NAMES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp"]);
+const AUDIO_NAMES = new Set([".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".aiff"]);
 
-export type PreviewKind = "image" | "video";
+export type PreviewKind = "image" | "video" | "audio";
 
-/** Whether a file can be previewed, by its type or, when the browser gave none, by its extension. */
+/** How a file can be shown, by its type or, when the browser gave none, by its extension. */
 export function previewKind(transfer: Pick<Transfer, "mediaType" | "name">): PreviewKind | undefined {
-  if (transfer.mediaType.startsWith("image/")) return "image";
-  if (transfer.mediaType.startsWith("video/")) return "video";
+  for (const kind of ["image", "video", "audio"] as const) if (transfer.mediaType.startsWith(`${kind}/`)) return kind;
   const extension = extname(transfer.name).toLowerCase();
   if (IMAGE_NAMES.has(extension)) return "image";
   if (VIDEO_NAMES.has(extension)) return "video";
+  if (AUDIO_NAMES.has(extension)) return "audio";
   return undefined;
 }
 
@@ -43,7 +44,7 @@ export class TransferPreviews {
   /** Path of the JPEG preview, or undefined when the file cannot be previewed. */
   get(transfer: Transfer, size: PreviewSize): Promise<string | undefined> {
     const kind = previewKind(transfer);
-    if (!kind) return Promise.resolve(undefined);
+    if (kind !== "image" && kind !== "video") return Promise.resolve(undefined);
     const target = join(this.dir, `${transfer.uploadId}-${size}.jpg`);
     if (existsSync(target)) return Promise.resolve(target);
     const running = this.pending.get(target);
