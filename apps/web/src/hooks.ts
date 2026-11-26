@@ -101,24 +101,71 @@ export function measureViewport(app: HTMLElement): ViewportReport {
   return report;
 }
 
-const NEAR_BOTTOM_PX = 120;
+const NEAR_BOTTOM_PX = 80;
 
-/** Keeps a scroll container pinned to its end while the reader is already near it. */
-export function useStickToBottom(container: RefObject<HTMLElement | null>, dependency: unknown): void {
+/**
+ * Whether the reader still follows the end after a scroll: being near it pins, and only moving up
+ * unpins, so content that grows or a smooth scroll on its way down never lets go.
+ */
+export function pinnedAfterScroll(pinned: boolean, top: number, lastTop: number, distanceToEnd: number): boolean {
+  if (distanceToEnd < NEAR_BOTTOM_PX) return true;
+  return top < lastTop - 1 ? false : pinned;
+}
+
+export interface StickToBottom {
+  /** The reader scrolled up, away from the latest content. */
+  away: boolean;
+  /** Pins the container to its end again and scrolls there. */
+  toEnd(smooth?: boolean): void;
+  /** Keeps what the reader sees in place while content is added above it (older messages). */
+  keepPosition(): void;
+}
+
+/**
+ * Keeps a scroll container pinned to its end while the reader is there, also while its content
+ * grows (streamed text, cards, images). Only scrolling up unpins it, so updates never fight the reader.
+ */
+export function useStickToBottom(container: RefObject<HTMLElement | null>, content: RefObject<HTMLElement | null>): StickToBottom {
   const pinned = useRef(true);
+  const lastTop = useRef(0);
+  const fromEnd = useRef(0);
+  const [away, setAway] = useState(false);
+
   useEffect(() => {
     const element = container.current;
     if (!element) return;
-    const onScroll = () => {
-      pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < NEAR_BOTTOM_PX;
+    const follow = () => {
+      if (pinned.current) element.scrollTo({ top: element.scrollHeight, behavior: "instant" });
     };
+    const onScroll = () => {
+      const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+      pinned.current = pinnedAfterScroll(pinned.current, element.scrollTop, lastTop.current, distance);
+      lastTop.current = element.scrollTop;
+      fromEnd.current = distance;
+      setAway(!pinned.current);
+    };
+    const observer = new ResizeObserver(follow);
+    observer.observe(element);
+    if (content.current) observer.observe(content.current);
     element.addEventListener("scroll", onScroll, { passive: true });
-    return () => element.removeEventListener("scroll", onScroll);
-  }, [container]);
-  useEffect(() => {
+    follow();
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", onScroll);
+    };
+  }, [container, content]);
+
+  const toEnd = (smooth = false) => {
     const element = container.current;
-    if (element && pinned.current) element.scrollTop = element.scrollHeight;
-  }, [container, dependency]);
+    pinned.current = true;
+    setAway(false);
+    element?.scrollTo({ top: element.scrollHeight, behavior: smooth ? "smooth" : "instant" });
+  };
+  const keepPosition = () => {
+    const element = container.current;
+    if (element && !pinned.current) element.scrollTo({ top: element.scrollHeight - element.clientHeight - fromEnd.current, behavior: "instant" });
+  };
+  return { away, toEnd, keepPosition };
 }
 
 /** Text of the assistant reply that just finished streaming, for the polite live region. */

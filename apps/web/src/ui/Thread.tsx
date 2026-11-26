@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CardActions } from "../cards/actions.js";
 import type { ThreadState } from "../conversation/thread.js";
 import { threadView } from "../conversation/thread.js";
 import { useStickToBottom } from "../hooks.js";
 import { shouldShowInstallHint, readPlatform } from "../pwa/platform.js";
+import { ArrowDownIcon } from "./icons.js";
 import { MessageView } from "./MessageView.js";
 
 const HINT_KEY = "jarvis.installHintDismissed";
@@ -50,28 +51,48 @@ interface Props {
 
 export function Thread({ thread, actions, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const messages = useMemo(() => threadView(thread.messages), [thread.messages]);
-  useStickToBottom(scroller, messages);
+  const stick = useStickToBottom(scroller, content);
+  const first = messages[0]?.id;
+  const last = messages.at(-1);
+  const ownLast = last?.role === "user" ? last.id : undefined;
+
+  useLayoutEffect(() => {
+    if (ownLast) stick.toEnd();
+  }, [ownLast]);
+  useLayoutEffect(() => {
+    stick.keepPosition();
+  }, [first]);
 
   return (
-    <div className="thread" ref={scroller} role="region" aria-label="Conversación" tabIndex={0}>
-      {thread.hasMore && (
-        <button type="button" className="button older" disabled={thread.loadingOlder} onClick={onLoadOlder}>
-          {thread.loadingOlder ? "Cargando" : "Ver mensajes anteriores"}
+    <>
+      <div className="thread" ref={scroller} role="region" aria-label="Conversación" tabIndex={0}>
+        <div ref={content}>
+          {thread.hasMore && (
+            <button type="button" className="button older" disabled={thread.loadingOlder} onClick={onLoadOlder}>
+              {thread.loadingOlder ? "Cargando" : "Ver mensajes anteriores"}
+            </button>
+          )}
+          <ol className="messages">
+            <InstallHint />
+            {messages.map((message) => (
+              <MessageView key={message.id} message={message} actions={actions} />
+            ))}
+          </ol>
+          {thread.transcript && (
+            <p className="transcript" data-final={thread.transcript.final}>
+              <span className="sr-only">Estás diciendo: </span>
+              {thread.transcript.text}
+            </p>
+          )}
+        </div>
+      </div>
+      {stick.away && (
+        <button type="button" className="glass-button glass jump-latest" aria-label="Ir al último mensaje" onClick={() => stick.toEnd(true)}>
+          <ArrowDownIcon />
         </button>
       )}
-      <ol className="messages">
-        <InstallHint />
-        {messages.map((message) => (
-          <MessageView key={message.id} message={message} actions={actions} />
-        ))}
-      </ol>
-      {thread.transcript && (
-        <p className="transcript" data-final={thread.transcript.final}>
-          <span className="sr-only">Estás diciendo: </span>
-          {thread.transcript.text}
-        </p>
-      )}
-    </div>
+    </>
   );
 }

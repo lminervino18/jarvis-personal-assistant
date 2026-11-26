@@ -63,3 +63,7 @@ export function ChatIcon({ size = 24 }: { size?: number }) {
 export function WaveIcon({ size = 24 }: { size?: number }) {
   return <Icon size={size} d="M7 9h2v6H7V9Zm4-4h2v14h-2V5Zm4 2h2v10h-2V7ZM3 11h2v2H3v-2Zm16 0h2v2h-2v-2Z" />;
 }
+
+export function ArrowDownIcon({ size = 20 }: { size?: number }) {
+  return <Icon size={size} d="M11 4h2v12.2l5.3-5.3 1.4 1.4-7.7 7.7-7.7-7.7 1.4-1.4 5.3 5.3V4Z" />;
+}
