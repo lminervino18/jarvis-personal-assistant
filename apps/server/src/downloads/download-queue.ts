@@ -36,7 +36,7 @@ interface Row {
 
 /** What the owner reads when a download fails; the raw tool output never reaches them or the model. */
 export const FAILURES: Record<DownloadFailure, string> = {
-  blocked: "YouTube no deja bajar videos desde el servidor: hay que darle otra salida a internet o una sesión (ver docs/media-downloads.md).",
+  blocked: "YouTube bloquea las descargas desde tu servidor. Falta configurarle otra salida a internet; pedíselo a quien mantiene Jarvis.",
   login: "El video es privado o pide iniciar sesión.",
   unavailable: "El video no existe, lo borraron o no está disponible.",
   too_big: "El video es más grande que el máximo que bajo (8 GB).",

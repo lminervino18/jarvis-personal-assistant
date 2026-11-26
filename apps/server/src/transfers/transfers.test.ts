@@ -16,12 +16,13 @@ afterEach(async () => {
 
 const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]);
 
-async function setup(freeBytes = 100 * 1024 ** 3, { shortVideos = false } = {}) {
+async function setup(freeBytes = 100 * 1024 ** 3, { shortVideos = false, reservedColors = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-transfers-"));
   const ffmpegCalls: string[][] = [];
   const previews = new TransferPreviews(dir, async (_command, args) => {
     ffmpegCalls.push(args);
-    if (!(shortVideos && args.includes("-ss"))) writeFileSync(args.at(-1) as string, JPEG);
+    const refused = (shortVideos && args.includes("-ss")) || (reservedColors && !args.some((arg) => arg.startsWith("h264_metadata")));
+    if (!refused) writeFileSync(args.at(-1) as string, JPEG);
     return { stdout: "", stderr: "" };
   });
   const db = openMigratedDatabase(":memory:");
@@ -194,6 +195,18 @@ describe("previews", () => {
     const [item] = (await env.list()).items;
     expect((await env.call(`/api/transfers/${item!.id}/preview?size=large`, { headers: OWNER })).status).toBe(200);
     expect(env.ffmpegCalls.map((args) => args.includes("-ss"))).toEqual([true, false]);
+  });
+});
+
+describe("previews of videos with invalid color tags", () => {
+  it("read the colors as standard when ffmpeg refuses them, without touching the original", async () => {
+    const env = await setup(undefined, { reservedColors: true });
+    await env.upload(OWNER, "de-x.mp4", video);
+    const [item] = (await env.list()).items;
+    expect((await env.call(`/api/transfers/${item!.id}/preview`, { headers: OWNER })).status).toBe(200);
+    expect(env.ffmpegCalls.at(-1)).toEqual(expect.arrayContaining(["-bsf:v", "h264_metadata=matrix_coefficients=1:colour_primaries=1:transfer_characteristics=1"]));
+    const content = await env.call(`/api/transfers/${item!.id}/content`, { headers: OWNER });
+    expect(Buffer.from(await content.arrayBuffer()).equals(video)).toBe(true);
   });
 });
 

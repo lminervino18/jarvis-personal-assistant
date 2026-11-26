@@ -7,6 +7,8 @@ export type PreviewSize = "thumb" | "large";
 
 const WIDTH: Record<PreviewSize, number> = { thumb: 480, large: 1600 };
 const MAX_RUNNING = 2;
+/** Some sites (X) tag videos with «reserved» colors, which ffmpeg 7 refuses to scale; the preview reads them as standard BT.709. */
+const STANDARD_COLORS = "matrix_coefficients=1:colour_primaries=1:transfer_characteristics=1";
 const IMAGE_NAMES = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif", ".avif", ".tif", ".tiff", ".bmp"]);
 const VIDEO_NAMES = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi", ".3gp"]);
 const AUDIO_NAMES = new Set([".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus", ".aiff"]);
@@ -60,7 +62,14 @@ export class TransferPreviews {
 
   private async make(source: string, target: string, kind: PreviewKind, width: number): Promise<string | undefined> {
     const scale = ["-frames:v", "1", "-vf", `scale='min(${width},iw)':-2`, "-q:v", "4", "-y", target];
-    const attempts = kind === "video" ? [["-v", "error", "-ss", "1", "-i", source, ...scale], ["-v", "error", "-i", source, ...scale]] : [["-v", "error", "-i", source, ...scale]];
+    const attempts =
+      kind === "video"
+        ? [
+            ["-v", "error", "-ss", "1", "-i", source, ...scale],
+            ["-v", "error", "-i", source, ...scale],
+            ...["h264", "hevc"].map((codec) => ["-v", "error", "-bsf:v", `${codec}_metadata=${STANDARD_COLORS}`, "-ss", "1", "-i", source, ...scale]),
+          ]
+        : [["-v", "error", "-i", source, ...scale]];
     for (const args of attempts) {
       await this.exec("ffmpeg", args).catch(() => undefined);
       if (existsSync(target)) return target;
