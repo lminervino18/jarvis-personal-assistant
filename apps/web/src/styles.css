@@ -1473,14 +1473,18 @@ button {
   pointer-events: none;
 }
 
+.thread-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .chat-empty {
-  position: absolute;
-  inset: calc(env(safe-area-inset-top) + var(--topbar-h)) 24px calc(var(--composer-h) + 20px);
-  z-index: 1;
   display: grid;
-  place-content: center;
+  justify-items: center;
+  margin: auto 0;
+  padding: 24px 8px;
   text-align: center;
-  pointer-events: none;
 }
 
 .chat-empty h2 {
@@ -1497,10 +1501,8 @@ button {
 }
 
 .chat-earlier {
-  justify-self: center;
   margin-top: 20px;
   color: var(--secondary);
-  pointer-events: auto;
 }
 
 .call-button:disabled {
@@ -1595,9 +1597,6 @@ button {
   padding: 84px var(--column) calc(var(--composer-h) + 24px);
 }
 
-.app-wide .chat-empty {
-  inset: 72px var(--column) calc(var(--composer-h) + 24px);
-}
 
 .app-wide .dock {
   padding: 8px var(--column) 16px;

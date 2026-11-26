@@ -52,18 +52,27 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
 
   return (
     <div className="chat" hidden={hidden}>
-      <Thread thread={thread} actions={session} since={since} earlier={earlier} onReveal={fresh.reveal} onLoadOlder={() => session.loadOlder()} />
-      {empty && (
-        <section className="chat-empty" aria-label="Inicio">
-          <h2>{snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}</h2>
-          <p>Escribime, dictame o llamame.</p>
-          {earlier > 0 && (
-            <button type="button" className="button chat-earlier" onClick={fresh.reveal}>
-              Ver conversación anterior
-            </button>
-          )}
-        </section>
-      )}
+      <Thread
+        thread={thread}
+        actions={session}
+        since={since}
+        earlier={earlier}
+        onReveal={fresh.reveal}
+        onLoadOlder={() => session.loadOlder()}
+        placeholder={
+          empty && (
+            <section className="chat-empty" aria-label="Inicio">
+              <h2>{snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}</h2>
+              <p>Escribime, dictame o llamame.</p>
+              {earlier > 0 && (
+                <button type="button" className="button chat-earlier" onClick={fresh.reveal}>
+                  Ver conversación anterior
+                </button>
+              )}
+            </section>
+          )
+        }
+      />
       <div className="dock" ref={dock}>
         <Notices session={session} snapshot={snapshot} />
         <Composer
