@@ -376,6 +376,8 @@ function LinkCard({ card }: { card: Of<"link"> }) {
   );
 }
 
+const LONG_CELL = 24;
+
 function TableCard({ card }: { card: Extract<Card, { kind: "table" }> }) {
   return (
     <section className="card card-table" aria-label={`Tabla: ${card.title}`}>
@@ -396,7 +398,9 @@ function TableCard({ card }: { card: Extract<Card, { kind: "table" }> }) {
             {card.rows.map((row, r) => (
               <tr key={r}>
                 {card.columns.map((_, c) => (
-                  <td key={c}>{row[c] ?? ""}</td>
+                  <td key={c} className={(row[c] ?? "").length > LONG_CELL ? "long" : undefined}>
+                    {row[c] ?? ""}
+                  </td>
                 ))}
               </tr>
             ))}

@@ -768,14 +768,12 @@ button {
   overflow-wrap: normal;
   text-align: left;
   vertical-align: top;
-}
-
-.card-table th {
   white-space: nowrap;
 }
 
-.card-table td {
-  min-width: 12ch;
+.card-table td.long {
+  min-width: 18ch;
+  white-space: normal;
 }
 
 .card-table th {
