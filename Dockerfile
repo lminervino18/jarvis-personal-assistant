@@ -20,6 +20,15 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store pnpm --filter @jarvis/se
 FROM build AS check
 RUN pnpm lint && pnpm typecheck && pnpm test
 
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS media-tools
+ADD --checksum=sha256:cc4a3aa98fb438a1dac04a6fb006fe57acbeed00fc12db9ec84e3036dbbe6ccb \
+  https://github.com/yt-dlp/yt-dlp/releases/download/2026.11.23/yt-dlp_linux.zip /tmp/yt-dlp.zip
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends unzip \
+ && unzip -q /tmp/yt-dlp.zip -d /opt/yt-dlp \
+ && chmod -R a+rX /opt/yt-dlp \
+ && chmod 755 /opt/yt-dlp/yt-dlp_linux
+
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ca-certificates ffmpeg poppler-utils git \
@@ -35,12 +44,14 @@ ENV NODE_ENV=production \
     CLAUDE_CONFIG_DIR=/data/claude \
     ASSISTANT_DIR=/app/assistant \
     WEB_DIST_DIR=/app/web \
+    YTDLP_BIN=/opt/yt-dlp/yt-dlp_linux \
     HOME=/home/jarvis
 WORKDIR /app
 COPY --from=build /out/package.json ./package.json
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /src/apps/server/dist ./dist
 COPY --from=build /src/apps/web/dist ./web
+COPY --from=media-tools /opt/yt-dlp /opt/yt-dlp
 ADD --checksum=sha256:98daf9bcf1c8abf3db374fec4c27a5eda7c58705bb3f180d057b085a72a88bb5 --chmod=644 \
   https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx \
   ./models/speaker.onnx
