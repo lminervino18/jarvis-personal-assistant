@@ -96,7 +96,7 @@ self.addEventListener("notificationclick", (event) => {
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
       if (!open) return self.clients.openWindow(`${target.split("#")[0]}#${FROM_NOTIFICATION}`);
-      open.postMessage({ type: FROM_NOTIFICATION });
+      open.postMessage({ type: FROM_NOTIFICATION, url: target });
       return open.focus();
     }),
   );

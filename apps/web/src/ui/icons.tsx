@@ -67,3 +67,7 @@ export function WaveIcon({ size = 24 }: { size?: number }) {
 export function ArrowDownIcon({ size = 20 }: { size?: number }) {
   return <Icon size={size} d="M11 4h2v12.2l5.3-5.3 1.4 1.4-7.7 7.7-7.7-7.7 1.4-1.4 5.3 5.3V4Z" />;
 }
+
+export function TransferIcon({ size = 20 }: { size?: number }) {
+  return <Icon size={size} d="M7 3 2.5 7.5h3.5V15h2V7.5h3.5L7 3Zm10 18 4.5-4.5H18V9h-2v7.5h-3.5L17 21Z" />;
+}

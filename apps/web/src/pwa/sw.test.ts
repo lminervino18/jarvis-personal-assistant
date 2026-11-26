@@ -64,7 +64,7 @@ describe("service worker", () => {
     sw.setWindows(["https://jarvis.example/"]);
     await sw.dispatch("notificationclick", click);
     expect(sw.focused).toEqual(["https://jarvis.example/"]);
-    expect(sw.posted).toEqual([{ type: "aviso" }]);
+    expect(sw.posted).toEqual([{ type: "aviso", url: "/" }]);
     sw.setWindows([]);
     await sw.dispatch("notificationclick", click);
     expect(sw.opened).toEqual(["/#aviso"]);

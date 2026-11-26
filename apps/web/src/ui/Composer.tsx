@@ -24,6 +24,9 @@ interface Props {
   active?: boolean;
   /** The owner started writing. */
   onFocus?(): void;
+  /** Files chosen to pass between devices in their original quality, never compressed. */
+  onTransfer?(files: File[]): void;
+  onOpenTransfers?(): void;
 }
 
 const MAX_FIELD_PX = 140;
@@ -41,7 +44,10 @@ function revoke(items: readonly Pending[]): void {
 }
 
 export function Composer(props: Props) {
-  const { online, busy, dictation, dictated, levels, onSend, onDictate, onDictationStop, onDictationCancel, onStop, onCall, onAttach, onFocus, placeholder = "Mensaje", active = true } = props;
+  const { online, busy, dictation, dictated, levels, onSend, onDictate, onDictationStop, onDictationCancel, onStop, onCall, onAttach, onFocus, onTransfer, onOpenTransfers, placeholder = "Mensaje", active = true } = props;
+  const [menu, setMenu] = useState(false);
+  const menuBox = useRef<HTMLDivElement>(null);
+  const transferPicker = useRef<HTMLInputElement>(null);
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Pending[]>([]);
   const uploading = attachments.some((item) => !item.card);
@@ -121,6 +127,30 @@ export function Composer(props: Props) {
     );
   };
 
+  useEffect(() => {
+    if (!menu) return;
+    menuBox.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+    const outside = (event: PointerEvent) => !menuBox.current?.contains(event.target as Node) && setMenu(false);
+    const escape = (event: globalThis.KeyboardEvent) => event.key === "Escape" && setMenu(false);
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [menu]);
+
+  const choose = (action: () => void) => {
+    setMenu(false);
+    action();
+  };
+
+  const onTransferFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = "";
+    if (files.length > 0) onTransfer?.(files);
+  };
+
   const hasText = text.trim().length > 0 || ready.length > 0;
 
   if (dictation !== "idle") {
@@ -153,21 +183,44 @@ export function Composer(props: Props) {
           {hint}
         </p>
       )}
-      {onAttach && (
-        <>
-          <input ref={picker} type="file" multiple hidden onChange={(event) => void onFiles(event)} />
+      {onAttach && <input ref={picker} type="file" multiple hidden onChange={(event) => void onFiles(event)} />}
+      {onTransfer && <input ref={transferPicker} type="file" multiple hidden onChange={onTransferFiles} />}
+      {(onAttach || onTransfer) && (
+        <div className="attach" ref={menuBox}>
           <button
             type="button"
             className="glass-button glass"
-            aria-label="Adjuntar foto o archivo"
-            disabled={!online || attachments.length >= MAX_ATTACHMENTS}
-            onClick={() => picker.current?.click()}
+            aria-label={onTransfer ? "Adjuntar o transferir" : "Adjuntar foto o archivo"}
+            aria-haspopup={onTransfer ? "menu" : undefined}
+            aria-expanded={onTransfer ? menu : undefined}
+            disabled={!online || (!onTransfer && attachments.length >= MAX_ATTACHMENTS)}
+            onClick={() => (onTransfer ? setMenu((open) => !open) : picker.current?.click())}
           >
             <svg viewBox="0 0 24 24" aria-hidden="true" width="22" height="22">
               <path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
             </svg>
           </button>
-        </>
+          {menu && (
+            <div className="attach-menu glass" role="menu" aria-label="Adjuntar o transferir">
+              {onAttach && (
+                <button type="button" role="menuitem" disabled={attachments.length >= MAX_ATTACHMENTS} onClick={() => choose(() => picker.current?.click())}>
+                  <strong>Foto o archivo para Jarvis</strong>
+                  <small>Para que lo mire o lo mande; se comprime</small>
+                </button>
+              )}
+              <button type="button" role="menuitem" onClick={() => choose(() => transferPicker.current?.click())}>
+                <strong>Transferir en calidad original</strong>
+                <small>Sin comprimir, para bajarlo en otro lado</small>
+              </button>
+              {onOpenTransfers && (
+                <button type="button" role="menuitem" onClick={() => choose(onOpenTransfers)}>
+                  <strong>Ver transferencias</strong>
+                  <small>Lo que subiste y lo que te mandaron</small>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
       <div className="field glass">
         <label className="sr-only" htmlFor="message">

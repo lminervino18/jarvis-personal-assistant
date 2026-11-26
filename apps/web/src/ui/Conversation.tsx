@@ -8,9 +8,11 @@ import { BuildScreen } from "./BuildScreen.js";
 import { CallScreen } from "./CallScreen.js";
 import { ChatView } from "./ChatView.js";
 import { GlassLens } from "./GlassLens.js";
-import { GearIcon, HammerIcon, HangUpIcon, MicIcon } from "./icons.js";
+import { GearIcon, HammerIcon, HangUpIcon, MicIcon, TransferIcon } from "./icons.js";
 import { Settings, SettingsSheet } from "./SettingsSheet.js";
+import { TransfersScreen } from "./TransfersScreen.js";
 import { VoiceTraining } from "./VoiceTraining.js";
+import { ownerUploads, TRANSFER_ARRIVED } from "../transfers/uploads.js";
 
 interface Props {
   session: Session;
@@ -18,9 +20,9 @@ interface Props {
   demo?: boolean;
 }
 
-type Panel = "jarvis" | "build" | "settings" | "voice";
+type Panel = "jarvis" | "build" | "settings" | "voice" | "transfers";
 
-const VOICE_PATH = "/voz";
+const PANEL_PATHS: Record<string, Panel> = { "/voz": "voice", "/transferencias": "transfers" };
 
 const WIDE_QUERY = "(min-width: 900px)";
 const COMPOSER_FALLBACK_PX = 68;
@@ -69,9 +71,20 @@ export function Conversation({ session, onLogout, demo }: Props) {
   const announcement = useAssistantAnnouncement(snapshot.thread.messages);
   const dock = useRef<HTMLDivElement>(null);
   const composerHeight = useElementHeight(dock, COMPOSER_FALLBACK_PX);
-  const [panel, setPanel] = useState<Panel>(() => (window.location.pathname === VOICE_PATH ? "voice" : "jarvis"));
+  const [panel, setPanel] = useState<Panel>(() => PANEL_PATHS[window.location.pathname] ?? "jarvis");
   const refreshBuild = useCallback(() => session.refreshBuild(), [session]);
-  const closePanel = useCallback(() => setPanel("jarvis"), []);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const url = (event.data as { type?: unknown; url?: unknown } | null)?.url;
+      if (typeof url === "string" && PANEL_PATHS[url]) setPanel(PANEL_PATHS[url]);
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, []);
+  const closePanel = useCallback(() => {
+    setPanel("jarvis");
+    if (window.location.pathname in PANEL_PATHS) window.history.replaceState(null, "", "/");
+  }, []);
   const subtitle = useMemo(() => voiceSubtitle(snapshot.thread), [snapshot.thread]);
   const label = stateLabel(snapshot.state);
   const online = snapshot.connection === "ready";
@@ -139,7 +152,24 @@ export function Conversation({ session, onLogout, demo }: Props) {
     <VoiceTraining embedded={embedded} levels={session.getLevels} onStart={() => session.startSample()} onStop={() => session.stopSample()} onClose={closePanel} />
   );
 
-  const chat = <ChatView session={session} snapshot={snapshot} dock={dock} hidden={wide && panel !== "jarvis"} active={panel === "jarvis"} demo={demo} onCall={call} />;
+  const transfers = (embedded: boolean) => <TransfersScreen embedded={embedded} onClose={closePanel} />;
+
+  const chat = (
+    <ChatView
+      session={session}
+      snapshot={snapshot}
+      dock={dock}
+      hidden={wide && panel !== "jarvis"}
+      active={panel === "jarvis"}
+      demo={demo}
+      onCall={call}
+      onTransfer={(files) => {
+        ownerUploads.add(files, () => window.dispatchEvent(new Event(TRANSFER_ARRIVED)));
+        setPanel("transfers");
+      }}
+      onOpenTransfers={() => setPanel("transfers")}
+    />
+  );
 
   const live = (
     <>
@@ -165,6 +195,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
               </span>
             </span>
           </button>
+          <NavButton active={panel === "transfers"} label="Transferencias" icon={<TransferIcon />} onClick={() => setPanel("transfers")} />
           <NavButton active={panel === "build"} label="Construir" icon={<HammerIcon />} onClick={() => setPanel("build")} />
           <NavButton active={panel === "settings"} label="Configuración" icon={<GearIcon />} onClick={() => setPanel("settings")} />
         </nav>
@@ -178,6 +209,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
           {chat}
           {panel === "build" && build(true)}
           {panel === "voice" && voice(true)}
+          {panel === "transfers" && transfers(true)}
           {panel === "settings" && (
             <section className="settings-page" aria-labelledby="settings-page-title">
               <h2 id="settings-page-title">Configuración</h2>
@@ -227,6 +259,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
       {panel === "settings" && <SettingsSheet {...settings} onClose={closePanel} />}
       {panel === "build" && build(false)}
       {panel === "voice" && voice(false)}
+      {panel === "transfers" && transfers(false)}
     </div>
   );
 }

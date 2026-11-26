@@ -39,10 +39,12 @@ interface Props {
   onCall?(): void;
   /** False while Construir or Configuración covers the chat. */
   active?: boolean;
+  onTransfer?(files: File[]): void;
+  onOpenTransfers?(): void;
 }
 
 /** The written session: the thread, its notices and the composer. */
-export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active = true }: Props) {
+export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active = true, onTransfer, onOpenTransfers }: Props) {
   const online = snapshot.connection === "ready";
   const { thread } = snapshot;
   const fresh = useFreshStart(snapshot.callActive || snapshot.busy);
@@ -90,6 +92,8 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
           active={active}
           onAttach={demo ? undefined : uploadChatAttachment}
           onFocus={() => session.warm()}
+          onTransfer={onTransfer}
+          onOpenTransfers={onOpenTransfers}
         />
       </div>
     </div>

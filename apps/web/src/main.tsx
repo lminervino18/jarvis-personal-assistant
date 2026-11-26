@@ -8,6 +8,7 @@ import { parseIntegrationResult } from "./conversation/integration-result.js";
 import { Session } from "./conversation/session.js";
 import { demoTransport } from "./demo/demo-server.js";
 import { Conversation } from "./ui/Conversation.js";
+import { PublicDownload, PublicUpload, publicRoute } from "./ui/PublicPages.js";
 import { registerServiceWorker } from "./pwa/register.js";
 import { preventZoom } from "./pwa/no-zoom.js";
 import { subscribeToPush } from "./pwa/push.js";
@@ -44,7 +45,11 @@ function createDemoSession(): Session {
   return session;
 }
 
-root.render(
-  <StrictMode>{demo ? <Conversation session={createDemoSession()} demo /> : <App session={createSession()} />}</StrictMode>,
-);
-if (!demo) registerServiceWorker();
+const shared = publicRoute(window.location.pathname);
+
+if (shared) {
+  root.render(<StrictMode>{shared.page === "upload" ? <PublicUpload token={shared.token} /> : <PublicDownload token={shared.token} />}</StrictMode>);
+} else {
+  root.render(<StrictMode>{demo ? <Conversation session={createDemoSession()} demo /> : <App session={createSession()} />}</StrictMode>);
+  if (!demo) registerServiceWorker();
+}
