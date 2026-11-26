@@ -260,9 +260,11 @@ const watcher = new WhatsAppWatcher({
     ? { reply: sarcasticReplier({ complete: runtime.complete.bind(runtime), model: config.claude.model, ownerName: config.ownerDisplayName }) }
     : {}),
 });
-setInterval(() => {
+const watchWhatsApp = () => {
   watcher.tick().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "whatsapp watch failed"));
-}, 4000).unref();
+};
+watchWhatsApp();
+setInterval(watchWhatsApp, 4000).unref();
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
 const welcome = new Welcome({ dir: join(config.dataDir, "welcome"), ownerName: config.ownerDisplayName, exec: defaultExec, ...(voiceNarrator ? { narrator: voiceNarrator } : {}) });
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
