@@ -1,25 +1,30 @@
-/** Visual tokens of the "Pulso" page style (white, ultraviolet and black), shared by every video composition. */
-export const pulso = {
+/** Visual tokens of the JARVIS HUD look (deep navy, cyan light, white type), shared by every video composition. */
+export const hud = {
   color: {
-    white: "#ffffff",
-    ink: "#0b0a12",
-    uv: "#5b2bff",
-    uvDeep: "#3a12d6",
-    uvMist: "#f1ecff",
-    muted: "#5d5873",
-    line: "#e4e0f0",
-    glow: "#c9b8ff",
+    bg: "#02070d",
+    bgGlow: "#06293a",
+    panel: "rgba(5, 22, 33, 0.74)",
+    panelStrong: "rgba(9, 38, 54, 0.9)",
+    text: "#e8fbff",
+    muted: "#8db2c3",
+    accent: "#3fe0ff",
+    accentStrong: "#8cf2ff",
+    accentSoft: "rgba(63, 224, 255, 0.12)",
+    line: "rgba(63, 224, 255, 0.3)",
+    glow: "rgba(63, 224, 255, 0.55)",
+    onAccent: "#00141c",
+    good: "#4ade80",
+    warn: "#fbbf24",
+    bad: "#f87171",
   },
   font: {
     display: '"Space Grotesk", "Inter", system-ui, sans-serif',
     text: '"Inter", system-ui, sans-serif',
   },
-  card: {
-    radius: 28,
-    border: "1px solid rgba(91, 43, 255, 0.18)",
-    background: "rgba(255, 255, 255, 0.8)",
-    shadow: "0 30px 80px -30px rgba(58, 18, 214, 0.35)",
+  panel: {
+    radius: 18,
+    border: "1.5px solid rgba(63, 224, 255, 0.3)",
+    shadow: "0 0 80px -30px rgba(63, 224, 255, 0.45), inset 0 0 60px rgba(63, 224, 255, 0.05)",
   },
-  pill: { radius: 999 },
   rise: { distance: 14, seconds: 0.8, staggerSeconds: 0.08, bezier: [0.2, 0.7, 0.2, 1] as const },
 } as const;

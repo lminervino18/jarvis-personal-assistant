@@ -1,7 +1,7 @@
 import { Img, interpolate, OffthreadVideo, useCurrentFrame, useVideoConfig } from "remotion";
-import { pulso } from "../../tokens.js";
+import { hud } from "../../tokens.js";
 import { msToFrame, rise } from "../motion.js";
-import { GlassCard } from "../ui.js";
+import { Panel } from "../ui.js";
 import { Stage, type SceneProps } from "./shared.js";
 
 const FOCUS = { center: "50% 50%", top: "50% 20%", bottom: "50% 80%" } as const;
@@ -22,14 +22,14 @@ export const MediaScene: React.FC<SceneProps<"media">> = ({ scene, content, layo
   const hasText = Boolean(content.title || content.text);
   return (
     <Stage layout={layout} style={{ justifyContent: "flex-start" }}>
-      <div style={{ position: "relative", flex: 1, minHeight: 0, borderRadius: 44, overflow: "hidden", background: pulso.color.uvMist, boxShadow: "0 60px 140px -60px rgba(58, 18, 214, 0.45)", ...rise(frame, 0, fps, 50) }}>
+      <div style={{ position: "relative", flex: 1, minHeight: 0, borderRadius: 44, overflow: "hidden", background: hud.color.accentSoft, boxShadow: "0 60px 140px -60px rgba(63, 224, 255, 0.45)", ...rise(frame, 0, fps, 50) }}>
         {src && scene.media?.kind === "video" ? <OffthreadVideo src={src} muted style={style} /> : src ? <Img src={src} style={style} /> : null}
       </div>
       {hasText ? (
-        <GlassCard style={{ marginTop: -150, marginInline: 28, gap: 16, padding: "40px 44px", ...rise(frame, 8, fps) }}>
-          {content.title ? <h2 style={{ margin: 0, font: `700 58px/1.05 ${pulso.font.display}`, letterSpacing: "-0.02em", color: pulso.color.ink }}>{content.title}</h2> : null}
-          {content.text ? <p style={{ margin: 0, font: `400 36px/1.4 ${pulso.font.text}`, color: pulso.color.muted }}>{content.text}</p> : null}
-        </GlassCard>
+        <Panel style={{ marginTop: -150, marginInline: 28, gap: 16, padding: "40px 44px", ...rise(frame, 8, fps) }}>
+          {content.title ? <h2 style={{ margin: 0, font: `700 58px/1.05 ${hud.font.display}`, letterSpacing: "-0.02em", color: hud.color.text }}>{content.title}</h2> : null}
+          {content.text ? <p style={{ margin: 0, font: `400 36px/1.4 ${hud.font.text}`, color: hud.color.muted }}>{content.text}</p> : null}
+        </Panel>
       ) : null}
     </Stage>
   );

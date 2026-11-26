@@ -7,8 +7,8 @@ import { loadFont } from "@remotion/fonts";
 
 let loaded: Promise<unknown> | undefined;
 
-/** Loads the Pulso fonts once; Remotion waits for them before capturing any frame. */
-export function loadPulsoFonts(): Promise<unknown> {
+/** Loads the video fonts once; Remotion waits for them before capturing any frame. */
+export function loadFonts(): Promise<unknown> {
   loaded ??= Promise.all([
     loadFont({ family: "Space Grotesk", url: groteskMedium, weight: "500" }),
     loadFont({ family: "Space Grotesk", url: groteskBold, weight: "700" }),

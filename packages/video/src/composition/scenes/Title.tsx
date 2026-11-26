@@ -1,8 +1,8 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import { pulso } from "../../tokens.js";
+import { hud } from "../../tokens.js";
 import { fitSize } from "../layout.js";
 import { msToFrame, progressFrom, rise } from "../motion.js";
-import { EmojiBadge, GlassCard, Kicker } from "../ui.js";
+import { EmojiBadge, Panel, Kicker } from "../ui.js";
 import { Stage, type SceneProps } from "./shared.js";
 
 export const TitleScene: React.FC<SceneProps<"title">> = ({ scene, content, layout }) => {
@@ -14,10 +14,10 @@ export const TitleScene: React.FC<SceneProps<"title">> = ({ scene, content, layo
   const pop = progressFrom(frame, start, fps, 0.6);
   return (
     <Stage layout={layout}>
-      <GlassCard>
+      <Panel>
         {content.emoji ? <EmojiBadge emoji={content.emoji} size={150} style={{ scale: String(0.6 + 0.4 * pop), opacity: pop }} /> : null}
         {content.kicker ? <Kicker style={rise(frame, start, fps)}>{content.kicker}</Kicker> : null}
-        <h1 style={{ margin: 0, font: `700 ${size}px/1.02 ${pulso.font.display}`, letterSpacing: "-0.03em", color: pulso.color.ink, textWrap: "balance" }}>
+        <h1 style={{ margin: 0, font: `700 ${size}px/1.02 ${hud.font.display}`, letterSpacing: "-0.03em", color: hud.color.text, textWrap: "balance" }}>
           {words.map((word, index) => (
             <span key={index} style={{ display: "inline-block", marginRight: "0.24em", ...rise(frame, start + 4 + index * 3, fps, 30) }}>
               {word}
@@ -25,9 +25,9 @@ export const TitleScene: React.FC<SceneProps<"title">> = ({ scene, content, layo
           ))}
         </h1>
         {content.lead ? (
-          <p style={{ margin: 0, font: `400 40px/1.4 ${pulso.font.text}`, color: pulso.color.muted, ...rise(frame, start + 10 + words.length * 3, fps) }}>{content.lead}</p>
+          <p style={{ margin: 0, font: `400 40px/1.4 ${hud.font.text}`, color: hud.color.muted, ...rise(frame, start + 10 + words.length * 3, fps) }}>{content.lead}</p>
         ) : null}
-      </GlassCard>
+      </Panel>
     </Stage>
   );
 };

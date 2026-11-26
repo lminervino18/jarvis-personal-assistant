@@ -1,8 +1,8 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import { pulso } from "../../tokens.js";
+import { hud } from "../../tokens.js";
 import { fitSize } from "../layout.js";
 import { msToFrame, rise } from "../motion.js";
-import { ActionButton, Emoji, GlassCard, Kicker } from "../ui.js";
+import { ActionButton, Emoji, Panel, Kicker } from "../ui.js";
 import { cueFrame, Stage, type SceneProps } from "./shared.js";
 
 export const QuestionScene: React.FC<SceneProps<"question">> = ({ scene, content, layout }) => {
@@ -12,12 +12,12 @@ export const QuestionScene: React.FC<SceneProps<"question">> = ({ scene, content
   const hintAt = Math.max(lastCue + 12, msToFrame(scene.audio.startMs + scene.audio.durationMs * 0.7, fps));
   return (
     <Stage layout={layout}>
-      <GlassCard>
+      <Panel>
         <Kicker style={rise(frame, 0, fps)}>Una pregunta</Kicker>
-        <h2 style={{ margin: 0, font: `700 ${fitSize(content.question, layout.width - layout.side * 2 - 104, 3, 56, 84)}px/1.05 ${pulso.font.display}`, letterSpacing: "-0.03em", color: pulso.color.ink, textWrap: "balance", ...rise(frame, 4, fps) }}>
+        <h2 style={{ margin: 0, font: `700 ${fitSize(content.question, layout.width - layout.side * 2 - 104, 3, 56, 84)}px/1.05 ${hud.font.display}`, letterSpacing: "-0.03em", color: hud.color.text, textWrap: "balance", ...rise(frame, 4, fps) }}>
           {content.question}
         </h2>
-        <div style={{ display: "grid", gridTemplateColumns: layout.vertical ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 12, padding: 12, borderRadius: 40, background: pulso.color.uvMist }}>
+        <div style={{ display: "grid", gridTemplateColumns: layout.vertical ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 12, padding: 12, borderRadius: 40, background: hud.color.accentSoft }}>
           {content.options.map((option, index) => (
             <div
               key={index}
@@ -28,14 +28,14 @@ export const QuestionScene: React.FC<SceneProps<"question">> = ({ scene, content
                 minHeight: 104,
                 padding: "0 34px",
                 borderRadius: 30,
-                background: pulso.color.white,
-                color: pulso.color.uvDeep,
-                font: `500 42px/1.15 ${pulso.font.display}`,
-                boxShadow: "0 12px 34px -16px rgba(58, 18, 214, 0.5)",
+                background: hud.color.panelStrong,
+                color: hud.color.accentStrong,
+                font: `500 42px/1.15 ${hud.font.display}`,
+                boxShadow: "0 12px 34px -16px rgba(63, 224, 255, 0.5)",
                 ...rise(frame, cueFrame(scene, index, fps), fps, 26),
               }}
             >
-              {option.emoji ? <Emoji size={50}>{option.emoji}</Emoji> : <span style={{ font: `700 36px/1 ${pulso.font.display}`, color: pulso.color.uv }}>{String.fromCharCode(65 + index)}</span>}
+              {option.emoji ? <Emoji size={50}>{option.emoji}</Emoji> : <span style={{ font: `700 36px/1 ${hud.font.display}`, color: hud.color.accent }}>{String.fromCharCode(65 + index)}</span>}
               {option.label}
             </div>
           ))}
@@ -44,7 +44,7 @@ export const QuestionScene: React.FC<SceneProps<"question">> = ({ scene, content
           <Emoji size={46}>💬</Emoji>
           {content.replyHint}
         </ActionButton>
-      </GlassCard>
+      </Panel>
     </Stage>
   );
 };

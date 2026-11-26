@@ -1,7 +1,7 @@
 import { useCurrentFrame, useVideoConfig } from "remotion";
-import { pulso } from "../../tokens.js";
+import { hud } from "../../tokens.js";
 import { msToFrame, progressFrom, rise } from "../motion.js";
-import { EmojiBadge, GlassCard } from "../ui.js";
+import { EmojiBadge, Panel } from "../ui.js";
 import { Stage, type SceneProps } from "./shared.js";
 
 function formatNumber(value: number, decimals: number): string {
@@ -20,18 +20,18 @@ export const StatScene: React.FC<SceneProps<"stat">> = ({ scene, content, layout
   const circumference = 2 * Math.PI * radius;
   return (
     <Stage layout={layout} style={{ alignItems: "center" }}>
-      <GlassCard style={{ alignItems: "center", textAlign: "center", width: "100%", maxWidth: 1100 }}>
+      <Panel style={{ alignItems: "center", textAlign: "center", width: "100%", maxWidth: 1100 }}>
         {content.emoji ? <EmojiBadge emoji={content.emoji} size={140} style={rise(frame, 0, fps)} /> : null}
         <div style={{ position: "relative", display: "grid", placeItems: "center", minHeight: ring === undefined ? undefined : radius * 2 + 40 }}>
           {ring === undefined ? null : (
             <svg width={radius * 2 + 40} height={radius * 2 + 40} style={{ position: "absolute" }} aria-hidden="true">
-              <circle cx={radius + 20} cy={radius + 20} r={radius} fill="none" stroke={pulso.color.uvMist} strokeWidth={26} />
+              <circle cx={radius + 20} cy={radius + 20} r={radius} fill="none" stroke={hud.color.accentSoft} strokeWidth={26} />
               <circle
                 cx={radius + 20}
                 cy={radius + 20}
                 r={radius}
                 fill="none"
-                stroke={pulso.color.uv}
+                stroke={hud.color.accent}
                 strokeWidth={26}
                 strokeLinecap="round"
                 strokeDasharray={circumference}
@@ -40,11 +40,11 @@ export const StatScene: React.FC<SceneProps<"stat">> = ({ scene, content, layout
               />
             </svg>
           )}
-          <p style={{ position: "relative", margin: 0, font: `700 ${ring === undefined ? size : Math.min(size, 150)}px/1 ${pulso.font.display}`, letterSpacing: "-0.04em", color: pulso.color.uv, fontVariantNumeric: "tabular-nums" }}>{text}</p>
+          <p style={{ position: "relative", margin: 0, font: `700 ${ring === undefined ? size : Math.min(size, 150)}px/1 ${hud.font.display}`, letterSpacing: "-0.04em", color: hud.color.accent, fontVariantNumeric: "tabular-nums" }}>{text}</p>
         </div>
-        <p style={{ margin: 0, font: `700 54px/1.1 ${pulso.font.display}`, letterSpacing: "-0.02em", color: pulso.color.ink, textWrap: "balance", ...rise(frame, start + 10, fps) }}>{content.label}</p>
-        {content.context ? <p style={{ margin: 0, font: `400 36px/1.4 ${pulso.font.text}`, color: pulso.color.muted, ...rise(frame, start + 18, fps) }}>{content.context}</p> : null}
-      </GlassCard>
+        <p style={{ margin: 0, font: `700 54px/1.1 ${hud.font.display}`, letterSpacing: "-0.02em", color: hud.color.text, textWrap: "balance", ...rise(frame, start + 10, fps) }}>{content.label}</p>
+        {content.context ? <p style={{ margin: 0, font: `400 36px/1.4 ${hud.font.text}`, color: hud.color.muted, ...rise(frame, start + 18, fps) }}>{content.context}</p> : null}
+      </Panel>
     </Stage>
   );
 };
