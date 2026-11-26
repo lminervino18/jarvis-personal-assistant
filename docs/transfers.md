@@ -22,11 +22,12 @@ Uploads are resumable (tus, 4 MB chunks, so a slow mobile connection fits Caddy'
 
 - Transferencias shows photos and videos as thumbnails, made once by ffmpeg (480 px, and 1600 px for the viewer). Music gets an icon and plays in the viewer; GIFs animate. Any other type shows its extension and downloads as is.
 - Each thumbnail has its own buttons:
-  - download: downloads the original without opening the file;
+  - download: downloads the original without opening the file. On a phone it is a share button instead: it brings the original and opens the share sheet («Guardar video», «Guardar en Archivos»), because an installed web app on iOS cannot download;
   - delete: the first tap asks «¿Borrar?», the second deletes.
 - In the viewer, a photo always fits the screen. «Ampliar», a double tap or a double click zooms it: a tall image fills the width and scrolls from the top, other photos grow up to three times. On a computer the arrows sit in the side margins, on a phone in the top bar, so they never cover the photo.
 - Videos play from the original by ranges, so only what is watched is downloaded.
-- «Bajar original» downloads the exact bytes.
+- «Bajar original» downloads the exact bytes; on a phone it is «Guardar o compartir», with the same share sheet.
+- «Convertir a» in the viewer makes an MP3 of a video or song, or an iPhone version of a video, as a new file next to it. Details in `docs/media-downloads.md`.
 - A share link (`/bajar/<token>`) lets anyone download one file while it exists.
 - An upload from a computer or through a link notifies the phone: a push and a chat line, at most one per sender every two minutes. The notification opens `/transferencias`.
 
