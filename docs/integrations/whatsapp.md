@@ -127,5 +127,10 @@ Jarvis introduces itself only the first time it talks to a chat with its own voi
   - The answer always goes as a voice note in JARVIS's voice (`VoiceNoteMaker`, the same one `whatsapp_voice_note` uses). It quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
   - Without the ElevenLabs voice, or when it fails, the answer goes as text starting with 🤖. Jarvis never answers a message that starts with 🤖.
   - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
-  - Limits, so a chat cannot burn the owner's quota: one answer every 15 seconds, 5 every 30 minutes per chat (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), 60 a day in all. A call beyond the limit goes unanswered.
+  - Limits, so nobody burns the owner's quota. A call beyond them goes unanswered.
+    - 5 answers every 30 minutes per person (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), adding up their private chat and every group. The owner has no per-person limit.
+    - 15 answers every 30 minutes per chat.
+    - One answer every 15 seconds in a chat.
+    - 60 answers a day in all.
+  - **One person in every chat:** groups often show a hidden id (`…@lid`) instead of the phone number. The bridge learns which number is behind each hidden id when WhatsApp sends both, in a message key or a contact, and keeps it in `wa_lid_map`. The «abajo» alerts use it too, to name the person.
   - `WHATSAPP_AUTO_REPLY=off` in `jarvis.env` turns the answers off; the alerts stay.
