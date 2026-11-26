@@ -1469,6 +1469,13 @@ button {
   font-size: 15px;
 }
 
+.chat-earlier {
+  justify-self: center;
+  margin-top: 20px;
+  color: var(--secondary);
+  pointer-events: auto;
+}
+
 .call-button:disabled {
   opacity: 0.4;
   cursor: default;

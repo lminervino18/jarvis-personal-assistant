@@ -2,6 +2,7 @@ const SHELL_CACHE = "jarvis-shell-v2";
 const ASSET_CACHE = "jarvis-assets-v2";
 const SHELL_URLS = ["/", "/manifest.webmanifest", "/favicon.svg", "/icon-192.png"];
 const DEFAULT_TITLE = "J.A.R.V.IS";
+const FROM_NOTIFICATION = "aviso";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_URLS)).then(() => self.skipWaiting()));
@@ -94,7 +95,9 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
-      return open ? open.focus() : self.clients.openWindow(target);
+      if (!open) return self.clients.openWindow(`${target.split("#")[0]}#${FROM_NOTIFICATION}`);
+      open.postMessage({ type: FROM_NOTIFICATION });
+      return open.focus();
     }),
   );
 });

@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import { uploadChatAttachment } from "../attachments/upload.js";
 import type { Session, SessionSnapshot } from "../conversation/session.js";
+import { useFreshStart } from "../hooks.js";
 import { Composer } from "./Composer.js";
 import { Thread } from "./Thread.js";
 
@@ -44,15 +45,23 @@ interface Props {
 export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active = true }: Props) {
   const online = snapshot.connection === "ready";
   const { thread } = snapshot;
-  const empty = thread.messages.length === 0 && !thread.hasMore && !thread.transcript;
+  const fresh = useFreshStart(snapshot.callActive || snapshot.busy);
+  const since = fresh.since;
+  const earlier = since === null ? 0 : thread.messages.filter((message) => Date.parse(message.at) <= since).length;
+  const empty = thread.messages.length === earlier && !thread.transcript && (earlier > 0 || !thread.hasMore);
 
   return (
     <div className="chat" hidden={hidden}>
-      <Thread thread={thread} actions={session} onLoadOlder={() => session.loadOlder()} />
+      <Thread thread={thread} actions={session} since={since} earlier={earlier} onReveal={fresh.reveal} onLoadOlder={() => session.loadOlder()} />
       {empty && (
         <section className="chat-empty" aria-label="Inicio">
           <h2>{snapshot.ownerName ? `Hola, ${snapshot.ownerName}` : "Hola"}</h2>
           <p>Escribime, dictame o llamame.</p>
+          {earlier > 0 && (
+            <button type="button" className="button chat-earlier" onClick={fresh.reveal}>
+              Ver conversación anterior
+            </button>
+          )}
         </section>
       )}
       <div className="dock" ref={dock}>

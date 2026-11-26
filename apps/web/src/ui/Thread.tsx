@@ -46,13 +46,19 @@ function InstallHint() {
 interface Props {
   thread: ThreadState;
   actions: CardActions;
+  /** Only messages after this moment are shown until the owner reveals the rest; null shows all. */
+  since: number | null;
+  /** How many messages are kept behind «Ver conversación anterior». */
+  earlier: number;
+  onReveal(): void;
   onLoadOlder(): void;
 }
 
-export function Thread({ thread, actions, onLoadOlder }: Props) {
+export function Thread({ thread, actions, since, earlier, onReveal, onLoadOlder }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
-  const messages = useMemo(() => threadView(thread.messages), [thread.messages]);
+  const all = useMemo(() => threadView(thread.messages), [thread.messages]);
+  const messages = useMemo(() => (since === null ? all : all.filter((message) => Date.parse(message.at) > since)), [all, since]);
   const stick = useStickToBottom(scroller, content);
   const first = messages[0]?.id;
   const last = messages.at(-1);
@@ -69,7 +75,12 @@ export function Thread({ thread, actions, onLoadOlder }: Props) {
     <>
       <div className="thread" ref={scroller} role="region" aria-label="Conversación" tabIndex={0}>
         <div ref={content}>
-          {thread.hasMore && (
+          {earlier > 0 && messages.length > 0 && (
+            <button type="button" className="button older" onClick={onReveal}>
+              Ver conversación anterior
+            </button>
+          )}
+          {earlier === 0 && thread.hasMore && (
             <button type="button" className="button older" disabled={thread.loadingOlder} onClick={onLoadOlder}>
               {thread.loadingOlder ? "Cargando" : "Ver mensajes anteriores"}
             </button>

@@ -168,6 +168,55 @@ export function useStickToBottom(container: RefObject<HTMLElement | null>, conte
   return { away, toEnd, keepPosition };
 }
 
+const FRESH_AFTER_MS = 10 * 60_000;
+const NOTIFICATION_GRACE_MS = 5000;
+/** What the service worker says, in the URL or a message, when a notification opened the app. */
+const FROM_NOTIFICATION = "aviso";
+
+/**
+ * Whether coming back to the app starts on the greeting again: after a while away, unless a
+ * notification just brought the owner back to read it, or a call is going on.
+ */
+export function startsFresh(hiddenAt: number, now: number, notifiedAt: number, busy: boolean): boolean {
+  return !busy && hiddenAt > 0 && now - hiddenAt >= FRESH_AFTER_MS && now - notifiedAt > NOTIFICATION_GRACE_MS;
+}
+
+export interface FreshStart {
+  /** Messages from before this moment stay behind «Ver conversación anterior»; null shows them all. */
+  since: number | null;
+  reveal(): void;
+}
+
+/** Opening the app starts on the greeting; the conversation so far is one tap away. */
+export function useFreshStart(busy: boolean): FreshStart {
+  const [since, setSince] = useState<number | null>(() => (window.location.hash === `#${FROM_NOTIFICATION}` ? null : Date.now()));
+  const holding = useRef(busy);
+  holding.current = busy;
+
+  useEffect(() => {
+    if (window.location.hash === `#${FROM_NOTIFICATION}`) history.replaceState(null, "", window.location.pathname + window.location.search);
+    let hiddenAt = 0;
+    let notifiedAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") hiddenAt = Date.now();
+      else if (startsFresh(hiddenAt, Date.now(), notifiedAt, holding.current)) setSince(Date.now());
+    };
+    const onMessage = (event: MessageEvent) => {
+      if ((event.data as { type?: unknown } | null)?.type !== FROM_NOTIFICATION) return;
+      notifiedAt = Date.now();
+      setSince(null);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      navigator.serviceWorker?.removeEventListener("message", onMessage);
+    };
+  }, []);
+
+  return { since, reveal: () => setSince(null) };
+}
+
 /** Text of the assistant reply that just finished streaming, for the polite live region. */
 export function useAssistantAnnouncement(messages: ThreadMessage[]): string {
   const streaming = useRef(new Set<string>());

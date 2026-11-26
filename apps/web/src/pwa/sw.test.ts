@@ -8,7 +8,8 @@ function loadServiceWorker() {
   const shown: { title: string; options: Record<string, unknown> }[] = [];
   const opened: string[] = [];
   const focused: string[] = [];
-  let windows: { url: string; focus(): Promise<void> }[] = [];
+  const posted: unknown[] = [];
+  let windows: { url: string; focus(): Promise<void>; postMessage(message: unknown): void }[] = [];
   const self = {
     location: { origin: "https://jarvis.example" },
     addEventListener: (type: string, listener: Listener) => void listeners.set(type, listener),
@@ -30,8 +31,9 @@ function loadServiceWorker() {
     shown,
     opened,
     focused,
+    posted,
     dispatch,
-    setWindows: (urls: string[]) => void (windows = urls.map((url) => ({ url, focus: async () => void focused.push(url) }))),
+    setWindows: (urls: string[]) => void (windows = urls.map((url) => ({ url, focus: async () => void focused.push(url), postMessage: (message: unknown) => void posted.push(message) }))),
   };
 }
 
@@ -55,16 +57,17 @@ describe("service worker", () => {
     expect(sw.shown[1]?.options).not.toHaveProperty("tag");
   });
 
-  it("focuses the open window on click and opens the app when none is open", async () => {
+  it("focuses the open window on click and opens the app when none is open, telling it a notification opened it", async () => {
     const sw = loadServiceWorker();
     const closed: boolean[] = [];
     const click = { notification: { close: () => closed.push(true), data: { url: "/" } } };
     sw.setWindows(["https://jarvis.example/"]);
     await sw.dispatch("notificationclick", click);
     expect(sw.focused).toEqual(["https://jarvis.example/"]);
+    expect(sw.posted).toEqual([{ type: "aviso" }]);
     sw.setWindows([]);
     await sw.dispatch("notificationclick", click);
-    expect(sw.opened).toEqual(["/"]);
+    expect(sw.opened).toEqual(["/#aviso"]);
     expect(closed).toHaveLength(2);
   });
 });
