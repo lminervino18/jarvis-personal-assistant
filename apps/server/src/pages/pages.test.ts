@@ -79,7 +79,7 @@ describe("pages", () => {
 
     release();
     await service.settled();
-    expect(runtime.completions[0]?.system).toContain("Pulso");
+    expect(runtime.completions[0]?.system).toContain("JARVIS HUD");
     expect(runtime.completions[0]?.prompt).toContain("Invitá a seis amigos");
     const ready = await server.inject({ method: "GET", url: `/${created.slug}` });
     expect(ready.statusCode).toBe(200);

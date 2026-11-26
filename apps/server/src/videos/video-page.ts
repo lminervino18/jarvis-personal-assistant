@@ -1,4 +1,4 @@
-import { REFERENCE_CSS } from "../pages/design-guide.js";
+import { CORE, REFERENCE_CSS } from "../pages/design-guide.js";
 import type { VideoVersion } from "./video-store.js";
 
 function escape(text: string): string {
@@ -54,19 +54,19 @@ export function videoPageHtml(version: VideoVersion, owner: string, files: { vid
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
 <style>
 ${REFERENCE_CSS}
-body { background: radial-gradient(120% 60% at 10% 0%, var(--uv-mist), var(--white) 60%); }
-video { display: block; width: 100%; ${vertical ? "max-height: 72svh; aspect-ratio: 9 / 16;" : "aspect-ratio: 16 / 9;"} object-fit: contain; border-radius: 22px; background: var(--uv-mist); }
+video { display: block; width: 100%; ${vertical ? "max-height: 72svh; aspect-ratio: 9 / 16;" : "aspect-ratio: 16 / 9;"} object-fit: contain; border-radius: 22px; background: rgba(2, 10, 16, .8); border: 1px solid var(--line); }
 .lead { margin: 0; color: var(--muted); font-size: 17px; }
 .links { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.links a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; color: var(--uv-deep); font: 500 16px/1.3 var(--display); text-decoration: none; }
+.links a { display: flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 14px; color: var(--accent-strong); font: 500 16px/1.3 var(--display); text-decoration: none; }
 details { border-top: 1px solid var(--line); padding-top: 14px; }
-summary { cursor: pointer; font: 500 16px/1.3 var(--display); color: var(--uv-deep); min-height: 32px; }
+summary { cursor: pointer; font: 500 16px/1.3 var(--display); color: var(--accent-strong); min-height: 32px; }
 details ul { margin: 10px 0 0; padding-left: 20px; color: var(--muted); }
 .foot { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
-[role=status] { margin: 0; color: var(--uv-deep); font-size: 14px; min-height: 1em; }
+[role=status] { margin: 0; color: var(--accent-strong); font-size: 14px; min-height: 1em; }
 </style>
 </head>
 <body>
+${CORE}
 <main class="stage">
 <section class="card">
 <p class="kicker">Jarvis · para ${escape(brief.audience)}</p>
