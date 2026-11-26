@@ -688,7 +688,7 @@ button {
 
 .card-sources {
   display: grid;
-  gap: 8px;
+  gap: 4px;
   margin: 6px 0 0;
   padding: 0;
   list-style: none;
@@ -696,6 +696,10 @@ button {
 
 .card-sources li {
   display: grid;
+}
+
+.card-sources a {
+  padding: 6px 0 2px;
 }
 
 .card-code {
@@ -757,8 +761,17 @@ button {
 .card-table td {
   padding: 8px 10px;
   border-bottom: 0.5px solid var(--separator);
+  overflow-wrap: normal;
   text-align: left;
+  vertical-align: top;
+}
+
+.card-table th {
   white-space: nowrap;
+}
+
+.card-table td {
+  min-width: 12ch;
 }
 
 .card-table th {
@@ -1342,17 +1355,31 @@ button {
 
 .card-attachment.file {
   display: inline-flex;
+  max-width: min(360px, 100%);
+  min-height: 48px;
   overflow-wrap: anywhere;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
   background: var(--fill);
   color: var(--label);
+  font-size: 15px;
+  line-height: 1.3;
   text-decoration: none;
+}
+
+.card-attachment.file svg {
+  flex: none;
+  color: var(--secondary);
 }
 
 .card-attachment.file span {
   min-width: 0;
+}
+
+.card-attachment.file .card-meta {
+  flex: none;
+  white-space: nowrap;
 }
 
 @keyframes spin {
