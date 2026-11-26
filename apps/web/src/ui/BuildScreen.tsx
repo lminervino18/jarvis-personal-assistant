@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CardActions } from "../cards/actions.js";
 import { taskActionsFor } from "../cards/Cards.js";
 import type { BuildTask, Notice, SessionSnapshot } from "../conversation/session.js";
 import { safeHref } from "../format.js";
+import { useDialogFocus } from "../hooks.js";
 import { Composer } from "./Composer.js";
 
 interface Props {
@@ -69,6 +70,9 @@ export function buildLine(task: BuildTask): string {
 export function BuildScreen(props: Props) {
   const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose, embedded } = props;
   const list = useRef<HTMLOListElement>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const dialog = useRef<HTMLElement>(null);
+  useDialogFocus(dialog, !embedded);
   const visible = (tasks ?? []).filter((task) => !task.archived).reverse();
   const asking = [...visible].reverse().find((task) => task.status === "awaiting_owner" && task.blocker?.kind === "question");
 
@@ -92,7 +96,7 @@ export function BuildScreen(props: Props) {
   const send = (value: string): boolean => (asking ? onReply(asking.taskId, value) : onRequest(value));
 
   return (
-    <section className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true })} aria-labelledby="build-title">
+    <section ref={dialog} className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true, tabIndex: -1 })} aria-labelledby="build-title">
       <header className="build-header">
         <div>
           <h2 id="build-title">Construir</h2>
@@ -106,7 +110,7 @@ export function BuildScreen(props: Props) {
       </header>
 
       <div className="build-list">
-        {tasks === null && <p className="build-empty">Cargando…</p>}
+        {tasks === null && <p className="build-empty">{online ? "Cargando…" : "Sin conexión con el servidor. Reintento solo en cuanto vuelva."}</p>}
         {tasks !== null && visible.length === 0 && (
           <p className="build-empty">Contame qué querés que cambie en mí: una herramienta, algo de la pantalla, un modo nuevo. Si algo no me queda claro, te pregunto.</p>
         )}
@@ -138,16 +142,20 @@ export function BuildScreen(props: Props) {
                       </>
                     )}
                   </p>
-                  {taskActionsFor(task).map((button) => (
-                    <button
-                      key={button.action}
-                      type="button"
-                      className="build-action"
-                      onClick={() => actions.taskAction(task.taskId, button.action, button.action === "approve" || button.action === "reject" ? task.blocker?.approvalId : undefined)}
-                    >
-                      {button.label}
-                    </button>
-                  ))}
+                  {sent !== `${task.taskId}:${task.updatedAt}` &&
+                    taskActionsFor(task).map((button) => (
+                      <button
+                        key={button.action}
+                        type="button"
+                        className="build-action"
+                        onClick={() => {
+                          setSent(`${task.taskId}:${task.updatedAt}`);
+                          actions.taskAction(task.taskId, button.action, button.action === "approve" || button.action === "reject" ? task.blocker?.approvalId : undefined);
+                        }}
+                      >
+                        {button.label}
+                      </button>
+                    ))}
                 </div>
               </li>
             );

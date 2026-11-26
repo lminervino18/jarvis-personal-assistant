@@ -1,6 +1,7 @@
 import { fetchEnrollment } from "../voice/enrollment-api.js";
 import { ConnectionsGroup } from "./ConnectionsGroup.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useDialogFocus } from "../hooks.js";
 import type { PushResult } from "../conversation/session.js";
 import { readPushStatus, type PushStatus } from "../pwa/push.js";
 
@@ -17,9 +18,8 @@ interface Props {
 }
 
 function VoiceRow({ onTrain }: { onTrain(): void }) {
-  const [enrolled, setEnrolled] = useState<boolean | null>(null);
-  useEffect(() => void fetchEnrollment().then((state) => setEnrolled(state?.enrolled ?? null)), []);
-  if (enrolled === null) return null;
+  const [enrolled, setEnrolled] = useState(false);
+  useEffect(() => void fetchEnrollment().then((state) => setEnrolled(state?.enrolled === true)), []);
   return (
     <div className="group">
       <div className="row">
@@ -121,8 +121,37 @@ export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onE
   );
 }
 
-/** iOS-style settings sheet for the phone. */
+const DISMISS_PX = 80;
+
+/** iOS-style settings sheet for the phone; dragging its header down closes it, like «Listo». */
 export function SettingsSheet({ onClose, ...settings }: Props & { onClose(): void }) {
+  const sheet = useRef<HTMLElement>(null);
+  const drag = useRef<{ start: number; distance: number } | null>(null);
+  useDialogFocus(sheet);
+
+  const move = (distance: number, animate: boolean) => {
+    const element = sheet.current;
+    if (!element) return;
+    element.style.transition = animate ? "transform 0.2s ease-out" : "none";
+    element.style.transform = distance > 0 ? `translateY(${distance}px)` : "";
+  };
+  const grab = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    drag.current = { start: event.clientY, distance: 0 };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const pull = (event: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    drag.current.distance = Math.max(0, event.clientY - drag.current.start);
+    move(drag.current.distance, false);
+  };
+  const release = () => {
+    const distance = drag.current?.distance ?? 0;
+    drag.current = null;
+    if (distance > DISMISS_PX) return onClose();
+    move(0, true);
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -131,14 +160,16 @@ export function SettingsSheet({ onClose, ...settings }: Props & { onClose(): voi
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <section className="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
-        <span className="sheet-grabber" aria-hidden="true" />
-        <header className="sheet-header">
-          <h2 id="settings-title">Configuración</h2>
-          <button type="button" className="sheet-done" onClick={onClose}>
-            Listo
-          </button>
-        </header>
+      <section ref={sheet} className="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-handle" onPointerDown={grab} onPointerMove={pull} onPointerUp={release} onPointerCancel={release}>
+          <span className="sheet-grabber" aria-hidden="true" />
+          <header className="sheet-header">
+            <h2 id="settings-title">Configuración</h2>
+            <button type="button" className="sheet-done" onClick={onClose}>
+              Listo
+            </button>
+          </header>
+        </div>
         <Settings {...settings} />
       </section>
     </div>

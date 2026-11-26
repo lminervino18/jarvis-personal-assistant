@@ -21,10 +21,11 @@ export async function fetchConnections(): Promise<ConnectionsState | null> {
   }
 }
 
-/** Disconnects a service; a Gmail account is revoked at Google too. */
-export async function disconnect(provider: "github" | "gmail-personal" | "gmail-work"): Promise<void> {
+/** Disconnects a service; a Gmail account is revoked at Google too. Answers whether it worked. */
+export async function disconnect(provider: "github" | "gmail-personal" | "gmail-work"): Promise<boolean> {
   const gmail = provider.startsWith("gmail-");
   const url = gmail ? "/api/integrations/google/revoke" : `/api/integrations/${provider}/disconnect`;
   const body = gmail ? { body: JSON.stringify({ label: provider.slice("gmail-".length) }), headers: { "Content-Type": "application/json" } } : {};
-  await fetch(url, { method: "POST", credentials: "same-origin", ...body }).catch(() => undefined);
+  const response = await fetch(url, { method: "POST", credentials: "same-origin", ...body }).catch(() => null);
+  return response?.ok === true;
 }

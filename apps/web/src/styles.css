@@ -1720,7 +1720,11 @@ button {
 }
 
 .row-link {
-  padding: 0;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
   border: 0;
   background: none;
   color: var(--accent);
@@ -1771,6 +1775,18 @@ button {
 .row-link-danger {
   color: var(--red);
   font-weight: 500;
+}
+
+.row-muted {
+  color: var(--secondary);
+}
+
+.sheet-handle {
+  touch-action: none;
+}
+
+[tabindex="-1"]:focus {
+  outline: none;
 }
 
 .call {
@@ -2012,8 +2028,14 @@ button {
   font-size: 13px;
 }
 
+.build-links a {
+  display: inline-block;
+  padding: 10px 2px;
+  margin: -10px 0;
+}
+
 .build-action {
-  min-height: 32px;
+  min-height: 40px;
   margin-top: 4px;
   padding: 0 14px;
   border: 0.5px solid var(--glass-edge);

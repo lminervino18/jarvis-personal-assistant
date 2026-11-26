@@ -168,6 +168,16 @@ export function useStickToBottom(container: RefObject<HTMLElement | null>, conte
   return { away, toEnd, keepPosition };
 }
 
+/** Moves focus into a dialog when it opens and gives it back to whatever opened it when it closes. */
+export function useDialogFocus(dialog: RefObject<HTMLElement | null>, enabled = true): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialog.current?.focus({ preventScroll: true });
+    return () => opener?.focus({ preventScroll: true });
+  }, [dialog, enabled]);
+}
+
 const FRESH_AFTER_MS = 10 * 60_000;
 const NOTIFICATION_GRACE_MS = 5000;
 /** What the service worker says, in the URL or a message, when a notification opened the app. */

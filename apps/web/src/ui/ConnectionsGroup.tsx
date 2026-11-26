@@ -37,13 +37,17 @@ function ConnectLink({ href }: { href: string }) {
   );
 }
 
-function DisconnectButton({ onClick }: { onClick(): void }) {
+function DisconnectButton({ step, onClick }: { step: "idle" | "armed" | "busy"; onClick(): void }) {
   return (
-    <button type="button" className="row-link row-link-danger" onClick={onClick}>
-      Desconectar
+    <button type="button" className="row-link row-link-danger" disabled={step === "busy"} onClick={onClick}>
+      {step === "busy" ? "Desconectando…" : step === "armed" ? "Confirmar" : "Desconectar"}
     </button>
   );
 }
+
+type Provider = "github" | "gmail-personal" | "gmail-work";
+
+const ARMED_MS = 4000;
 
 const whatsappLabels: Record<string, string> = {
   connected: "Conectado",
@@ -55,17 +59,52 @@ const whatsappLabels: Record<string, string> = {
 
 /** One line per service: whether it is connected, and connect or disconnect right there. */
 export function ConnectionsGroup() {
-  const [state, setState] = useState<ConnectionsState | null>(null);
+  const [state, setState] = useState<ConnectionsState | "loading" | "failed">("loading");
+  const [armed, setArmed] = useState<Provider | null>(null);
+  const [busy, setBusy] = useState<Provider | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => void fetchConnections().then(setState);
+  const refresh = () => void fetchConnections().then((next) => setState(next ?? "failed"));
   useEffect(refresh, []);
 
-  const remove = async (provider: "github" | "gmail-personal" | "gmail-work") => {
-    await disconnect(provider);
+  useEffect(() => {
+    if (!armed) return;
+    const timer = setTimeout(() => setArmed(null), ARMED_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
+  const remove = async (provider: Provider) => {
+    if (busy) return;
+    if (armed !== provider) return setArmed(provider);
+    setArmed(null);
+    setBusy(provider);
+    setError(null);
+    const done = await disconnect(provider);
+    setBusy(null);
+    if (!done) setError("No pude desconectarla. Probá de nuevo.");
     refresh();
   };
+  const step = (provider: Provider) => (busy === provider ? "busy" : armed === provider ? "armed" : "idle");
 
-  if (!state) return null;
+  if (state === "loading") {
+    return (
+      <div className="group">
+        <p className="row row-muted">Cargando conexiones…</p>
+      </div>
+    );
+  }
+  if (state === "failed") {
+    return (
+      <div className="group">
+        <div className="row">
+          <span className="row-muted">No pude ver las conexiones.</span>
+          <button type="button" className="row-link" onClick={() => (setState("loading"), refresh())}>
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
   const { whatsapp, gmail, github } = state;
 
   return (
@@ -81,7 +120,7 @@ export function ConnectionsGroup() {
           const connected = account?.status === "connected";
           return (
             <ConnectionRow key={label} name={name} logo="gmail" account={account?.email} connected={connected}>
-              {connected ? <DisconnectButton onClick={() => void remove(`gmail-${label}`)} /> : <ConnectLink href={gmailConnectUrl(label)} />}
+              {connected ? <DisconnectButton step={step(`gmail-${label}`)} onClick={() => void remove(`gmail-${label}`)} /> : <ConnectLink href={gmailConnectUrl(label)} />}
             </ConnectionRow>
           );
         })}
@@ -97,13 +136,13 @@ export function ConnectionsGroup() {
       })()}
 
       <ConnectionRow name="GitHub" logo="github" account={github.account} connected={Boolean(github.account)}>
-        {github.account ? <DisconnectButton onClick={() => void remove("github")} /> : github.available && <ConnectLink href={GITHUB_CONNECT_URL} />}
+        {github.account ? <DisconnectButton step={step("github")} onClick={() => void remove("github")} /> : github.available && <ConnectLink href={GITHUB_CONNECT_URL} />}
       </ConnectionRow>
 
       <p className="group-footer" role="status">
-        {whatsapp && whatsapp.status !== "connected"
+        {error ?? (armed ? "Tocá «Confirmar» para desconectarla. Después hay que volver a conectarla." : null) ?? (whatsapp && whatsapp.status !== "connected"
           ? whatsapp.detail
-          : "Jarvis usa estas cuentas solo para lo que le pedís."}
+          : "Jarvis usa estas cuentas solo para lo que le pedís.")}
       </p>
     </div>
   );
