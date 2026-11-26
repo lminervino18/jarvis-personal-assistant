@@ -20,6 +20,7 @@ import { MediaDownloader } from "./downloads/media-downloader.js";
 import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
+import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
 import { TransferSender } from "./transfers/transfer-delivery.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
@@ -250,6 +251,16 @@ if (media && runtime.complete) {
     }),
   );
 }
+const watcher = new WhatsAppWatcher({
+  db,
+  ownerName: config.ownerDisplayName,
+  ...(runtime.complete && process.env.WHATSAPP_AUTO_REPLY !== "off"
+    ? { reply: sarcasticReplier({ complete: runtime.complete.bind(runtime), model: config.claude.model, ownerName: config.ownerDisplayName }) }
+    : {}),
+});
+setInterval(() => {
+  watcher.tick().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "whatsapp watch failed"));
+}, 4000).unref();
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {

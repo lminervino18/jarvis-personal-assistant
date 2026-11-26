@@ -109,3 +109,18 @@ Details:
 - It goes out directly when the owner asks clearly, or after the confirmation card when the turn read third-party content. The audio is only made at that point.
 - `voice/voice-note.ts` narrates with the call voice and effect through the same `Narrator` as the videos (ElevenLabs `/with-timestamps`, cached under `DATA_DIR/voice-notes/cache`). ffmpeg then encodes it as mono Opus at 48 kHz in Ogg, saved as an attachment of type `audio/ogg; codecs=opus`.
 - The outbox entry has no text, so the bridge sends only the audio with `ptt: true`. Baileys computes the duration with `music-metadata`.
+
+## «Abajo» alerts and @jarvis
+
+`WhatsAppWatcher` (`apps/server/src/integrations/whatsapp/watcher.ts`) runs in the server every 4 seconds. It reads the messages the bridge stored since its last look; its cursor lives in `wa_watch_state`, and the first look ever starts from now. Messages older than 10 minutes, such as history syncs, are skipped. It only watches private chats and the groups where the owner wrote in the last 30 days.
+
+- **«Abajo»:**
+  - Detection uses rules, with no model and no tokens. The text is lowercased, without accents and with repeated letters collapsed; then a word within one letter of «abajo» counts («ABAJOOO», «abajao», «abjo», «abaj»).
+  - It only alerts on a message of up to six words, or one with an arrival phrase («estoy abajo», «te espero abajo»), so «mirá el link de abajo» stays quiet.
+  - The push says who («Marti está abajo», plus the group when it comes from one), at most once per person every 10 minutes.
+- **@jarvis:**
+  - Anyone in a watched chat, the owner included, can call Jarvis with «@jarvis».
+  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and answers in it, short and sarcastic. The answer starts with 🤖, and Jarvis never answers a message that starts with it.
+  - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
+  - Limits: one answer every 15 seconds and 20 a day per chat, 60 a day in all.
+  - `WHATSAPP_AUTO_REPLY=off` in `jarvis.env` turns the answers off; the alerts stay.
