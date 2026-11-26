@@ -263,6 +263,8 @@ export class Session {
     if (this.callMuted) {
       this.callMuted = false;
       await this.openMicrophone(CALL_LISTEN_MS);
+      if (!this.micOpen) this.callMuted = true;
+      this.emit();
       return;
     }
     this.callMuted = true;

@@ -557,4 +557,15 @@ describe("speaker, voice notes and calls", () => {
     session.endCall();
     expect(session.getSnapshot()).toMatchObject({ callActive: false, micOpen: false });
   });
+
+  it("stays muted when the microphone cannot open again, so the button matches the real microphone", async () => {
+    const { session, connect, engine } = setup();
+    connect(true);
+    await session.startCall();
+    await session.toggleCallMute();
+    engine().micError = new MicError("denied");
+    await session.toggleCallMute();
+    expect(session.getSnapshot()).toMatchObject({ callActive: true, callMuted: true, micOpen: false });
+    expect(session.getSnapshot().notice?.level).toBe("warning");
+  });
 });
