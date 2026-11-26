@@ -3,7 +3,8 @@ import { Upload, type DetailedError } from "tus-js-client";
 const ENDPOINT = "/api/transfers/uploads";
 /** Fired on window when one of the owner's uploads finished, so an open Transferencias can refresh. */
 export const TRANSFER_ARRIVED = "jarvis:transfer-arrived";
-const CHUNK_BYTES = 16 * 1024 * 1024;
+/** Small enough for a slow mobile connection to send each chunk well within the proxy's 3-minute body timeout. */
+const CHUNK_BYTES = 4 * 1024 * 1024;
 const RETRY_DELAYS = [0, 1000, 3000, 5000, 10_000, 20_000, 30_000];
 
 export type UploadStatus = "uploading" | "done" | "failed";

@@ -13,7 +13,7 @@ Status: *implemented* and *tested with fixtures*. A real end-to-end run in Chrom
   - Files can be dropped on the page.
 - **Someone else:** an upload link (`/subir/<token>`) created from Transferencias or by Jarvis (`transfer_upload_link`). It is a page with no account and lasts 24 hours.
 
-Uploads are resumable (tus, 16 MB chunks):
+Uploads are resumable (tus, 4 MB chunks, so a slow mobile connection fits Caddy's 3-minute body timeout):
 - a dropped connection or a minimized app resumes on its own;
 - choosing the same file again after a reload continues where it stopped;
 - closing the page stops the upload, because no web page can upload after it is closed.
