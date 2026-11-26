@@ -51,7 +51,7 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
   const empty = thread.messages.length === earlier && !thread.transcript && (earlier > 0 || !thread.hasMore);
 
   return (
-    <div className="chat" hidden={hidden}>
+    <div className="chat" hidden={hidden} inert={!active}>
       <Thread
         thread={thread}
         actions={session}
