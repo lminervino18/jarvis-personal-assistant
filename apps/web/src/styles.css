@@ -679,6 +679,10 @@ button {
   max-width: 280px;
 }
 
+.video-player > .card-meta {
+  padding: 14px 16px;
+}
+
 .card-actions {
   display: flex;
   flex-wrap: wrap;

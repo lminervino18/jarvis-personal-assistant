@@ -29,13 +29,24 @@ function megabytes(bytes: number): string {
   return `${(bytes / 1048576).toLocaleString("es-AR", { maximumFractionDigits: 1 })} MB`;
 }
 
-async function share(card: VideoCardData): Promise<void> {
+/** Opens the system share sheet with the MP4; answers an error to show, or null when it worked or was cancelled. */
+async function share(card: VideoCardData): Promise<string | null> {
   const file = card.files.light ?? card.files.full;
-  if (!file) return;
-  const blob = await (await fetch(`/api/attachments/${file.attachmentId}`)).blob();
-  const shared = new File([blob], `${card.title}.mp4`, { type: "video/mp4" });
-  if (navigator.canShare?.({ files: [shared] })) await navigator.share({ files: [shared], title: card.title });
-  else window.open(`/api/attachments/${file.attachmentId}`, "_blank", "noopener");
+  if (!file) return null;
+  try {
+    const response = await fetch(`/api/attachments/${file.attachmentId}`);
+    if (!response.ok) return "No pude preparar el video para compartir. Probá de nuevo.";
+    const shared = new File([await response.blob()], `${card.title}.mp4`, { type: "video/mp4" });
+    if (!navigator.canShare?.({ files: [shared] })) {
+      window.open(`/api/attachments/${file.attachmentId}`, "_blank", "noopener");
+      return null;
+    }
+    await navigator.share({ files: [shared], title: card.title });
+    return null;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return null;
+    return "No se abrió el menú para compartir. Bajalo con «Bajar» y mandalo desde ahí.";
+  }
 }
 
 /** A video JARVIS is making: live progress, an animated preview while it renders, then the real MP4 to watch, download or share. */
@@ -45,6 +56,9 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
   const [previewing, setPreviewing] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const working = WORKING.has(card.status);
   const awaitingSend = card.send?.status === "pending";
 
@@ -63,10 +77,18 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
 
   const openPreview = () => {
     setPreviewing(true);
+    setPreviewFailed(false);
     fetch(`/api/videos/${card.videoId}/v/${card.version}/timeline`)
       .then((response) => (response.ok ? (response.json() as Promise<VideoTimeline>) : null))
-      .then(setTimeline)
-      .catch(() => setTimeline(null));
+      .then((next) => (next ? setTimeline(next) : setPreviewFailed(true)))
+      .catch(() => setPreviewFailed(true));
+  };
+
+  const shareNow = async () => {
+    setSharing(true);
+    setProblem(null);
+    setProblem(await share(card));
+    setSharing(false);
   };
 
   const sendNow = async () => {
@@ -116,6 +138,7 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
           controls
           playsInline
           preload="metadata"
+          onError={() => setProblem("No pude cargar el video acá. Probá bajarlo con «Bajar».")}
         />
       ) : previewing ? (
         <div className="video-player" data-vertical={vertical}>
@@ -123,6 +146,13 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
             <Suspense fallback={<p className="card-meta">Cargando vista previa…</p>}>
               <VideoPreview timeline={timeline} />
             </Suspense>
+          ) : previewFailed ? (
+            <p className="card-meta">
+              No pude cargar la vista previa.{" "}
+              <button type="button" className="row-link" onClick={openPreview}>
+                Reintentar
+              </button>
+            </p>
           ) : (
             <p className="card-meta">Cargando vista previa…</p>
           )}
@@ -146,6 +176,11 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
           {(sendError ?? (send.status === "failed" ? send.error : undefined)) && <p className="card-meta">{sendError ?? send.error}</p>}
         </div>
       )}
+      {problem && (
+        <p className="card-meta" role="alert">
+          {problem}
+        </p>
+      )}
       <div className="card-actions">
         {working && !previewing && (card.status === "render" || card.status === "verify") && (
           <button type="button" className="button" onClick={openPreview}>
@@ -154,8 +189,8 @@ export function VideoCard({ card: initial }: { card: VideoCardData }) {
         )}
         {card.status === "ready" && full && (
           <>
-            <button type="button" className="button primary" onClick={() => void share(card).catch(() => undefined)}>
-              Compartir
+            <button type="button" className="button primary" disabled={sharing} onClick={() => void shareNow()}>
+              {sharing ? "Preparando…" : "Compartir"}
             </button>
             <a className="button" href={`/api/attachments/${full.attachmentId}`} download>
               Bajar ({megabytes(full.size)})
