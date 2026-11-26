@@ -5,6 +5,8 @@ export interface ScriptedReply {
   text?: string;
   error?: Extract<RuntimeEvent, { type: "error" }>;
   chunkDelayMs?: number;
+  /** Runtime events (tool calls, for instance) that come before the text. */
+  events?: RuntimeEvent[];
   usage?: Partial<RuntimeUsage>;
 }
 
@@ -36,7 +38,11 @@ export class ScriptedRuntime implements ModelRuntime {
       yield { ...reply.error, sessionId };
       return;
     }
-    const words = (reply.text ?? "").split(/(?<=\s)/);
+    for (const event of reply.events ?? []) {
+      if (reply.chunkDelayMs) await new Promise((resolve) => setTimeout(resolve, reply.chunkDelayMs));
+      yield event;
+    }
+    const words =(reply.text ?? "").split(/(?<=\s)/);
     let text = "";
     for (const word of words) {
       if (input.signal.aborted) {

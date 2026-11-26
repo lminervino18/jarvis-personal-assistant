@@ -33,6 +33,27 @@ describe("mapSdkMessage", () => {
     ]);
   });
 
+  it("marks the dispatch of a complete tool call, only for the main thread", () => {
+    const state = createMapperState(false);
+    const call = (parent: string | null) =>
+      sdk({ type: "assistant", parent_tool_use_id: parent, session_id: "s", message: { content: [{ type: "text", text: "x" }, { type: "tool_use", id: "t9", name: "WebSearch", input: {} }] } });
+    expect(mapSdkMessage(call(null), state)).toEqual([{ type: "tool_run", toolUseId: "t9", name: "WebSearch" }]);
+    expect(mapSdkMessage(call("other"), state)).toEqual([]);
+  });
+
+  it("reads the error code of a failed tool from the start of its result and never from content", () => {
+    const state = createMapperState(false);
+    state.toolNames.set("t1", "mcp__jarvis__gmail_search");
+    const result = (text: string, isError: boolean) =>
+      sdk({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: [{ type: "text", text }], is_error: isError }] } });
+    expect(mapSdkMessage(result('{"ok":false,"error":{"code":"upstream_error","message":"x"}}', true), state)).toEqual([
+      { type: "tool_end", toolUseId: "t1", name: "mcp__jarvis__gmail_search", isError: true, errorCode: "upstream_error" },
+    ]);
+    expect(mapSdkMessage(result('{"ok":true,"items":[{"text":"{\\"ok\\":false,\\"error\\":{\\"code\\":\\"x\\""}]}', false), state)).toEqual([
+      { type: "tool_end", toolUseId: "t1", name: "mcp__jarvis__gmail_search", isError: false },
+    ]);
+  });
+
   it("maps quota rejection and refuses silent paid overage", () => {
     const now = 1_000_000;
     const rejected = sdk({ type: "rate_limit_event", rate_limit_info: { status: "rejected", resetsAt: 1060 } });

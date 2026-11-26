@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Card, ErrorCode, HistoryItem, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
+import type { ActivityEvent, Card, ErrorCode, HistoryItem, ModelRuntime, OutgoingServerMessage, ReplyMode, RuntimeErrorCode, RuntimeFile, RuntimeUsage, TurnStatus } from "@jarvis/contracts";
 import type { Attachment } from "../attachments/attachment-store.js";
 import type { TurnToolset } from "../runtime/claude-runtime.js";
 import { createTurnToolServer, qualifiedToolName } from "../tools/mcp-server.js";
@@ -7,6 +7,7 @@ import { decidePendingAction, type PendingActionOutcome } from "../tools/runner.
 import type { AnyToolDefinition, ToolContext, ToolServices, TurnSecurityState } from "../tools/types.js";
 import type { ReplySpeaker } from "../voice/types.js";
 import type { ConversationStore, PendingMessage } from "./conversation-store.js";
+import { TurnActivity } from "./turn-activity.js";
 import type { ConversationHub } from "./hub.js";
 import { confirmQuestion, spokenDecision, type ConfirmCardView, type SpokenDecision } from "./spoken-decision.js";
 import type { TurnToolRegistry } from "./turn-tool-registry.js";
@@ -67,6 +68,7 @@ interface ActiveTurn {
   replying?: boolean;
   /** The model is still writing this turn (its session on disk is not final yet). */
   generating?: boolean;
+  activity?: TurnActivity;
 }
 
 interface TurnOutcome {
@@ -188,6 +190,11 @@ export class ConversationOrchestrator {
     return this.active.get(conversationId)?.turnId;
   }
 
+  /** The tool executions still in progress in the conversation's running turn, for a client that attaches meanwhile. */
+  openActivity(conversationId: string): ActivityEvent[] {
+    return this.active.get(conversationId)?.activity?.open() ?? [];
+  }
+
   /** The turn still working for a conversation, unless it was already cancelled, and whether its reply started. */
   runningTurn(conversationId: string): { turnId: string; replying: boolean } | undefined {
     const active = this.active.get(conversationId);
@@ -216,6 +223,7 @@ export class ConversationOrchestrator {
         this.deps.log.error({ turnId: input.turnId, err: error instanceof Error ? error.message : "unknown" }, "turn crashed");
       })
       .finally(() => {
+        active.activity?.settle("failed");
         this.discardPrepared(input.turnId);
         this.byTurn.delete(input.turnId);
         if (this.active.get(conversationId) === active) this.active.delete(conversationId);
@@ -633,15 +641,17 @@ export class ConversationOrchestrator {
     };
     emit({ type: "state", state: "thinking", turnId });
 
+    const activity = new TurnActivity({ conversationId, turnId, send: (event) => emit({ type: "activity", ...event }) });
+    active.activity = activity;
     let outcome: TurnOutcome;
     active.generating = true;
     try {
-      outcome = await this.consume(turnInput, resumeSessionId, seedContext, signal, emit, voice, keepSensitiveAsText);
+      outcome = await this.consume(turnInput, resumeSessionId, seedContext, signal, emit, activity, voice, keepSensitiveAsText);
       if (outcome.errorCode === "resume_failed" && !outcome.text && !signal.aborted) {
         this.deps.log.warn({ turnId }, "claude session could not be resumed; starting a seeded session");
         resumeSessionId = undefined;
         seedContext = store.seedContext(conversationId, ownerName, turnId);
-        outcome = await this.consume(turnInput, undefined, seedContext, signal, emit, voice, keepSensitiveAsText);
+        outcome = await this.consume(turnInput, undefined, seedContext, signal, emit, activity, voice, keepSensitiveAsText);
       }
     } finally {
       active.generating = false;
@@ -728,6 +738,7 @@ export class ConversationOrchestrator {
       timing,
     );
     this.deps.log.info({ turnId, inputMode: input.inputMode, status, usedTools: outcome.usedTools, prepared: prepared !== undefined, sttMs: input.sttMs, ...timing }, "turn timing");
+    activity.settle(status);
     emit({ type: "turn.end", turnId, status, ...(status === "failed" && outcome.errorCode ? { errorCode: runtimeErrorToProtocol[outcome.errorCode] } : {}) });
     emit({ type: "state", state: "idle" });
     const rotation = outcome.sessionId ? this.rotationReason(conversationId, sessionTurns, outcome.usage?.contextTokens ?? 0) : undefined;
@@ -741,6 +752,7 @@ export class ConversationOrchestrator {
     seedContext: string | undefined,
     signal: AbortSignal,
     emit: (message: OutgoingServerMessage) => void,
+    activity: TurnActivity,
     voice: { speaker?: ReplySpeaker },
     afterTool: () => void,
   ): Promise<TurnOutcome> {
@@ -771,9 +783,14 @@ export class ConversationOrchestrator {
           voice.speaker?.toolStarted();
           emit({ type: "tool", turnId: input.turnId, toolUseId: event.toolUseId, name: event.name, phase: "start" });
           emit({ type: "state", state: "using_tool", turnId: input.turnId, tool: event.name });
+          activity.preparing(event.toolUseId, event.name);
+          break;
+        case "tool_run":
+          activity.running(event.toolUseId, event.name);
           break;
         case "tool_end":
           emit({ type: "tool", turnId: input.turnId, toolUseId: event.toolUseId, name: event.name, phase: "end", ok: !event.isError });
+          activity.ended(event.toolUseId, event.name, event);
           afterTool();
           emit({ type: "state", state: "thinking", turnId: input.turnId });
           break;

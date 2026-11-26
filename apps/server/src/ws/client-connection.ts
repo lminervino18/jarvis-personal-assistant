@@ -6,6 +6,7 @@ import {
   PROTOCOL_VERSION,
   decodeAudioFrame,
   encodeAudioFrame,
+  finalActivityPhases,
   type AudioFormat,
   type Card,
   type ClientKind,
@@ -25,6 +26,8 @@ import type { z } from "zod";
 const HELLO_TIMEOUT_MS = 10_000;
 const MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 const AUDIO_HIGH_WATER_BYTES = 256 * 1024;
+/** Above this backlog, intermediate activity updates are dropped; the final ones always go out. */
+const ACTIVITY_HIGH_WATER_BYTES = 64 * 1024;
 const MAX_CAPTURE_SECONDS = 120;
 /** Speech over the reply longer than this is a real interruption, so its pauses get the normal end-of-turn wait. */
 const PROVISIONAL_MAX_SECONDS = 1.5;
@@ -128,6 +131,7 @@ export class ClientConnection implements Subscriber {
       this.socket.close(1013, "client too slow");
       return;
     }
+    if (message.type === "activity" && !finalActivityPhases.has(message.phase) && this.socket.bufferedAmount > ACTIVITY_HIGH_WATER_BYTES) return;
     this.socket.send(JSON.stringify({ ...message, seq: ++this.seq }));
   }
 
@@ -366,6 +370,7 @@ export class ClientConnection implements Subscriber {
     }
     const activeTurn = this.deps.orchestrator.activeTurn(conversationId);
     this.send(activeTurn ? { type: "state", state: "thinking", turnId: activeTurn } : { type: "state", state: "idle" });
+    for (const event of this.deps.orchestrator.openActivity(conversationId)) this.send({ type: "activity", ...event });
   }
 
   private ownsConversation(conversationId: string): boolean {

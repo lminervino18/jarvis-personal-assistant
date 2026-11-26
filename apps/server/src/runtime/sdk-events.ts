@@ -35,6 +35,24 @@ function contextTokensOf(usage: CallUsage | undefined): number {
   return (usage?.input_tokens ?? 0) + (usage?.cache_read_input_tokens ?? 0) + (usage?.cache_creation_input_tokens ?? 0);
 }
 
+const FAILURE_CODE = /^\{"ok":false,"error":\{"code":"([a-z_]{1,40})"/;
+
+/** The error code of one of our tools' failure envelopes, read from the start of its result only. */
+function failureCode(content: unknown): string | undefined {
+  const first = typeof content === "string" ? content : Array.isArray(content) ? (content[0] as { text?: unknown } | undefined)?.text : undefined;
+  return typeof first === "string" ? FAILURE_CODE.exec(first.slice(0, 80))?.[1] : undefined;
+}
+
+/** A complete tool call in an assistant message is the moment the call goes out to execution. */
+function toolRuns(content: unknown): RuntimeEvent[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block: { type?: string; id?: string; name?: string }) =>
+    (block.type === "tool_use" || block.type === "server_tool_use") && block.id && block.name
+      ? [{ type: "tool_run" as const, toolUseId: block.id, name: block.name }]
+      : [],
+  );
+}
+
 const RESUME_FAILURE = /no conversation found|session .*not found|could not (find|load) session/i;
 
 /**
@@ -102,14 +120,15 @@ export function mapSdkMessage(message: SDKMessage, state: MapperState): RuntimeE
       for (const block of content) {
         if (block.type === "tool_result") {
           const name = state.toolNames.get(block.tool_use_id) ?? "unknown";
-          events.push({ type: "tool_end", toolUseId: block.tool_use_id, name, isError: block.is_error === true });
+          const errorCode = failureCode(block.content);
+          events.push({ type: "tool_end", toolUseId: block.tool_use_id, name, isError: block.is_error === true, ...(errorCode ? { errorCode } : {}) });
         }
       }
       return events;
     }
     case "assistant": {
       if (message.parent_tool_use_id === null) state.contextTokens = contextTokensOf(message.message.usage);
-      if (!message.error) return [];
+      if (!message.error) return message.parent_tool_use_id === null ? toolRuns(message.message.content) : [];
       const code = assistantErrorCodes[message.error] ?? "internal";
       return [{ type: "error", code, message: `Claude error: ${message.error}`, sessionId: message.session_id }];
     }
