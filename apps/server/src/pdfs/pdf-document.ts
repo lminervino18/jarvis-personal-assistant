@@ -96,7 +96,7 @@ function table(block: Extract<PdfBlock, { type: "table" }>): Content {
 function blockContent(block: PdfBlock, images: PdfInput["images"]): Content {
   switch (block.type) {
     case "heading":
-      return { text: block.text, font: "Display", bold: true, fontSize: 15, color: INK, margin: [0, 14, 0, 6] };
+      return { text: block.text, font: "Display", bold: true, fontSize: 15, color: INK, margin: [0, 14, 0, 6], headlineLevel: 1 };
     case "text":
       return { text: block.text, margin: [0, 0, 0, 10], lineHeight: 1.35 };
     case "list":
@@ -138,6 +138,7 @@ export function pdfDefinition(input: PdfInput): DocumentDefinition {
     pageMargins: [48, 52, 48, 60],
     info: { title: input.title, author: "Jarvis", creator: "J.A.R.V.I.S" },
     defaultStyle: { font: "Inter", fontSize: 10.5, color: INK },
+    pageBreakBefore: (current, following) => current.headlineLevel === 1 && following.length === 0,
     footer: (page, pages) => ({
       columns: [
         { text: "J.A.R.V.I.S", font: "Display", fontSize: 7.5, color: MUTED, characterSpacing: 1.5 },

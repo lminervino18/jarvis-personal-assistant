@@ -43,6 +43,7 @@ declare module "pdfmake" {
         margin?: Margins;
         unbreakable?: boolean;
         pageBreak?: "after" | "before";
+        headlineLevel?: number;
       };
 
   export interface DocumentDefinition {
@@ -51,6 +52,7 @@ declare module "pdfmake" {
     info?: { title?: string; author?: string; creator?: string };
     defaultStyle?: { font?: string; fontSize?: number; color?: string };
     footer?(page: number, pages: number): Content;
+    pageBreakBefore?(current: { headlineLevel?: number }, following: unknown[]): boolean;
     content: Content[];
   }
 
