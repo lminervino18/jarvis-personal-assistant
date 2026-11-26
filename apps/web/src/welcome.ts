@@ -11,6 +11,19 @@ async function fetchWelcome(): Promise<WelcomeState | null> {
   return response?.ok ? ((await response.json()) as WelcomeState) : null;
 }
 
+/** The welcome's audio, when it is on and the server has JARVIS's voice. */
+export async function fetchWelcomeAudio(): Promise<ArrayBuffer | null> {
+  const state = await fetchWelcome();
+  if (!state?.available || !state.enabled) return null;
+  const response = await fetch(`/api/welcome/audio?v=${state.version}`, { credentials: "same-origin" }).catch(() => null);
+  return response?.ok ? response.arrayBuffer() : null;
+}
+
+/** On a phone the app opens straight into a call with JARVIS; on a computer it opens on the chat. */
+export function opensInCall(): boolean {
+  return window.matchMedia?.("(pointer: coarse)").matches === true && window.matchMedia("(max-width: 899px)").matches;
+}
+
 let waiting: (() => void) | null = null;
 
 /**

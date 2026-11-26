@@ -47,6 +47,22 @@ class FakeEngine implements AudioEngine {
     this.ducked = ducked;
   }
 
+  clipPlaying = false;
+  clips: number[] = [];
+  endClip: () => void = () => {};
+
+  async playClip(data: ArrayBuffer, onStart: () => void): Promise<void> {
+    this.clips.push(data.byteLength);
+    this.clipPlaying = true;
+    onStart();
+    await new Promise<void>((resolve) => (this.endClip = resolve));
+    this.clipPlaying = false;
+  }
+
+  stopClip(): void {
+    this.endClip();
+  }
+
   captureReport(): CaptureReport | null {
     return this.report;
   }
@@ -530,6 +546,36 @@ describe("speaker, voice notes and calls", () => {
     engine().report = { supported: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, applied: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, sampleRate: 48000, channelCount: 1 }, contextSampleRate: 48000 };
     await session.startCall();
     expect(socket().last("client.audio")).toEqual({ type: "client.audio", ...engine().report, detector: "energy" });
+  });
+
+  it("opens a call with the welcome: JARVIS speaks first and only then listens", async () => {
+    const { session, engine, connect } = setup();
+    connect(true);
+    const started = session.startCall(new ArrayBuffer(8));
+    await vi.waitFor(() => expect(engine().clipPlaying).toBe(true));
+    expect(session.getSnapshot()).toMatchObject({ callActive: true, state: "speaking", micOpen: false });
+    expect(engine().frames).toBeNull();
+    engine().endClip();
+    await started;
+    expect(engine().clips).toEqual([8]);
+    expect(session.getSnapshot().micOpen).toBe(true);
+  });
+
+  it("waits for the owner's touch when the browser holds the sound, and stops the welcome on hang-up", async () => {
+    const { session, engine, connect } = setup();
+    connect(true);
+    await session.enableAudio();
+    engine().running = false;
+    engine().resume = async () => {};
+    const started = session.startCall(new ArrayBuffer(4));
+    await vi.waitFor(() => expect(session.getSnapshot().audioBlocked).toBe(true));
+    expect(engine().clips).toEqual([]);
+    engine().running = true;
+    engine().listener();
+    await vi.waitFor(() => expect(engine().clipPlaying).toBe(true));
+    session.endCall();
+    await started;
+    expect(session.getSnapshot()).toMatchObject({ callActive: false, micOpen: false, audioBlocked: false });
   });
 
   it("tells the server when a call starts and ends, so it can speak background news", async () => {

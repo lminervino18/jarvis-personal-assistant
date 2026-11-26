@@ -31,6 +31,11 @@ export interface AudioEngine {
   captureReport?(): CaptureReport | null;
   /** Lowers the reply while a possible interruption is checked, and restores it. */
   duck?(ducked: boolean): void;
+  /** Plays a finished audio file (the welcome) through the same output, so the core moves with it; resolves when it ends. */
+  playClip?(data: ArrayBuffer, onStart: () => void): Promise<void>;
+  /** Whether a clip is playing now. */
+  readonly clipPlaying?: boolean;
+  stopClip?(): void;
 }
 
 interface Microphone {
@@ -65,6 +70,7 @@ export class WebAudioEngine implements AudioEngine {
   private workletLoaded: Promise<void> | null = null;
   private microphone: Microphone | null = null;
   private lastCapture: CaptureReport | null = null;
+  private clip: AudioBufferSourceNode | null = null;
 
   constructor(playerOptions: PcmPlayerOptions) {
     this.analyser.fftSize = 1024;
@@ -90,8 +96,33 @@ export class WebAudioEngine implements AudioEngine {
     this.context.addEventListener("statechange", listener);
   }
 
+  get clipPlaying(): boolean {
+    return this.clip !== null;
+  }
+
+  async playClip(data: ArrayBuffer, onStart: () => void): Promise<void> {
+    this.stopClip();
+    const buffer = await this.context.decodeAudioData(data.slice(0));
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.output);
+    this.clip = source;
+    await new Promise<void>((resolve) => {
+      source.onended = () => resolve();
+      source.start();
+      onStart();
+    });
+    if (this.clip === source) this.clip = null;
+  }
+
+  stopClip(): void {
+    const clip = this.clip;
+    this.clip = null;
+    clip?.stop();
+  }
+
   outputLevel(): number {
-    if (!this.player.active) return 0;
+    if (!this.player.active && !this.clip) return 0;
     this.analyser.getFloatTimeDomainData(this.samples);
     let sum = 0;
     for (const sample of this.samples) sum += sample * sample;

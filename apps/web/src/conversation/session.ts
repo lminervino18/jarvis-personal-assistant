@@ -241,12 +241,17 @@ export class Session {
     await this.openMicrophone(INITIAL_LISTEN_MS);
   }
 
-  /** Hands-free conversation: the microphone stays open and every reply is spoken until the call ends. */
-  async startCall(): Promise<void> {
+  /**
+   * Hands-free conversation: the microphone stays open and every reply is spoken until the call ends.
+   * With a `greeting`, JARVIS speaks it first and only then starts listening.
+   */
+  async startCall(greeting?: ArrayBuffer): Promise<void> {
     if (this.callActive) return;
     this.callActive = true;
     this.callMuted = false;
     this.emit();
+    if (greeting) await this.greet(greeting);
+    if (!this.callActive) return;
     if (!this.micOpen) await this.openMicrophone(CALL_LISTEN_MS);
     if (!this.micOpen) this.callActive = false;
     this.client.send({ type: "call.state", active: this.callActive });
@@ -255,10 +260,27 @@ export class Session {
 
   endCall(): void {
     if (!this.callActive) return;
+    this.engine?.stopClip?.();
     this.callActive = false;
     this.callMuted = false;
     this.client.send({ type: "call.state", active: false });
     this.stopAll();
+  }
+
+  /** Plays the welcome as the call's first words; where sound needs a touch first, it waits for the owner's tap. */
+  private async greet(data: ArrayBuffer): Promise<void> {
+    const engine = this.ensureEngine();
+    if (!engine.playClip) return;
+    await engine.resume().catch(() => undefined);
+    if (!engine.running) {
+      this.audioWanted = true;
+      this.emit();
+      await new Promise<void>((resolve) => engine.onRunningChange(() => (engine.running || !this.callActive) && resolve()));
+      this.audioWanted = false;
+    }
+    if (!this.callActive) return;
+    await engine.playClip(data, () => this.emit()).catch(() => undefined);
+    this.emit();
   }
 
   async toggleCallMute(): Promise<void> {
@@ -893,7 +915,7 @@ export class Session {
       server: this.serverState,
       capturing: this.captureTurn !== null,
       micOpen: this.micOpen,
-      playing: this.engine?.player.active === true,
+      playing: this.engine?.player.active === true || this.engine?.clipPlaying === true,
     });
     return {
       connection: this.status,
