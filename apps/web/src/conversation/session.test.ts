@@ -548,34 +548,27 @@ describe("speaker, voice notes and calls", () => {
     expect(socket().last("client.audio")).toEqual({ type: "client.audio", ...engine().report, detector: "energy" });
   });
 
-  it("opens a call with the welcome: JARVIS speaks first and only then listens", async () => {
+  it("plays the welcome on the chat as JARVIS speaking, without opening the microphone", async () => {
     const { session, engine, connect } = setup();
     connect(true);
-    const started = session.startCall(new ArrayBuffer(8));
+    const played = session.playWelcome(new ArrayBuffer(8));
     await vi.waitFor(() => expect(engine().clipPlaying).toBe(true));
-    expect(session.getSnapshot()).toMatchObject({ callActive: true, state: "speaking", micOpen: false });
-    expect(engine().frames).toBeNull();
+    expect(session.getSnapshot()).toMatchObject({ callActive: false, state: "speaking", micOpen: false });
     engine().endClip();
-    await started;
+    expect(await played).toBe(true);
     expect(engine().clips).toEqual([8]);
-    expect(session.getSnapshot().micOpen).toBe(true);
+    expect(session.getSnapshot()).toMatchObject({ state: "idle", audioBlocked: false });
   });
 
-  it("waits for the owner's touch when the browser holds the sound, and stops the welcome on hang-up", async () => {
+  it("answers that the sound is still held, so the welcome waits for the owner's touch", async () => {
     const { session, engine, connect } = setup();
     connect(true);
     await session.enableAudio();
     engine().running = false;
     engine().resume = async () => {};
-    const started = session.startCall(new ArrayBuffer(4));
-    await vi.waitFor(() => expect(session.getSnapshot().audioBlocked).toBe(true));
+    expect(await session.playWelcome(new ArrayBuffer(4))).toBe(false);
     expect(engine().clips).toEqual([]);
-    engine().running = true;
-    engine().listener();
-    await vi.waitFor(() => expect(engine().clipPlaying).toBe(true));
-    session.endCall();
-    await started;
-    expect(session.getSnapshot()).toMatchObject({ callActive: false, micOpen: false, audioBlocked: false });
+    expect(session.getSnapshot().audioBlocked).toBe(false);
   });
 
   it("tells the server when a call starts and ends, so it can speak background news", async () => {

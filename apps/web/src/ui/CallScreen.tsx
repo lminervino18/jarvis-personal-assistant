@@ -14,24 +14,21 @@ interface Props {
   subtitle: Subtitle | null;
   activity: ActivityStore;
   getLevels(): LevelReading;
-  /** The browser holds the sound until the owner touches the screen. */
-  blocked?: boolean;
-  onUnlock?(): void;
   onMute(): void;
   onHangUp(): void;
 }
 
 /** The call on a phone: the big core, a live caption of the conversation, mute and hang up. Everything said is saved in the chat. */
-export function CallScreen({ state, label, muted, subtitle, activity, getLevels, blocked = false, onUnlock, onMute, onHangUp }: Props) {
+export function CallScreen({ state, label, muted, subtitle, activity, getLevels, onMute, onHangUp }: Props) {
   const elapsed = useElapsed();
   return (
-    <div className="call" role="dialog" aria-modal="true" aria-label="Llamada con Jarvis" data-state={state} onPointerDown={blocked ? onUnlock : undefined}>
+    <div className="call" role="dialog" aria-modal="true" aria-label="Llamada con Jarvis" data-state={state}>
       <ActivityLive store={activity} />
       <div className="call-core">
         <Core state={state} label={label} getLevels={getLevels} />
       </div>
       <p className="call-status" role="status" data-state={state}>
-        {blocked ? "Tocá la pantalla para empezar" : muted ? "Micrófono silenciado" : label} · <span className="call-clock">{elapsed}</span>
+        {muted ? "Micrófono silenciado" : label} · <span className="call-clock">{elapsed}</span>
       </p>
       <div className="call-caption" data-speaker={subtitle?.speaker}>
         {subtitle?.text && <p>{subtitle.text}</p>}

@@ -241,17 +241,13 @@ export class Session {
     await this.openMicrophone(INITIAL_LISTEN_MS);
   }
 
-  /**
-   * Hands-free conversation: the microphone stays open and every reply is spoken until the call ends.
-   * With a `greeting`, JARVIS speaks it first and only then starts listening.
-   */
-  async startCall(greeting?: ArrayBuffer): Promise<void> {
+  /** Hands-free conversation: the microphone stays open and every reply is spoken until the call ends. */
+  async startCall(): Promise<void> {
     if (this.callActive) return;
+    this.engine?.stopClip?.();
     this.callActive = true;
     this.callMuted = false;
     this.emit();
-    if (greeting) await this.greet(greeting);
-    if (!this.callActive) return;
     if (!this.micOpen) await this.openMicrophone(CALL_LISTEN_MS);
     if (!this.micOpen) this.callActive = false;
     this.client.send({ type: "call.state", active: this.callActive });
@@ -260,27 +256,24 @@ export class Session {
 
   endCall(): void {
     if (!this.callActive) return;
-    this.engine?.stopClip?.();
     this.callActive = false;
     this.callMuted = false;
     this.client.send({ type: "call.state", active: false });
     this.stopAll();
   }
 
-  /** Plays the welcome as the call's first words; where sound needs a touch first, it waits for the owner's tap. */
-  private async greet(data: ArrayBuffer): Promise<void> {
+  /**
+   * Plays the welcome through the session's own output, so the core speaks with it. Answers false
+   * when the browser still holds the sound; called again from the owner's touch, it plays.
+   */
+  async playWelcome(data: ArrayBuffer): Promise<boolean> {
     const engine = this.ensureEngine();
-    if (!engine.playClip) return;
+    if (!engine.playClip) return true;
     await engine.resume().catch(() => undefined);
-    if (!engine.running) {
-      this.audioWanted = true;
-      this.emit();
-      await new Promise<void>((resolve) => engine.onRunningChange(() => (engine.running || !this.callActive) && resolve()));
-      this.audioWanted = false;
-    }
-    if (!this.callActive) return;
+    if (!engine.running) return false;
     await engine.playClip(data, () => this.emit()).catch(() => undefined);
     this.emit();
+    return true;
   }
 
   async toggleCallMute(): Promise<void> {

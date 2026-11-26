@@ -253,8 +253,6 @@ export function Conversation({ session, onLogout, demo }: Props) {
           subtitle={subtitle}
           activity={session.activity}
           getLevels={session.getLevels}
-          blocked={snapshot.audioBlocked}
-          onUnlock={() => void session.enableAudio()}
           onMute={() => void session.toggleCallMute()}
           onHangUp={() => session.endCall()}
         />

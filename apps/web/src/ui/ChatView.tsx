@@ -4,7 +4,7 @@ import { stateLabel } from "../conversation/assistant-state.js";
 import { Core } from "../core/Core.js";
 import type { Session, SessionSnapshot } from "../conversation/session.js";
 import { useFreshStart } from "../hooks.js";
-import { fetchWelcomeAudio, opensInCall, playWelcome } from "../welcome.js";
+import { playWelcome } from "../welcome.js";
 import { Composer } from "./Composer.js";
 import { Thread } from "./Thread.js";
 
@@ -52,18 +52,11 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
   const { thread } = snapshot;
   const fresh = useFreshStart(snapshot.callActive || snapshot.busy);
   const greeted = useRef<number | null>(null);
-  const callable = snapshot.capabilities?.stt === true && online && !demo;
   useEffect(() => {
-    if (fresh.since === null || greeted.current === fresh.since) return;
-    if (!opensInCall()) {
-      greeted.current = fresh.since;
-      void playWelcome();
-      return;
-    }
-    if (!callable) return;
+    if (fresh.since === null || greeted.current === fresh.since || demo) return;
     greeted.current = fresh.since;
-    void fetchWelcomeAudio().then((audio) => session.startCall(audio ?? undefined));
-  }, [fresh.since, callable, session]);
+    void playWelcome(session);
+  }, [fresh.since, demo, session]);
   const since = fresh.since;
   const earlier = since === null ? 0 : thread.messages.filter((message) => Date.parse(message.at) <= since).length;
   const empty = thread.messages.length === earlier && !thread.transcript && (earlier > 0 || !thread.hasMore);
