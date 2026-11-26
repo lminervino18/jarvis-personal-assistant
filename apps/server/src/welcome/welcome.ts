@@ -18,10 +18,12 @@ export interface WelcomeSettings {
 const VOICE_DELAY_MS = 350;
 const TAIL_SECONDS = 1;
 const FADE_SECONDS = 0.7;
+/** The riff comes in gradually instead of at full volume. */
+const FADE_IN_SECONDS = 0.9;
 const MIN_SECONDS = 2.5;
 const MUSIC_FILE = "music";
 /** Bumped when the mix itself changes, so a cached welcome is made again. */
-const MIX_VERSION = 2;
+const MIX_VERSION = 3;
 
 /**
  * The greeting the app plays when it opens: a few seconds of JARVIS's voice saying the owner's
@@ -116,10 +118,10 @@ export function welcomeSeconds(voiceMs: number): number {
 export function mixArgs(music: string, start: number, voice: string, voiceMs: number, output: string): string[] {
   const length = welcomeSeconds(voiceMs);
   const graph = [
-    `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.75,afade=t=out:st=${(length - FADE_SECONDS).toFixed(2)}:d=${FADE_SECONDS}[music]`,
+    `[0:a]aformat=sample_rates=44100:channel_layouts=stereo,volume=0.5,afade=t=in:d=${FADE_IN_SECONDS},afade=t=out:st=${(length - FADE_SECONDS).toFixed(2)}:d=${FADE_SECONDS}[music]`,
     `[1:a]aformat=sample_rates=44100:channel_layouts=stereo,adelay=${VOICE_DELAY_MS}|${VOICE_DELAY_MS},volume=1.9,asplit=2[voice][spoken]`,
     "[spoken]apad[key]",
-    "[music][key]sidechaincompress=threshold=0.03:ratio=5:attack=15:release=300[ducked]",
+    "[music][key]sidechaincompress=threshold=0.015:ratio=12:attack=10:release=350[ducked]",
     "[ducked][voice]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[out]",
   ].join(";");
   return ["-hide_banner", "-nostdin", "-y", "-ss", String(start), "-t", String(length), "-i", music, "-i", voice, "-filter_complex", graph, "-map", "[out]", "-c:a", "libmp3lame", "-q:a", "2", output];
