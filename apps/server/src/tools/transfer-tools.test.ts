@@ -21,7 +21,7 @@ const ANA = "5490000000001@s.whatsapp.net";
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
-function setup(options: { gmail?: { sent: unknown[] } } = {}) {
+function setup(options: { gmail?: { sent: unknown[] }; compress?: (input: string, targetBytes: number, dir: string) => Promise<string | undefined> } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-transfer-tools-"));
   dirs.push(dir);
   const db = openMigratedDatabase(":memory:");
@@ -37,6 +37,7 @@ function setup(options: { gmail?: { sent: unknown[] } } = {}) {
     attachments,
     dir,
     publicOrigin: "https://jarvis.example",
+    ...(options.compress ? { compress: options.compress } : {}),
     ...(gmail ? { gmail: { send: async (_label: unknown, mail: unknown) => (gmail.sent.push(mail), { id: "m1", threadId: "t1", from: "owner@example.com" }) } } : {}),
   });
   const downloader = {
@@ -90,8 +91,34 @@ describe("sending Transferencias files", () => {
     expect(env.ctx.services.attachments?.get(message!.attachment!)).toMatchObject({ name: "Crimen.mp3", mediaType: "audio/mpeg" });
   });
 
-  it("sends a link in original quality when the video is too heavy for WhatsApp", async () => {
-    const env = setup();
+  it("sends a heavy video compressed to fit WhatsApp, not a link", async () => {
+    const targets: number[] = [];
+    const env = setup({
+      compress: async (_input, targetBytes, dir) => {
+        targets.push(targetBytes);
+        writeFileSync(join(dir, "compressed.mp4"), "small");
+        return join(dir, "compressed.mp4");
+      },
+    });
+    const video = env.file("gol.mov", "video/quicktime", 1024);
+    env.db.prepare("UPDATE transfers SET size = ? WHERE id = ?").run(40 * 1024 ** 2, video.id);
+    expect(await env.sender.send(env.store.get(video.id, now)!, { channel: "whatsapp", to: ANA, name: "Ana Vivo" }, now)).toEqual({ ok: true, via: "compressed" });
+    expect(targets).toEqual([Math.floor(16 * 1024 ** 2 * 0.95)]);
+    const [message] = env.outbox();
+    expect(env.ctx.services.attachments?.read(message!.attachment!)).toMatchObject({ attachment: { name: "gol.mp4", mediaType: "video/mp4" }, data: Buffer.from("small") });
+    expect(message?.text).toBe("");
+  });
+
+  it("sends a link only when the owner asks for original quality", async () => {
+    const env = setup({ compress: async () => "never" });
+    const song = env.file("Crimen.mp3", "audio/mpeg", 800);
+    const result = await runTool(env.ctx, tool("transfer_send"), { transferId: song.id, channel: "whatsapp", to: "Ana Vivo", asLink: true });
+    expect(result).toMatchObject({ ok: true, items: [{ sent: "un link para bajarlo" }] });
+    expect(env.outbox()[0]?.attachment).toBeNull();
+  });
+
+  it("falls back to a link when the video does not fit even compressed", async () => {
+    const env = setup({ compress: async () => undefined });
     const video = env.file("viaje.mp4", "video/mp4", 1024);
     env.db.prepare("UPDATE transfers SET size = ? WHERE id = ?").run(300 * 1024 ** 2, video.id);
     const outcome = await env.sender.send(env.store.get(video.id, now)!, { channel: "whatsapp", to: ANA, name: "Ana Vivo" }, now);

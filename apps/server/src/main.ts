@@ -110,7 +110,16 @@ const transfers = new TransferStore(db);
 const transfersDir = join(config.dataDir, "transfers");
 const transferPreviews = new TransferPreviews(transfersDir, defaultExec);
 const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
-const transferSender = new TransferSender({ db, store: transfers, attachments, dir: transfersDir, publicOrigin: config.publicOrigin, ...(gmail.service ? { gmail: gmail.service } : {}) });
+const mediaConverter = new MediaConverter({ timeoutMs: 2 * 3_600_000, exec: defaultExec });
+const transferSender = new TransferSender({
+  db,
+  store: transfers,
+  attachments,
+  dir: transfersDir,
+  publicOrigin: config.publicOrigin,
+  compress: (input, targetBytes, dir) => mediaConverter.compress(input, targetBytes, dir, AbortSignal.timeout(30 * 60_000)),
+  ...(gmail.service ? { gmail: gmail.service } : {}),
+});
 const ytdlp = process.env.YTDLP_BIN;
 const media =
   ytdlp && existsSync(ytdlp)
@@ -119,7 +128,7 @@ const media =
         store: transfers,
         dir: transfersDir,
         freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
-        converter: new MediaConverter({ timeoutMs: 2 * 3_600_000, exec: defaultExec }),
+        converter: mediaConverter,
         send: (transfer, request) => transferSender.send(transfer, request, new Date()),
         discard: (transfer) => {
           transfers.markDeleted(transfer.id, new Date());

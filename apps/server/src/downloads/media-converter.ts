@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { setPriority } from "node:os";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import type { MediaFormat } from "@jarvis/contracts";
 import type { Exec } from "../videos/video-qa.js";
@@ -25,6 +26,8 @@ const EXTENSIONS: Record<ConvertFormat, string> = { mp3: "mp3", m4a: "m4a", ipho
 /** The short side of a re-encoded video: 1080p keeps a 4K source watchable without hours of work on the server. */
 const MAX_SHORT_SIDE = 1080;
 const BACKGROUND_PRIORITY = 10;
+/** Below this, a compressed video is no longer worth watching: better a link. */
+const MIN_VIDEO_KBPS = 100;
 
 function lowerPriority(pid: number): void {
   try {
@@ -174,6 +177,64 @@ export class MediaConverter {
     const seconds = moments.reduce((total, moment) => total + moment.end - moment.start, 0);
     await this.ffmpeg(args, seconds, onProgress, signal);
     return { path: output, ext, seconds };
+  }
+
+  /**
+   * A copy of a video that weighs at most `targetBytes`, for channels with a size limit: H.264 at
+   * the bitrate that fits, at the smallest resolution step that still looks fine. Undefined when the
+   * video is too long to fit with a watchable quality.
+   */
+  async compress(input: string, targetBytes: number, dir: string, signal: AbortSignal): Promise<string | undefined> {
+    const probe = await this.probe(input).catch(() => undefined);
+    if (!probe?.video || probe.duration <= 0) return undefined;
+    const output = join(dir, "compressed.mp4");
+    const audioKbps = probe.audio ? 96 : 0;
+    for (const share of [0.9, 0.7, 0.5]) {
+      const videoKbps = Math.floor((targetBytes * 8 * share) / 1000 / probe.duration - audioKbps);
+      if (videoKbps < MIN_VIDEO_KBPS) return undefined;
+      const shortSide = videoKbps > 2500 ? 1080 : videoKbps > 1200 ? 720 : videoKbps > 600 ? 540 : 360;
+      const portrait = probe.video.height > probe.video.width;
+      const scale = portrait ? `scale=w='trunc(min(iw,${shortSide})/2)*2':h=-2` : `scale=w=-2:h='trunc(min(ih,${shortSide})/2)*2'`;
+      await this.ffmpeg(
+        [
+          "-hide_banner",
+          "-nostdin",
+          "-y",
+          "-i",
+          input,
+          "-map",
+          "0:v:0",
+          "-map",
+          "0:a:0?",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-b:v",
+          `${videoKbps}k`,
+          "-maxrate",
+          `${Math.floor(videoKbps * 1.3)}k`,
+          "-bufsize",
+          `${videoKbps * 2}k`,
+          "-pix_fmt",
+          "yuv420p",
+          "-vf",
+          scale,
+          ...(probe.audio ? ["-c:a", "aac", "-b:a", `${audioKbps}k`, "-ac", "2"] : []),
+          "-movflags",
+          "+faststart",
+          "-progress",
+          "pipe:1",
+          "-nostats",
+          output,
+        ],
+        probe.duration,
+        () => undefined,
+        signal,
+      );
+      if (statSync(output).size <= targetBytes) return output;
+    }
+    return undefined;
   }
 
   private ffmpeg(args: string[], duration: number, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<void> {

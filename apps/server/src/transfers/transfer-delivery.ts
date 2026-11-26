@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { MAX_ATTACHMENT_BYTES, type AttachmentStore } from "../attachments/attachment-store.js";
 import type { Db } from "../db/database.js";
@@ -19,9 +19,11 @@ export interface SendRequest {
   text?: string;
   subject?: string;
   account?: "personal" | "work";
+  /** A link in original quality instead of the file, because the owner asked for it. */
+  asLink?: boolean;
 }
 
-export type SendOutcome = { ok: true; via: "file" | "link" } | { ok: false; message: string };
+export type SendOutcome = { ok: true; via: "file" | "compressed" | "link" } | { ok: false; message: string };
 
 export interface TransferSenderDeps {
   db: Db;
@@ -31,6 +33,8 @@ export interface TransferSenderDeps {
   dir: string;
   publicOrigin: string;
   gmail?: Pick<GmailService, "send">;
+  /** A copy of a video at most `targetBytes` heavy in `dir`, or undefined when it cannot fit. */
+  compress?(input: string, targetBytes: number, dir: string): Promise<string | undefined>;
 }
 
 /** The biggest file a channel carries as it is; WhatsApp plays videos inline only up to 16 MB. */
@@ -41,21 +45,22 @@ export function channelLimit(transfer: Pick<Transfer, "mediaType">, channel: Sen
 
 /**
  * Sends a Transferencias file by WhatsApp or mail: the file itself when the channel carries its
- * weight, otherwise a link to download it in original quality while the file lasts.
+ * weight; a video too heavy for it, compressed until it fits; and a link to download it in original
+ * quality only when the owner asked for one or nothing else fits.
  */
 export class TransferSender {
   constructor(private readonly deps: TransferSenderDeps) {}
 
   async send(transfer: Transfer, request: SendRequest, now: Date): Promise<SendOutcome> {
-    const fits = transfer.size <= channelLimit(transfer, request.channel);
-    const link = fits ? undefined : this.link(transfer, now);
-    if (!fits && !link) return { ok: false, message: "El archivo ya no está en Transferencias." };
+    const file = request.asLink ? undefined : await this.fitting(transfer, channelLimit(transfer, request.channel));
+    const link = file ? undefined : this.link(transfer, now);
+    if (!file && !link) return { ok: false, message: "El archivo ya no está en Transferencias." };
     const text = [request.text, link].filter(Boolean).join("\n\n");
-    const via = fits ? "file" : "link";
+    const via = !file ? "link" : file.compressed ? "compressed" : "file";
 
     if (request.channel === "whatsapp") {
-      const attachmentId = fits ? this.attach(transfer, now) : undefined;
-      if (fits && !attachmentId) return { ok: false, message: "El archivo ya no está en Transferencias." };
+      const attachmentId = file ? this.deps.attachments.save({ name: file.name, mediaType: file.mediaType, data: file.data }, now)?.id : undefined;
+      if (file && !attachmentId) return { ok: false, message: "No pude preparar el archivo para mandarlo." };
       new WhatsAppOutbox(this.deps.db).enqueue({ id: randomUUID(), chatJid: request.to, text, ...(attachmentId ? { attachmentId } : {}) }, now);
       return { ok: true, via };
     }
@@ -66,7 +71,7 @@ export class TransferSender {
         to: [request.to],
         subject: request.subject ?? transfer.name,
         body: text || transfer.name,
-        files: fits ? [{ name: transfer.name, mediaType: transfer.mediaType, data: readFileSync(join(this.deps.dir, transfer.uploadId)) }] : [],
+        files: file ? [{ name: file.name, mediaType: file.mediaType, data: file.data }] : [],
       });
       return { ok: true, via };
     } catch (error) {
@@ -74,12 +79,20 @@ export class TransferSender {
     }
   }
 
-  private attach(transfer: Transfer, now: Date): string | undefined {
+  /** The file as the channel can carry it: as it is, or a video compressed to fit; undefined when only a link works. */
+  private async fitting(transfer: Transfer, limit: number): Promise<{ name: string; mediaType: string; data: Buffer; compressed: boolean } | undefined> {
+    const path = join(this.deps.dir, transfer.uploadId);
+    if (!existsSync(path)) return undefined;
+    if (transfer.size <= limit) return { name: transfer.name, mediaType: transfer.mediaType, data: readFileSync(path), compressed: false };
+    if (!transfer.mediaType.startsWith("video/") || !this.deps.compress) return undefined;
+    const work = join(this.deps.dir, "downloads", `compress-${randomUUID()}`);
+    mkdirSync(work, { recursive: true });
     try {
-      const data = readFileSync(join(this.deps.dir, transfer.uploadId));
-      return this.deps.attachments.save({ name: transfer.name, mediaType: transfer.mediaType, data }, now)?.id;
-    } catch {
-      return undefined;
+      const compressed = await this.deps.compress(path, Math.floor(limit * 0.95), work).catch(() => undefined);
+      if (!compressed) return undefined;
+      return { name: `${transfer.name.replace(/\.[^.]+$/, "")}.mp4`, mediaType: "video/mp4", data: readFileSync(compressed), compressed: true };
+    } finally {
+      rmSync(work, { recursive: true, force: true });
     }
   }
 

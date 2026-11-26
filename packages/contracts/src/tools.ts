@@ -25,6 +25,8 @@ export const SendFileTo = z.object({
   text: z.string().trim().max(1500).optional().describe("Texto corto que acompaña al archivo; omitilo si el dueño no dijo nada"),
   subject: z.string().trim().min(1).max(200).optional(),
   account: GmailAccountLabel.optional(),
+  /** A link to download it in original quality instead of the file; only when the owner asks for the link or for no quality loss. */
+  asLink: z.boolean().optional(),
 });
 export type SendFileTo = z.infer<typeof SendFileTo>;
 

@@ -132,7 +132,8 @@ function deliveryNote(send: SendRequest | undefined, sent: SendOutcome | undefin
   if (!send || !sent) return "";
   const to = send.channel === "email" ? `por mail a ${send.name}` : `a ${send.name} por WhatsApp`;
   if (!sent.ok) return ` No pude mandárselo ${to}: ${sent.message}`;
-  return sent.via === "file" ? ` Se lo mandé ${to}.` : ` Como pesa mucho, le mandé ${to} un link para bajarlo en calidad original.`;
+  if (sent.via === "file") return ` Se lo mandé ${to}.`;
+  return sent.via === "compressed" ? ` Se lo mandé comprimido ${to}, para que entre.` : ` Le mandé ${to} un link para bajarlo en calidad original.`;
 }
 
 /** The owner's notice for a cut: which parts, how long, and what happened to the whole video. Only numbers, never what the video says. */
