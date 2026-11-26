@@ -1854,6 +1854,44 @@ button {
   gap: 64px;
 }
 
+@media (orientation: landscape) and (max-height: 520px) {
+  .call {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr auto auto auto 1fr;
+    justify-items: center;
+    column-gap: 32px;
+    padding: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+  }
+
+  .call-core {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    height: 100%;
+  }
+
+  .call-core .core {
+    width: min(40vw, 78dvh, 320px);
+  }
+
+  .call-status {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .call-caption {
+    grid-column: 2;
+    grid-row: 3;
+    min-height: 0;
+    margin-bottom: 20px;
+  }
+
+  .call-controls {
+    grid-column: 2;
+    grid-row: 4;
+  }
+}
+
 .nav-brand {
   display: flex;
   align-items: center;
