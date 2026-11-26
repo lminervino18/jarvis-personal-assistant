@@ -276,6 +276,8 @@ AGENT_BASH=false pnpm --filter @jarvis/server demo:tasks --claude report.json   
 COMPOSE_PROFILES=agents docker compose up -d agent-runner
 ```
 
+A task's installed dependencies take most of its folder (about 1 GB for JARVIS itself). Once an hour the runner frees them for tasks finished more than a day ago. It keeps the request, the diffs and the git history, so "ver cambios" and publishing keep working. If one of those tasks is reopened, `prepare` runs the project's `setup.sh` again before any agent works.
+
 ## Known gaps
 
 - Memory per Claude Code process was not measured. The 4 GB sizing in `costs.md` is an estimate.

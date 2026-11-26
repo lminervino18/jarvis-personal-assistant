@@ -73,4 +73,27 @@ describe("project setup", () => {
     expect(readFileSync(join(review, "node_modules", "dep", "index.js"), "utf8")).toBe("dep\n");
     expect(existsSync(join(review, "apps", "web", "node_modules", "w.js"))).toBe(true);
   });
+
+  it("frees a finished task's dependencies but keeps its history, and installs them again if it resumes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-layout-"));
+    dirs.push(root);
+    mkdirSync(join(root, "projects", "demo"), { recursive: true });
+    writeFileSync(join(root, "projects", "demo", "setup.sh"), "mkdir -p node_modules/dep packages/video/node_modules\necho dep > node_modules/dep/index.js\necho v > packages/video/node_modules/v.js\necho run >> ../setup-runs\n");
+    const layout = new WorkLayout(root);
+    const task = { id: "t4", title: "t", request: "r", project: "demo" } as Task;
+    const paths = await layout.prepare(task, []);
+    writeFileSync(join(paths.work, "feature.ts"), "export const done = true;\n");
+    const evidence = await layout.snapshot(task.id, 1);
+
+    expect(await layout.trimDependencies(task.id)).toBe(true);
+    expect(existsSync(join(paths.work, "node_modules"))).toBe(false);
+    expect(existsSync(join(paths.work, "packages", "video", "node_modules"))).toBe(false);
+    expect(existsSync(join(paths.work, "feature.ts"))).toBe(true);
+    expect(readFileSync(evidence.diffPath, "utf8")).toContain("feature.ts");
+    expect(await layout.trimDependencies(task.id)).toBe(false);
+
+    await layout.prepare(task, []);
+    expect(readFileSync(join(paths.work, "node_modules", "dep", "index.js"), "utf8")).toBe("dep\n");
+    expect(readFileSync(join(paths.root, "setup-runs"), "utf8")).toBe("run\nrun\n");
+  });
 });

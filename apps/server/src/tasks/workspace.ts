@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Attachment, Task } from "./task-store.js";
@@ -12,6 +13,8 @@ const MAX_DIFF_STAT = 4000;
 const SETUP_TIMEOUT_MS = 15 * 60_000;
 const DEPENDENCY_DIR_DEPTH = 3;
 const REVIEWED_REF = "refs/jarvis/reviewed";
+/** Left in `.runner/` when a finished task's dependencies were freed, so they are installed again if it resumes. */
+const TRIMMED = "dependencies-trimmed";
 const REVIEW_DIFF_EXCLUDES = [
   "*.lock",
   "*.lockb",
@@ -120,7 +123,10 @@ export class WorkLayout {
    */
   async prepare(task: Task, attachments: readonly Attachment[]): Promise<TaskPaths> {
     const paths = this.paths(task.id);
-    if (existsSync(join(paths.runner, "baseline"))) return paths;
+    if (existsSync(join(paths.runner, "baseline"))) {
+      await this.restoreDependencies(task, paths);
+      return paths;
+    }
     rmSync(paths.root, { recursive: true, force: true });
     for (const dir of [paths.request, paths.context, paths.runner]) mkdirSync(dir, { recursive: true });
 
@@ -152,6 +158,26 @@ export class WorkLayout {
     if (project) await this.setUp(project, paths.work);
     writeFileSync(join(paths.runner, "baseline"), baseline);
     return paths;
+  }
+
+  /**
+   * Frees the installed dependencies of a finished task, most of its size. The request, the diffs
+   * and the git history stay, so its changes can still be read and published. Answers whether it freed anything.
+   */
+  async trimDependencies(taskId: string): Promise<boolean> {
+    const paths = this.paths(taskId);
+    const marker = join(paths.runner, TRIMMED);
+    if (!existsSync(paths.work) || !existsSync(paths.runner) || existsSync(marker)) return false;
+    for (const dir of dependencyDirs(paths.work)) await rm(join(paths.work, dir), { recursive: true, force: true });
+    writeFileSync(marker, "");
+    return true;
+  }
+
+  private async restoreDependencies(task: Task, paths: TaskPaths): Promise<void> {
+    const marker = join(paths.runner, TRIMMED);
+    if (!existsSync(marker)) return;
+    if (task.project) await this.setUp(join(this.projectsDir, task.project), paths.work);
+    rmSync(marker);
   }
 
   /**

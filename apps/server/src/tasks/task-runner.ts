@@ -34,6 +34,10 @@ export const defaultRunnerLimits: TaskRunnerLimits = {
   diffChars: 12_000,
 };
 
+const TRIM_EVERY_MS = 3_600_000;
+const TRIM_AFTER_MS = 24 * 3_600_000;
+const TRIM_SCAN_LIMIT = 200;
+
 export interface RunnerLogger {
   info(data: object, message?: string): void;
   warn(data: object, message?: string): void;
@@ -69,6 +73,7 @@ export class TaskRunner {
   private readonly active = new Map<string, ActiveRun>();
   private timer: NodeJS.Timeout | undefined;
   private stopping = false;
+  private lastTrim = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly deps: TaskRunnerDeps) {}
 
@@ -98,6 +103,7 @@ export class TaskRunner {
     const { store, limits } = this.deps;
     store.beat(this.now(), { backend: this.deps.backend.name, active: this.active.size });
     this.recover(this.now());
+    this.trimFinished();
     if (store.agentsHeldUntil(this.now())) return;
     while (!this.stopping && this.active.size < limits.concurrency) {
       const claimed = store.claimNext(this.now(), limits.leaseMs);
@@ -106,6 +112,23 @@ export class TaskRunner {
       const done = this.execute(claimed.task, claimed.run, controller).finally(() => this.active.delete(claimed.run.id));
       this.active.set(claimed.run.id, { controller, done });
     }
+  }
+
+  /** Frees the dependencies of tasks finished more than a day ago, at most once an hour, without holding up the tick. */
+  private trimFinished(): void {
+    const now = this.now().getTime();
+    if (now - this.lastTrim < TRIM_EVERY_MS) return;
+    this.lastTrim = now;
+    const old = this.deps.store.list("finished", TRIM_SCAN_LIMIT).filter((task) => now - Date.parse(task.finishedAt ?? task.updatedAt) >= TRIM_AFTER_MS);
+    void (async () => {
+      for (const task of old) {
+        try {
+          if (await this.deps.layout.trimDependencies(task.id)) this.deps.log.info({ task: task.ref }, "freed the dependencies of a finished task");
+        } catch (error) {
+          this.deps.log.warn({ task: task.ref, err: error instanceof Error ? error.message : "unknown" }, "could not free a finished task's dependencies");
+        }
+      }
+    })();
   }
 
   /** Runs ticks until nothing is running and nothing is claimable. For tests and one-shot demos. */

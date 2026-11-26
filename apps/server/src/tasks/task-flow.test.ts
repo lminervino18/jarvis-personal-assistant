@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Card, ToolResult, ToolSuccess } from "@jarvis/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { openMigratedDatabase, workMigrations, type Db } from "../db/database.js";
 import { toolsByName } from "../tools/index.js";
 import { runTool } from "../tools/runner.js";
@@ -443,5 +443,28 @@ describe("task tools and the untrusted-content policy", () => {
     const again = env.store.create({ title: "Ticket 42", request: "pedido desde la app de la empresa", source: "company", externalRef: "42", budgetUsd: 5 }, env.clock.now);
     expect(again.id).toBe(first.id);
     expect(env.service.list("all", 10)).toHaveLength(1);
+  });
+});
+
+describe("disk upkeep", () => {
+  it("frees the dependencies of a task finished more than a day ago, not of a recent one", async () => {
+    const env = setup();
+    await env.tool("task_create", CONTROLLED_TASK);
+    await env.makeRunner().runUntilIdle();
+    const task = env.service.byRef(1)!;
+    expect(env.service.control(1, "cancel", undefined, env.clock.now).ok).toBe(true);
+    const modules = join(env.workDir, "tasks", task.id, "work", "node_modules");
+    mkdirSync(modules, { recursive: true });
+    writeFileSync(join(modules, "dep.js"), "module.exports = 1;\n");
+
+    const runner = env.makeRunner();
+    runner.tick();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(existsSync(modules)).toBe(true);
+
+    env.clock.now = new Date(env.clock.now.getTime() + 25 * 3_600_000);
+    runner.tick();
+    await vi.waitFor(() => expect(existsSync(modules)).toBe(false));
+    expect(existsSync(join(env.workDir, "tasks", task.id, "work", ".git"))).toBe(true);
   });
 });
