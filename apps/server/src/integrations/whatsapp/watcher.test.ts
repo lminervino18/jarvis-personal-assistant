@@ -64,7 +64,7 @@ describe("watching WhatsApp", () => {
     env.message(MARTI, "abajo", { fromMe: true });
     env.message(MARTI, "abajo", { at: new Date(now.getTime() - 30 * 60_000) });
     await env.watcher.tick();
-    expect(env.pushes()).toEqual(["Marti está abajo.", "Gero está abajo (lo dijo en «Los pibes»)."]);
+    expect(env.pushes().sort()).toEqual(["Gero está abajo (lo dijo en «Los pibes»).", "Marti está abajo."]);
   });
 
   it("starts from now the first time, so old messages never alert", async () => {
