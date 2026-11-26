@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { FileStore } from "@tus/file-store";
 import { Server, type Upload } from "@tus/server";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { MediaFormat } from "@jarvis/contracts";
 import { z } from "zod";
 import type { RouteHelpers } from "../app.js";
 import type { Db } from "../db/database.js";
 import { NOTIFICATION_TITLE } from "../push/notification.js";
 import { safeFileName } from "../tasks/workspace.js";
 import { Outbox } from "../worker/outbox.js";
-import type { DownloadQueue } from "../downloads/download-queue.js";
+import type { MediaJob, MediaQueue } from "../downloads/media-queue.js";
 import { previewKind, type PreviewSize, type TransferPreviews } from "./transfer-previews.js";
 import { UPLOAD_LINK_MAX_BYTES, type Transfer, type TransferStore, type UploadLink } from "./transfer-store.js";
 
@@ -30,7 +31,10 @@ const IdParams = z.object({ id: z.uuid() });
 const PreviewQuery = z.object({ size: z.enum(["thumb", "large"]).default("thumb") });
 const TokenParams = z.object({ token: z.string().regex(/^[\w-]{20,40}$/) });
 const LinkBody = z.object({ label: z.string().trim().min(1).max(60).optional() }).optional();
-const DownloadBody = z.object({ url: z.string().trim().min(8).max(500), quality: z.enum(["max", "compatible"]).optional() });
+const DownloadBody = z
+  .object({ url: z.string().trim().min(8).max(500).optional(), search: z.string().trim().min(2).max(200).optional(), format: MediaFormat.optional() })
+  .refine((body) => Boolean(body.url) !== Boolean(body.search));
+const ConvertBody = z.object({ format: MediaFormat.exclude(["max"]) });
 
 export interface TransferRoutesDeps {
   db: Db;
@@ -43,8 +47,8 @@ export interface TransferRoutesDeps {
   freeBytes(): number;
   /** JPEG previews of photos and videos; without it files show only their name. */
   previews?: TransferPreviews;
-  /** Videos downloaded from YouTube, X or Instagram; undefined when yt-dlp is not installed. */
-  downloads?: DownloadQueue;
+  /** Downloads from YouTube, X or Instagram and conversions; undefined when yt-dlp is not installed. */
+  media?: MediaQueue;
   now?(): Date;
 }
 
@@ -197,6 +201,21 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     preview: deps.previews ? (previewKind(transfer) ?? null) : null,
   });
 
+  /** A job as the owner sees it: the link, the words searched, or the name of the file being converted. */
+  const jobView = (job: MediaJob) => ({
+    id: job.id,
+    source: job.source,
+    target: job.target,
+    label: job.source === "transfer" ? (store.get(job.target, now())?.name ?? "Archivo borrado") : job.source === "link" ? job.target.replace(/^https:\/\/(www\.)?/, "") : job.target,
+    site: job.site,
+    format: job.format,
+    status: job.status,
+    progress: job.progress,
+    ...(job.error && job.status !== "done" ? { error: job.error } : {}),
+    ...(job.retryAt ? { retryAt: job.retryAt } : {}),
+    ...(job.send ? { sendTo: job.send.name } : {}),
+  });
+
   const remove = async (transfer: Transfer) => {
     deps.previews?.remove(transfer.uploadId);
     await datastore.remove(transfer.uploadId).catch(() => undefined);
@@ -214,7 +233,7 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     return {
       items: store.list(now()).map(view),
       links: store.uploadLinks(now()),
-      downloads: deps.downloads ? deps.downloads.recent().map(({ id, url, site, quality, status, progress, error }) => ({ id, url, site, quality, status, progress, ...(error ? { error } : {}) })) : null,
+      jobs: deps.media ? deps.media.recent().map(jobView) : null,
     };
   });
 
@@ -250,16 +269,25 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
 
   app.post("/api/transfers/downloads", async (request, reply) => {
     if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
-    if (!deps.downloads) return reply.code(503).send({ error: "disabled" });
+    if (!deps.media) return reply.code(503).send({ error: "disabled" });
     const body = DownloadBody.safeParse(request.body);
-    const job = body.success ? deps.downloads.add(body.data.url, body.data.quality) : undefined;
-    return job ? { id: job.id, site: job.site, status: job.status } : reply.code(400).send({ error: "unsupported_link" });
+    const job = body.success ? deps.media.download({ ...body.data, format: body.data.format ?? "iphone" }) : undefined;
+    return job ? jobView(job) : reply.code(400).send({ error: "unsupported_link" });
+  });
+
+  app.post("/api/transfers/:id/convert", async (request, reply) => {
+    if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+    if (!deps.media) return reply.code(503).send({ error: "disabled" });
+    const params = IdParams.safeParse(request.params);
+    const body = ConvertBody.safeParse(request.body);
+    const job = params.success && body.success ? deps.media.convert(params.data.id, body.data.format) : undefined;
+    return job ? jobView(job) : reply.code(404).send({ error: "not_found" });
   });
 
   app.delete("/api/transfers/downloads/:id", async (request, reply) => {
     if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
     const params = IdParams.safeParse(request.params);
-    return params.success && deps.downloads?.cancel(params.data.id) ? { ok: true } : reply.code(404).send({ error: "not_found" });
+    return params.success && deps.media?.cancel(params.data.id) ? { ok: true } : reply.code(404).send({ error: "not_found" });
   });
 
   app.post("/api/transfers/links", async (request, reply) => {

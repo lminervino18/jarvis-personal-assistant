@@ -14,6 +14,7 @@ import { sql as videoSendSql } from "./migrations/010-video-send.js";
 import { sql as serviceAccountsSql } from "./migrations/011-service-accounts.js";
 import { sql as transfersSql } from "./migrations/012-transfers.js";
 import { sql as mediaDownloadsSql } from "./migrations/013-media-downloads.js";
+import { sql as mediaJobsSql } from "./migrations/014-media-jobs.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as taskArchiveSql } from "./work-migrations/004-task-archive.js";
@@ -43,6 +44,7 @@ export const migrations: Migration[] = [
   { version: 11, name: "service_accounts", sql: serviceAccountsSql },
   { version: 12, name: "transfers", sql: transfersSql },
   { version: 13, name: "media_downloads", sql: mediaDownloadsSql },
+  { version: 14, name: "media_jobs", sql: mediaJobsSql },
 ];
 
 /**

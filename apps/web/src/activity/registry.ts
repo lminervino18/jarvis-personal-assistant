@@ -118,7 +118,9 @@ export const toolPresentations: Record<ToolName, ToolPresentation> = {
   transfer_list: t("transfers", "Revisando Transferencias…", "Transferencias consultadas"),
   transfer_upload_link: t("transfers", "Creando un enlace para subir…", "Enlace creado"),
   transfer_share_link: t("transfers", "Creando un enlace para compartir…", "Enlace creado"),
-  transfer_from_link: t("transfers", "Preparando la descarga del video…", "Descarga iniciada"),
+  transfer_from_link: t("transfers", "Preparando la descarga…", "Descarga iniciada"),
+  transfer_convert: t("transfers", "Preparando la conversión…", "Conversión iniciada"),
+  transfer_send: t("transfers", "Mandando el archivo…", "Archivo enviado"),
   image_create: t("images", "Generando la imagen…", "Imagen encargada"),
 };
 

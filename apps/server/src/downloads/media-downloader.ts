@@ -1,11 +1,19 @@
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import type { MediaFormat } from "@jarvis/contracts";
 
 export type Site = "YouTube" | "X" | "Instagram";
-export type Quality = "max" | "compatible";
 
-export type DownloadFailure = "blocked" | "login" | "unavailable" | "too_big" | "unsupported" | "timeout" | "cancelled" | "failed";
+/** What to download: a page on one of the three sites, or the first YouTube result for some words. */
+export interface DownloadRequest {
+  source: "link" | "search";
+  target: string;
+  site: Site;
+  format: MediaFormat;
+}
+
+export type DownloadFailure = "blocked" | "login" | "unavailable" | "too_big" | "unsupported" | "unconvertible" | "timeout" | "cancelled" | "failed";
 
 /** A failed download, with a reason the owner can act on. Never carries cookies, proxies or raw tool output. */
 export class DownloadError extends Error {
@@ -54,6 +62,15 @@ export function siteOf(input: string): { url: string; site: Site } | undefined {
   return { url: url.toString(), site };
 }
 
+/** yt-dlp's format choice for each output: H.264 first for the iPhone, only the audio for MP3 and M4A. */
+function formatArgs(format: MediaFormat): string[] {
+  const video = ["--merge-output-format", "mp4", "--remux-video", "mp4"];
+  if (format === "mp3") return ["-f", "ba/b", "-x", "--audio-format", "mp3", "--audio-quality", "0"];
+  if (format === "m4a") return ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a"];
+  if (format === "iphone") return ["-f", "bv*+ba/b", "-S", "vcodec:h264,res,acodec:m4a", ...video];
+  return ["-f", "bv*+ba/b", ...video];
+}
+
 /** Why yt-dlp failed, read from what it printed. */
 export function failureOf(output: string): DownloadFailure {
   if (/confirm you.?re not a bot/i.test(output)) return "blocked";
@@ -78,16 +95,16 @@ export interface MediaDownloaderOptions {
   spawnFn?: typeof spawn;
 }
 
-/** Downloads one video in its best quality with yt-dlp, merging video and audio with ffmpeg. */
+/** Downloads one video, or only its audio, with yt-dlp; ffmpeg merges and converts the streams. */
 export class MediaDownloader {
   constructor(private readonly options: MediaDownloaderOptions) {}
 
-  args(job: { url: string; site: Site; quality: Quality }, dir: string): string[] {
+  args(job: DownloadRequest, dir: string): string[] {
     const { options } = this;
     const cookies = options.cookiesFile && existsSync(options.cookiesFile) ? join(dir, "cookies.txt") : undefined;
     if (cookies && options.cookiesFile) copyFileSync(options.cookiesFile, cookies);
     return [
-      job.url,
+      job.source === "search" ? `ytsearch1:${job.target.replace(/\s+/g, " ")}` : job.target,
       "--use-extractors",
       EXTRACTORS[job.site],
       "--no-playlist",
@@ -100,13 +117,7 @@ export class MediaDownloader {
       options.cacheDir,
       "--max-filesize",
       String(options.maxBytes),
-      "-f",
-      "bv*+ba/b",
-      ...(job.quality === "compatible" ? ["-S", "vcodec:h264,res,acodec:m4a"] : []),
-      "--merge-output-format",
-      "mp4",
-      "--remux-video",
-      "mp4",
+      ...formatArgs(job.format),
       "-o",
       join(dir, "video.%(ext)s"),
       "--newline",
@@ -121,7 +132,7 @@ export class MediaDownloader {
   }
 
   /** Runs the download into `dir`; reports progress from 0 to 1 and stops when `signal` aborts. */
-  run(job: { url: string; site: Site; quality: Quality }, dir: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<DownloadedFile> {
+  run(job: DownloadRequest, dir: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<DownloadedFile> {
     const spawnFn = this.options.spawnFn ?? spawn;
     return new Promise((resolve, reject) => {
       const child = spawnFn(this.options.bin, this.args(job, dir), { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });

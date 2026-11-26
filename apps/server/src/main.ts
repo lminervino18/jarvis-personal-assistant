@@ -15,8 +15,10 @@ import { createConnections } from "./integrations/connections.js";
 import { registerTransferRoutes } from "./transfers/transfer-routes.js";
 import { TransferStore } from "./transfers/transfer-store.js";
 import { TransferPreviews } from "./transfers/transfer-previews.js";
-import { DownloadQueue } from "./downloads/download-queue.js";
+import { MediaConverter } from "./downloads/media-converter.js";
 import { MediaDownloader } from "./downloads/media-downloader.js";
+import { MediaQueue } from "./downloads/media-queue.js";
+import { TransferSender } from "./transfers/transfer-delivery.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
@@ -101,14 +103,18 @@ const connections = createConnections({ db, env: process.env, cipher: tokenCiphe
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
 const transfers = new TransferStore(db);
 const transfersDir = join(config.dataDir, "transfers");
+const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
+const transferSender = new TransferSender({ db, store: transfers, attachments, dir: transfersDir, publicOrigin: config.publicOrigin, ...(gmail.service ? { gmail: gmail.service } : {}) });
 const ytdlp = process.env.YTDLP_BIN;
-const downloads =
+const media =
   ytdlp && existsSync(ytdlp)
-    ? new DownloadQueue({
+    ? new MediaQueue({
         db,
         store: transfers,
         dir: transfersDir,
         freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
+        converter: new MediaConverter({ timeoutMs: 2 * 3_600_000, exec: defaultExec }),
+        send: (transfer, request) => transferSender.send(transfer, request, new Date()),
         downloader: new MediaDownloader({
           bin: ytdlp,
           cacheDir: join(config.dataDir, "yt-dlp-cache"),
@@ -128,7 +134,7 @@ const services: ToolServices = {
   drive: gmail.drive,
   gmail: gmail.service,
   youtube,
-  transfers: { store: transfers, publicOrigin: config.publicOrigin, ...(downloads ? { downloads } : {}) },
+  transfers: { store: transfers, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media } : {}) },
 };
 
 const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;
@@ -151,7 +157,6 @@ services.tasks = tasks;
 if (workLayout && connections.github && connections.accounts) {
   services.repoProjects = new RepoProjects({ github: connections.github, accounts: connections.accounts, projectsDir: workLayout.projectsDir });
 }
-const attachments = new AttachmentStore(db, join(config.dataDir, "attachments"));
 services.attachments = attachments;
 if (tasks) services.statusSources.push(new AgentsStatusSource(tasks));
 
@@ -281,9 +286,9 @@ const app = await buildApp({
       ownerName: config.ownerDisplayName,
       freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
       previews: new TransferPreviews(transfersDir, defaultExec),
-      ...(downloads ? { downloads } : {}),
+      ...(media ? { media } : {}),
     });
-    downloads?.resume();
+    media?.resume();
     setInterval(() => {
       transferRoutes.sweep().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "transfer sweep failed"));
     }, 15 * 60_000).unref();
@@ -336,7 +341,7 @@ app.log.info({ stt: voice.stt.provider, tts: voice.tts.provider }, "voice provid
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   systemMessageFeed.stop();
-  await downloads?.stop();
+  await media?.stop();
   await app.close();
   await pagesServer?.close();
   db.close();

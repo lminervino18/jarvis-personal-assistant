@@ -16,6 +16,23 @@ export const MemoryCategory = z.enum(["preference", "fact", "person", "routine",
 export type MemoryCategory = z.infer<typeof MemoryCategory>;
 
 export const GmailAccountLabel = z.enum(["personal", "work"]);
+
+/**
+ * What a media job produces: «iphone» is H.264 and AAC in MP4, which an iPhone saves to Photos;
+ * «max» is the best the site has (AV1 or VP9 in 4K on YouTube); «mp3» and «m4a» are only the audio.
+ */
+export const MediaFormat = z.enum(["iphone", "max", "mp3", "m4a"]);
+export type MediaFormat = z.infer<typeof MediaFormat>;
+
+/** Who gets a file once it is ready: a WhatsApp chat or an email address. */
+export const SendFileTo = z.object({
+  channel: z.enum(["whatsapp", "email"]),
+  to: z.string().trim().min(1).max(254).describe("WhatsApp: id, número o nombre del chat, o «me» para el propio dueño. Email: la dirección"),
+  text: z.string().trim().max(1500).optional().describe("Texto corto que acompaña al archivo; omitilo si el dueño no dijo nada"),
+  subject: z.string().trim().min(1).max(200).optional(),
+  account: GmailAccountLabel.optional(),
+});
+export type SendFileTo = z.infer<typeof SendFileTo>;
 export type GmailAccountLabel = z.infer<typeof GmailAccountLabel>;
 
 /**
@@ -296,9 +313,20 @@ export const toolInputs = {
   },
   transfer_from_link: {
     /** A YouTube, X or Instagram link. */
-    url: z.string().trim().url().max(500),
-    /** «max» keeps the best quality the site has; «compatible» prefers H.264, which every phone plays. */
-    quality: z.enum(["max", "compatible"]).optional(),
+    url: z.string().trim().url().max(500).optional(),
+    /** Words to search on YouTube when the owner names a song or video without a link; the first result is downloaded. */
+    search: z.string().trim().min(2).max(200).optional(),
+    format: MediaFormat.optional(),
+    sendTo: SendFileTo.optional(),
+  },
+  transfer_convert: {
+    transferId: z.uuid(),
+    format: MediaFormat.exclude(["max"]),
+    sendTo: SendFileTo.optional(),
+  },
+  transfer_send: {
+    transferId: z.uuid(),
+    ...SendFileTo.shape,
   },
   image_create: {
     prompt: z.string().trim().min(3).max(4000),
@@ -379,6 +407,8 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "transfer_upload_link",
   "transfer_share_link",
   "transfer_from_link",
+  "transfer_convert",
+  "transfer_send",
 ]);
 
 export const ToolErrorCode = z.enum([

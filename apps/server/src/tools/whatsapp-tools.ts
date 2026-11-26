@@ -124,7 +124,8 @@ function normalized(text: string): string {
   return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }
 
-function voiceTarget(ctx: ToolContext, chatId: string): { jid: string; name: string } {
+/** A WhatsApp chat by id, number or name, or the owner's own chat for «me». */
+export function whatsappRecipient(ctx: ToolContext, chatId: string): { jid: string; name: string } {
   if (chatId === OWN_CHAT) return { jid: OWN_CHAT, name: "vos" };
   const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(chatId, { liveOnly: true });
   return { jid: chat.jid, name: chat.name?.trim() || chat.jid };
@@ -143,7 +144,7 @@ export const whatsappVoiceNote = defineTool({
     }
     let chat: { jid: string };
     try {
-      chat = voiceTarget(ctx, input.chatId);
+      chat = whatsappRecipient(ctx, input.chatId);
     } catch (error) {
       return { refused: queryFailure(error) };
     }
@@ -152,7 +153,7 @@ export const whatsappVoiceNote = defineTool({
   },
   replaces: (pending, next) => pending.chatId === next.chatId,
   describe(ctx, input) {
-    const chat = voiceTarget(ctx, input.chatId);
+    const chat = whatsappRecipient(ctx, input.chatId);
     return {
       title: "Enviar nota de voz",
       summary: `Para ${chat.name}`,
@@ -168,7 +169,7 @@ export const whatsappVoiceNote = defineTool({
     if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", NOT_CONNECTED);
     let chat: { jid: string; name: string };
     try {
-      chat = voiceTarget(ctx, input.chatId);
+      chat = whatsappRecipient(ctx, input.chatId);
     } catch (error) {
       return queryFailure(error);
     }
