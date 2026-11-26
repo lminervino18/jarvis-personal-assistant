@@ -14,16 +14,16 @@ export interface WelcomeSettings {
   musicStart: number;
 }
 
-/** A short sting, like the suit booting: the riff starts, the voice comes in right away and the music fades a second after it ends. */
+/** A short sting, like the suit booting: the riff starts, the voice comes in right away, and the music lingers after it and fades out slowly. */
 const VOICE_DELAY_MS = 350;
-const TAIL_SECONDS = 1;
-const FADE_SECONDS = 0.7;
+const TAIL_SECONDS = 2.2;
+const FADE_SECONDS = 1.8;
 /** The riff comes in gradually instead of at full volume. */
 const FADE_IN_SECONDS = 0.9;
 const MIN_SECONDS = 2.5;
 const MUSIC_FILE = "music";
 /** Bumped when the mix itself changes, so a cached welcome is made again. */
-const MIX_VERSION = 3;
+const MIX_VERSION = 4;
 
 /**
  * The greeting the app plays when it opens: a few seconds of JARVIS's voice saying the owner's
@@ -109,7 +109,7 @@ export class Welcome {
   }
 }
 
-/** How long the welcome lasts: the phrase plus a second of riff, never shorter than two and a half seconds. */
+/** How long the welcome lasts: the phrase plus the music's slow goodbye, never shorter than two and a half seconds. */
 export function welcomeSeconds(voiceMs: number): number {
   return Math.max(MIN_SECONDS, Math.round((VOICE_DELAY_MS + voiceMs) / 100) / 10 + TAIL_SECONDS);
 }

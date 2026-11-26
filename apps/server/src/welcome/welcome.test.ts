@@ -48,7 +48,7 @@ describe("welcome", () => {
     expect(await env.welcome.audio()).toBe(first);
     expect(env.said).toEqual(["Bienvenido, Loren."]);
     expect(env.runs).toHaveLength(1);
-    expect(env.runs[0]?.slice(3, 9)).toEqual(["-ss", "5", "-t", "3.3", "-i", join(env.dir, "welcome", "music.mp3")]);
+    expect(env.runs[0]?.slice(3, 9)).toEqual(["-ss", "5", "-t", "4.5", "-i", join(env.dir, "welcome", "music.mp3")]);
 
     const version = env.welcome.version();
     env.welcome.update({ phrase: "Bienvenido, ingeniero." });
@@ -68,11 +68,11 @@ describe("welcome", () => {
   });
 
   it("is a short sting: the riff, the voice right after it starts, and a quick fade", () => {
-    expect([welcomeSeconds(1900), welcomeSeconds(600)]).toEqual([3.3, 2.5]);
+    expect([welcomeSeconds(1900), welcomeSeconds(600)]).toEqual([4.5, 3.2]);
     const graph = mixArgs("song.mp3", 3, "voice.wav", 1900, "out.mp3").join(" ");
     expect(graph).toContain("adelay=350|350");
     expect(graph).toContain("volume=0.5,afade=t=in:d=0.9");
-    expect(graph).toContain("afade=t=out:st=2.60:d=0.7");
+    expect(graph).toContain("afade=t=out:st=2.70:d=1.8");
     expect(graph).toContain("[music][key]sidechaincompress");
     expect(graph).toContain("[ducked][voice]amix=inputs=2:duration=first");
   });
