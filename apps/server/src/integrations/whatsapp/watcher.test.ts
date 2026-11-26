@@ -87,6 +87,8 @@ describe("watching WhatsApp", () => {
     await env.watcher.tick();
     expect(env.sent()).toEqual([{ chat: MARTI, text: `${JARVIS_MARK} Claro, porque googlear era demasiado esfuerzo. Fue Argentina, Jarvis lo confirma.` }]);
     expect(requests).toHaveLength(1);
+    const quote = (env.db.prepare("SELECT quote_json AS q FROM wa_outbox").get() as { q: string }).q;
+    expect(JSON.parse(quote)).toEqual({ id: "m3", fromMe: false, text: "@jarvis quién ganó el mundial 86" });
     expect(requests[0]).toMatchObject({ chatName: "Marti", isGroup: false, mention: { who: "Marti", text: "@jarvis quién ganó el mundial 86" } });
     expect(requests[0]?.lines.map((line) => line.text)).toEqual(["che una pregunta", "@jarvis quién ganó el mundial 86"]);
   });

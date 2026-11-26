@@ -15,6 +15,12 @@ export type OutgoingContent =
   | { audio: Buffer; mimetype: string; ptt: boolean }
   | { document: Buffer; mimetype: string; fileName: string; caption: string };
 
+/** A message as Baileys needs it to show it quoted above a reply. */
+export interface QuotedWaMessage {
+  key: { remoteJid: string; id: string; fromMe: boolean; participant?: string };
+  message: { conversation: string };
+}
+
 /** The owner's own chat id from the paired device id ("5491100000000:12@s.whatsapp.net" → "5491100000000@s.whatsapp.net"). */
 export function ownChat(deviceId: string | undefined): string | undefined {
   const user = deviceId?.split("@")[0]?.split(":")[0];
@@ -30,7 +36,7 @@ const OUTBOX_POLL_MS = 3_000;
 export interface BridgeSocket {
   ev: { on<E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void): void };
   end(error: Error | undefined): void;
-  sendMessage(jid: string, content: OutgoingContent): Promise<{ key?: { id?: string | null } } | undefined>;
+  sendMessage(jid: string, content: OutgoingContent, options?: { quoted?: QuotedWaMessage }): Promise<{ key?: { id?: string | null } } | undefined>;
 }
 
 export interface BridgeOptions {
@@ -166,7 +172,10 @@ export class WhatsAppBridge {
       const target = message.chatJid === OWN_CHAT ? ownChat(this.options.auth.state.creds.me?.id) : message.chatJid;
       if (!target) throw new Error("own number unknown");
       let sent: Awaited<ReturnType<BridgeSocket["sendMessage"]>>;
-      for (const content of this.contents(message)) sent = await socket.sendMessage(target, content);
+      const quoted: QuotedWaMessage | undefined = message.quote
+        ? { key: { remoteJid: target, id: message.quote.id, fromMe: message.quote.fromMe, ...(message.quote.participant ? { participant: message.quote.participant } : {}) }, message: { conversation: message.quote.text } }
+        : undefined;
+      for (const [index, content] of this.contents(message).entries()) sent = await socket.sendMessage(target, content, index === 0 && quoted ? { quoted } : undefined);
       outbox.markSent(message.id, sent?.key?.id ?? undefined, this.now());
       this.options.log.info("whatsapp message sent");
     } catch (error) {

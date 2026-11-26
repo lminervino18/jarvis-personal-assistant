@@ -80,11 +80,30 @@ describe("whatsapp voice notes", () => {
     expect(row).toEqual({ chat_jid: "5490000000002@s.whatsapp.net", text: "", name: "nota-de-voz.ogg", media_type: VOICE_NOTE_TYPE });
   });
 
-  it("insists that the note starts by saying it is Jarvis, the owner's assistant", async () => {
+  it("introduces itself only the first time it talks to a chat", async () => {
     const { call, cards } = setup();
-    const result = await call({ chatId: "Carme", text: "Hola Carme, llego a las nueve." });
-    expect(result).toMatchObject({ ok: false, error: { code: "invalid_input", message: expect.stringContaining("soy Jarvis, el asistente de Loren") } });
+    const first = await call({ chatId: "Carme", text: "Hola Carme, llego a las nueve." });
+    expect(first).toMatchObject({ ok: false, error: { code: "invalid_input", message: expect.stringContaining("Es la primera vez que le hablás a Carme") } });
+    expect(first).toMatchObject({ error: { message: expect.stringContaining("soy Jarvis, el asistente de Loren") } });
     expect(cards).toEqual([]);
+
+    expect((await call({ chatId: "Carme", text: "Hola Carme, soy Jarvis, el asistente de Loren. Llega a las nueve." })).ok).toBe(true);
+    const again = await call({ chatId: "Carme", text: "Hola Carme, soy Jarvis, el asistente de Loren. Se atrasa media hora." });
+    expect(again).toMatchObject({ ok: false, error: { message: expect.stringContaining("Ya te presentaste antes con Carme") } });
+    expect((await call({ chatId: "Carme", text: "Hola Carme, se atrasa media hora." })).ok).toBe(true);
+  });
+
+  it("says whether to greet: after hours of silence it greets, in an active chat it goes straight to the point", async () => {
+    const { db, call } = setup();
+    expect((await call({ chatId: "Carme", text: "Hola Carme, soy Jarvis, el asistente de Loren. Llega a las nueve." })).ok).toBe(true);
+    const message = (minutesAgo: number) =>
+      db
+        .prepare("INSERT INTO wa_messages (id, chat_jid, from_me, ts_utc, text, source, inserted_at) VALUES (?, '5490000000002@s.whatsapp.net', 0, ?, 'dale', 'baileys', ?)")
+        .run(`m${minutesAgo}`, new Date(NOW.getTime() - minutesAgo * 60_000).toISOString(), NOW.toISOString());
+    message(300);
+    expect(await call({ chatId: "Carme", text: "Hola Carme, soy Jarvis de nuevo, el asistente de Loren." })).toMatchObject({ error: { message: expect.stringContaining("saludá («Hola Carme»)") } });
+    message(5);
+    expect(await call({ chatId: "Carme", text: "Soy Jarvis, el asistente de Loren: ya sale." })).toMatchObject({ error: { message: expect.stringContaining("andá directo al mensaje") } });
   });
 
   it("encodes the narration as mono Opus at 48 kHz, the format of WhatsApp voice notes", async () => {

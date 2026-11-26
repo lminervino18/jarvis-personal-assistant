@@ -119,6 +119,46 @@ export const whatsappSend = defineTool({
 });
 
 const VOICE_CHARS_PER_SECOND = 15;
+const VOICE_NOTE_NAME = "nota-de-voz.ogg";
+/** After this long without messages, a voice note opens with a greeting. */
+const QUIET_CHAT_MS = 4 * 3_600_000;
+
+/** Whether Jarvis already spoke to a chat with its own voice: a voice note or a video sent there before. */
+export function jarvisSpokeTo(db: ToolContext["services"]["db"], jid: string): boolean {
+  return (
+    db
+      .prepare(
+        "SELECT 1 FROM wa_outbox o JOIN attachments a ON a.id = o.attachment_id WHERE o.chat_jid = ? AND a.name = ? AND o.status != 'failed' UNION ALL SELECT 1 FROM video_deliveries WHERE channel = 'whatsapp' AND recipient = ? LIMIT 1",
+      )
+      .get(jid, VOICE_NOTE_NAME, jid) !== undefined
+  );
+}
+
+/** Whether a voice note opens with a greeting: the chat has been quiet for hours, or its last message is from another day. */
+function greetingDue(ctx: ToolContext, jid: string): boolean {
+  const last = (ctx.services.db.prepare("SELECT MAX(ts_utc) AS at FROM wa_messages WHERE chat_jid = ? AND deleted = 0").get(jid) as { at: string | null }).at;
+  if (!last) return true;
+  const day = (date: Date) => date.toLocaleDateString("en-CA", { timeZone: ctx.services.timezone });
+  return ctx.now().getTime() - Date.parse(last) > QUIET_CHAT_MS || day(new Date(last)) !== day(ctx.now());
+}
+
+function introduces(text: string): boolean {
+  const opening = normalized(text.slice(0, 160));
+  return opening.includes("soy jarvis") || (opening.includes("jarvis") && opening.includes("asistente"));
+}
+
+/** The introduction rule: Jarvis presents itself only the first time it talks to a chat, and never again after. */
+function introductionProblem(ctx: ToolContext, chat: { jid: string; name: string }, text: string): string | undefined {
+  if (chat.jid === OWN_CHAT) return undefined;
+  const owner = ctx.services.ownerName || "tu dueño";
+  const first = !jarvisSpokeTo(ctx.services.db, chat.jid);
+  if (first && !introduces(text)) return `Es la primera vez que le hablás a ${chat.name} con tu voz: empezá presentándote, por ejemplo «Hola ${chat.name.split(" ")[0]}, soy Jarvis, el asistente de ${owner}…».`;
+  if (!first && introduces(text)) {
+    const opening = greetingDue(ctx, chat.jid) ? `Pasaron horas desde el último mensaje: saludá («Hola ${chat.name.split(" ")[0]}») y andá al mensaje.` : "La charla está activa: andá directo al mensaje, sin saludo.";
+    return `Ya te presentaste antes con ${chat.name}: no te presentes de nuevo. ${opening}`;
+  }
+  return undefined;
+}
 
 function normalized(text: string): string {
   return text.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
@@ -134,20 +174,17 @@ export function whatsappRecipient(ctx: ToolContext, chatId: string): { jid: stri
 export const whatsappVoiceNote = defineTool({
   name: "whatsapp_voice_note",
   description:
-    "Le manda a un chat de WhatsApp una nota de voz con la voz de Jarvis, que llega como un audio recién grabado (no como archivo). Usala cuando el dueño pide «mandale un audio a…». Escribí lo que vas a decir: empezá siempre presentándote («Hola Carme, soy Jarvis, el asistente de Loren…») y después el mensaje del dueño, corto, natural y en rioplatense, como se habla, sin emojis ni links. Se manda directo cuando el dueño lo pide claramente.",
+    "Le manda a un chat de WhatsApp una nota de voz con la voz de Jarvis, que llega como un audio recién grabado (no como archivo). Usala cuando el dueño pide «mandale un audio a…». Escribí lo que vas a decir, corto, natural y en rioplatense, como se habla, sin emojis ni links. Presentate («Hola Carme, soy Jarvis, el asistente de Loren…») solo la primera vez que le hablás a ese chat; el sistema te avisa cuando te toca. Las demás veces no te presentes: si la charla está activa, andá directo al mensaje; si hace horas que nadie escribe, saludá («Hola Carme») y seguí. No digas «Loren me mandó a decir» salvo que el dueño lo pida. Se manda directo cuando el dueño lo pide claramente.",
   prepare(ctx, input) {
     if (!ctx.services.voiceNotes) return { refused: fail("disabled", "Las notas de voz no están configuradas en el servidor (falta la voz de ElevenLabs).") };
-    const owner = ctx.services.ownerName ?? "";
-    const opening = normalized(input.text.slice(0, 160));
-    if (!opening.includes("jarvis") || (owner && !opening.includes(normalized(owner)))) {
-      return { refused: fail("invalid_input", `Empezá la nota presentándote, por ejemplo: «Hola, soy Jarvis, el asistente de ${owner || "tu dueño"}…».`) };
-    }
-    let chat: { jid: string };
+    let chat: { jid: string; name: string };
     try {
       chat = whatsappRecipient(ctx, input.chatId);
     } catch (error) {
       return { refused: queryFailure(error) };
     }
+    const problem = introductionProblem(ctx, chat, input.text);
+    if (problem) return { refused: fail("invalid_input", problem) };
     if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", NOT_CONNECTED) };
     return { input: { ...input, chatId: chat.jid } };
   },
@@ -179,7 +216,7 @@ export const whatsappVoiceNote = defineTool({
     } catch {
       return fail("upstream_error", "No pude grabar la nota de voz; probá de nuevo en un rato.", true);
     }
-    const saved = attachments.save({ name: "nota-de-voz.ogg", mediaType: VOICE_NOTE_TYPE, data: note.data }, ctx.now());
+    const saved = attachments.save({ name: VOICE_NOTE_NAME, mediaType: VOICE_NOTE_TYPE, data: note.data }, ctx.now());
     if (!saved) return fail("internal", "No pude guardar la nota de voz.");
     const id = randomUUID();
     new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: "", attachmentId: saved.id }, ctx.now());

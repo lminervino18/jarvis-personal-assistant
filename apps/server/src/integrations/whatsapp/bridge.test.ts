@@ -29,11 +29,13 @@ class FakeSocket implements BridgeSocket {
   };
   readonly sent: { jid: string; text: string }[] = [];
   readonly contents: OutgoingContent[] = [];
+  readonly quoted: unknown[] = [];
   failNext = false;
   end() {
     this.ended += 1;
   }
-  async sendMessage(jid: string, content: OutgoingContent) {
+  async sendMessage(jid: string, content: OutgoingContent, options?: { quoted?: unknown }) {
+    if (options?.quoted) this.quoted.push(options.quoted);
     if (this.failNext) {
       this.failNext = false;
       throw new Error("send failed");
@@ -397,6 +399,18 @@ describe("conservative configuration", () => {
     expect(ignore("status@broadcast")).toBe(true);
     expect(ignore("123@newsletter")).toBe(true);
     expect(ignore("5490000000001@s.whatsapp.net")).toBe(false);
+  });
+
+  it("shows the message it answers quoted above the reply", async () => {
+    const { outbox, bridge, sockets } = setup();
+    bridge.start();
+    sockets[0]?.open();
+    const group = "120363000000000001@g.us";
+    outbox.enqueue({ id: "q1", chatJid: group, text: "🤖 Fue Argentina.", quote: { id: "ABC", participant: "5491100000002@s.whatsapp.net", fromMe: false, text: "@jarvis quién ganó el 86" } }, new Date());
+    await bridge.sendNextConfirmed();
+    expect(sockets[0]?.quoted).toEqual([
+      { key: { remoteJid: group, id: "ABC", fromMe: false, participant: "5491100000002@s.whatsapp.net" }, message: { conversation: "@jarvis quién ganó el 86" } },
+    ]);
   });
 
   it("sends confirmed messages one at a time, records failures and never retries an interrupted send", async () => {

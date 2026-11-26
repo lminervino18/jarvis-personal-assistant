@@ -6,6 +6,17 @@ export interface OutboxMessage {
   text: string;
   /** A chat attachment sent as a photo or document, with `text` as its caption. */
   attachmentId?: string;
+  /** A message of the same chat this one answers, shown quoted above it. */
+  quote?: QuotedMessage;
+}
+
+/** What WhatsApp needs to show a message quoted: its id, who wrote it, and its text. */
+export interface QuotedMessage {
+  id: string;
+  /** The author in a group; absent in a private chat. */
+  participant?: string;
+  fromMe: boolean;
+  text: string;
 }
 
 /** Outbox destination meaning the owner's own chat ("message yourself"); the bridge resolves it to the paired number. */
@@ -22,19 +33,25 @@ export class WhatsAppOutbox {
   enqueue(message: OutboxMessage, now: Date): void {
     const at = now.toISOString();
     this.db
-      .prepare("INSERT OR IGNORE INTO wa_outbox (id, chat_jid, text, attachment_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)")
-      .run(message.id, message.chatJid, message.text, message.attachmentId ?? null, at, at);
+      .prepare("INSERT OR IGNORE INTO wa_outbox (id, chat_jid, text, attachment_id, quote_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)")
+      .run(message.id, message.chatJid, message.text, message.attachmentId ?? null, message.quote ? JSON.stringify(message.quote) : null, at, at);
   }
 
   claimNext(now: Date): OutboxMessage | undefined {
     return this.db
       .transaction(() => {
-        const row = this.db.prepare("SELECT id, chat_jid, text, attachment_id FROM wa_outbox WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as
-          | { id: string; chat_jid: string; text: string; attachment_id: string | null }
+        const row = this.db.prepare("SELECT id, chat_jid, text, attachment_id, quote_json FROM wa_outbox WHERE status = 'pending' ORDER BY created_at LIMIT 1").get() as
+          | { id: string; chat_jid: string; text: string; attachment_id: string | null; quote_json: string | null }
           | undefined;
         if (!row) return undefined;
         this.db.prepare("UPDATE wa_outbox SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'pending'").run(now.toISOString(), row.id);
-        return { id: row.id, chatJid: row.chat_jid, text: row.text, ...(row.attachment_id ? { attachmentId: row.attachment_id } : {}) };
+        return {
+          id: row.id,
+          chatJid: row.chat_jid,
+          text: row.text,
+          ...(row.attachment_id ? { attachmentId: row.attachment_id } : {}),
+          ...(row.quote_json ? { quote: JSON.parse(row.quote_json) as QuotedMessage } : {}),
+        };
       })
       .immediate();
   }
