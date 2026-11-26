@@ -159,9 +159,26 @@ function stressCards(): Card[] {
   ];
 }
 
+function narratedVideos(now: Date): Card[] {
+  const base = { kind: "video", title: "Resumen de la semana (ficticio)", format: "vertical", updatedAt: now.toISOString() } as const;
+  return [
+    { ...base, videoId: uuid(9001), version: 1, status: "render", progress: 0.42, files: {} },
+    {
+      ...base,
+      videoId: uuid(9002),
+      version: 2,
+      status: "ready",
+      progress: 1,
+      durationMs: 10_000,
+      files: { full: { attachmentId: uuid(9003), size: 4_200_000 }, light: { attachmentId: uuid(9004), size: 1_100_000 } },
+    },
+  ];
+}
+
 function reply(text: string, now: Date): { text: string; cards: Card[] } {
   const lower = text.toLowerCase();
   if (lower.includes("prueba")) return { text: STRESS_TEXT, cards: stressCards() };
+  if (lower.includes("narrado")) return { text: "Uno se está renderizando y el otro ya está (datos ficticios).", cards: narratedVideos(now) };
   if (lower.includes("recordatorio") || lower.includes("recordame")) {
     return {
       text: "Listo, te lo anoté.",
