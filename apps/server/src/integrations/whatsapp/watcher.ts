@@ -13,9 +13,9 @@ const ACTIVE_GROUP_MS = 30 * 24 * 3_600_000;
 const ARRIVAL_WINDOW_MS = 10 * 60_000;
 const SHORT_MESSAGE_WORDS = 6;
 const BATCH = 200;
-/** Replies to @jarvis: at most one every 15 seconds and 20 a day per chat, 60 a day in all. */
+/** Replies to @jarvis, so a chat cannot burn the owner's quota: one every 15 seconds, a few an hour per chat, 60 a day in all. */
 const REPLY_GAP_MS = 15_000;
-const REPLIES_PER_CHAT_DAY = 20;
+const DEFAULT_REPLIES_PER_HOUR = 3;
 const REPLIES_PER_DAY = 60;
 const CONTEXT_MESSAGES = 25;
 const MAX_REPLY_CHARS = 700;
@@ -103,6 +103,8 @@ export interface WhatsAppWatcherDeps {
   ownerName: string;
   /** Writes Jarvis's answer to a mention; undefined leaves it unanswered. Without it, mentions are ignored. */
   reply?(request: MentionRequest): Promise<string | undefined>;
+  /** Answers per chat in any hour; 3 by default. */
+  repliesPerHour?: number;
   now?(): Date;
 }
 
@@ -191,11 +193,12 @@ export class WhatsAppWatcher {
   private allowedToReply(chatJid: string, now: Date): boolean {
     const db = this.deps.db;
     const day = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+    const hour = new Date(now.getTime() - 3_600_000).toISOString();
     const gap = new Date(now.getTime() - REPLY_GAP_MS).toISOString();
     const count = (sql: string, ...args: string[]) => (db.prepare(sql).get(...args) as { n: number }).n;
     return (
       count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, gap) === 0 &&
-      count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, day) < REPLIES_PER_CHAT_DAY &&
+      count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, hour) < (this.deps.repliesPerHour ?? DEFAULT_REPLIES_PER_HOUR) &&
       count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE created_at > ?", day) < REPLIES_PER_DAY
     );
   }

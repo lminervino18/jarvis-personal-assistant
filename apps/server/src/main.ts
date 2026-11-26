@@ -256,6 +256,7 @@ if (media && runtime.complete) {
 const watcher = new WhatsAppWatcher({
   db,
   ownerName: config.ownerDisplayName,
+  repliesPerHour: Number(process.env.WHATSAPP_REPLIES_PER_HOUR ?? 3),
   ...(runtime.complete && process.env.WHATSAPP_AUTO_REPLY !== "off"
     ? { reply: sarcasticReplier({ complete: runtime.complete.bind(runtime), model: config.claude.model, ownerName: config.ownerDisplayName }) }
     : {}),

@@ -91,6 +91,20 @@ describe("watching WhatsApp", () => {
     expect(requests[0]?.lines.map((line) => line.text)).toEqual(["che una pregunta", "@jarvis quién ganó el mundial 86"]);
   });
 
+  it("answers at most a few times an hour per chat, so nobody burns the owner's quota", async () => {
+    let clock = now;
+    const env = setup(async () => "Otra vez vos.");
+    const watcher = new WhatsAppWatcher({ db: env.db, ownerName: "Loren", repliesPerHour: 3, now: () => clock, reply: async () => "Otra vez vos." });
+    await watcher.tick();
+    for (const minutes of [0, 10, 20, 30, 61]) {
+      clock = new Date(now.getTime() + minutes * 60_000);
+      env.message(MARTI, `@jarvis pregunta del minuto ${minutes}`, { at: clock });
+      await watcher.tick();
+    }
+    expect(env.sent()).toHaveLength(4);
+    expect(env.db.prepare("SELECT message_id FROM wa_auto_replies ORDER BY created_at").all()).toHaveLength(4);
+  });
+
   it("stays quiet in groups the owner does not write in, and when the model gives nothing", async () => {
     const env = setup(async () => undefined);
     await env.watcher.tick();
