@@ -189,16 +189,6 @@ export class MediaConverter {
     );
   }
 
-  /** Keeps `from` to `to` of a video without re-encoding; the cut lands on the nearest keyframe, within a second or two. */
-  async trimCopy(input: string, from: number, to: number, output: string, signal: AbortSignal): Promise<void> {
-    await this.ffmpeg(
-      ["-hide_banner", "-nostdin", "-y", "-ss", from.toFixed(2), "-i", input, "-t", (to - from).toFixed(2), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", output],
-      to - from,
-      () => undefined,
-      signal,
-    );
-  }
-
   /**
    * A copy of a video that weighs at most `targetBytes`, for channels with a size limit: H.264 at
    * the bitrate that fits, at the smallest resolution step that still looks fine. Undefined when the

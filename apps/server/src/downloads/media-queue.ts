@@ -153,10 +153,9 @@ function cutNote(job: MediaJob, moments: Moment[], transfer: Transfer, keptFull:
   return `Terminé el recorte que pediste (${parts}; ${clock(seconds)} en total, ${megabytes(transfer.size)}): está en Transferencias.${whole}`;
 }
 
-/** The owner's notice for a whole Beelup match: where it is played, how long and how heavy. */
-function matchNote(bounds: Moment | undefined, transfer: Transfer): string {
-  const where = bounds ? `, desde que arranca hasta que termina (del ${clock(bounds.start)} al ${clock(bounds.end)} de la grabación; ${clock(bounds.end - bounds.start)})` : "";
-  return `Bajé el partido de Beelup entero${where}, ${megabytes(transfer.size)}: está en Transferencias, en su calidad original.`;
+/** The owner's notice for a whole Beelup match: how long and how heavy. */
+function matchNote(seconds: number | undefined, transfer: Transfer): string {
+  return `Bajé el partido de Beelup entero, crudo${seconds ? ` (${clock(seconds)})` : ""}, ${megabytes(transfer.size)}: está en Transferencias, en su calidad original.`;
 }
 
 /** What one job made, before it lands in Transferencias. */
@@ -175,8 +174,8 @@ interface Made {
   full?: { path: string; name: string; ext: string };
   /** The Transferencias file a cut came from, to drop when the owner did not want to keep it. */
   source?: Transfer;
-  /** Where the match is played in a whole recorded match, in seconds of the recording. */
-  bounds?: Moment;
+  /** How long a whole Beelup match runs. */
+  seconds?: number;
 }
 
 /** A video fetched from a link, before it becomes a Transferencias file. */
@@ -399,23 +398,10 @@ export class MediaQueue {
     return { path: file.path, name: `${titleForFile(file.title)}.${file.ext}`, ext: file.ext, title: file.title, ...(file.height ? { height: file.height } : {}), origin: "download", sender: job.site };
   }
 
-  /** A whole Beelup match, without the warm-up before or the greetings after when the finder can tell where it is played. */
+  /** A whole Beelup match, raw: every minute the court camera recorded, in its original quality. */
   private async matchFile(job: MediaJob, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
-    const stage = (name: string, from: number, to: number) => {
-      this.update(job.id, { stage: name, progress: from });
-      return (fraction: number) => onProgress(from + fraction * (to - from));
-    };
-    const match = await this.fetchSource(job, "max", work, stage("Bajando", 0, 0.75), signal);
-    const seconds = match.seconds ?? 0;
-    const made: Made = { path: match.path, name: `${titleForFile(match.title)}.mp4`, ext: "mp4", title: match.title, origin: "download", sender: job.site };
-    if (!this.finder || !this.deps.converter || seconds <= 0) return made;
-    stage("Buscando el arranque y el final", 0.75, 0.9);
-    const bounds = await this.finder.matchBounds(match.path, seconds, work, signal).catch(() => undefined);
-    if (!bounds || (bounds.start < 5 && bounds.end > seconds - 5)) return made;
-    stage("Recortando", 0.9, 1);
-    const trimmed = join(work, "partido-recortado.mp4");
-    await this.deps.converter.trimCopy(match.path, bounds.start, bounds.end, trimmed, signal);
-    return { ...made, path: trimmed, bounds };
+    const match = await this.fetchSource(job, "max", work, onProgress, signal);
+    return { path: match.path, name: `${titleForFile(match.title)}.mp4`, ext: "mp4", title: match.title, origin: "download", sender: job.site, ...(match.seconds ? { seconds: match.seconds } : {}) };
   }
 
   private async cutFile(job: MediaJob, edit: EditSpec, work: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<Made> {
@@ -480,7 +466,7 @@ export class MediaQueue {
     const done = made.moments
       ? cutNote(job, made.moments, transfer, Boolean(made.full))
       : job.site === "Beelup"
-        ? matchNote(made.bounds, transfer)
+        ? matchNote(made.seconds, transfer)
         : job.source === "transfer"
         ? `Terminé de convertir el archivo ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`
         : `Terminé de bajar ${kind} de ${job.site} que pediste ${FORMAT_NAMES[job.format]} (${details}): está en Transferencias.`;

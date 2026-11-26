@@ -517,46 +517,18 @@ describe("Beelup", () => {
     await expect(new BeelupSource(fetchFn).match("38073765")).rejects.toThrow("outside Beelup");
   });
 
-  it("finds where the match is played: a look at every minute, then every 10 seconds at the edges", async () => {
-    const work = tempDir();
-    const asked: { images: number; prompt: string }[] = [];
-    const finder = new MomentFinder({
-      exec: async (_command, args) => {
-        writeFileSync(args.at(-1) ?? "", "jpg");
-        return { stdout: "", stderr: "" };
-      },
-      complete: async (request) => {
-        asked.push({ images: request.files?.length ?? 0, prompt: request.prompt });
-        return asked.length === 1 ? '{"moments":[{"start":300,"end":2990}]}' : '{"moments":[{"start":335,"end":2975}]}';
-      },
-    });
-    expect(await finder.matchBounds("partido.mp4", 3300, work, new AbortController().signal)).toEqual({ start: 335, end: 2975 });
-    expect(asked[0]?.images).toBe(90);
-    expect(asked[1]?.images).toBe(38);
-    expect(asked[1]?.prompt).toContain("imagen 1 = 3:30");
-  });
-
-  it("downloads the whole match into Transferencias, trimmed to where it is played", async () => {
+  it("downloads the whole match into Transferencias, raw, in its original quality", async () => {
     const dir = tempDir();
     const db = openMigratedDatabase(":memory:");
     const store = new TransferStore(db);
-    const trims: number[][] = [];
-    const converter = {
-      remuxHls: async (_playlist: string, output: string) => writeFileSync(output, "whole match"),
-      trimCopy: async (_input: string, from: number, to: number, output: string) => {
-        trims.push([from, to]);
-        writeFileSync(output, "match");
-      },
-    } as unknown as MediaConverter;
+    const converter = { remuxHls: async (_playlist: string, output: string) => writeFileSync(output, "whole match") } as unknown as MediaConverter;
     const beelup = { match: async () => ({ playlist: "#EXTM3U", seconds: 3300, title: "Cancha 5 / Jueves 19/11 a las 22:30" }) };
     const queue = new MediaQueue({ db, store, dir, downloader: {} as MediaDownloader, converter, beelup, freeBytes: () => 100 * 1024 ** 3 });
-    queue.useFinder({ matchBounds: async () => ({ start: 335, end: 2975 }) } as unknown as MomentFinder);
     const job = queue.download({ url: "https://beelup.com/player.php?id=38073765", format: "iphone" });
     await queue.idle();
     expect(queue.get(job!.id)?.status).toBe("done");
-    expect(trims).toEqual([[335, 2975]]);
     expect(store.list(new Date())[0]).toMatchObject({ name: "Cancha 5 Jueves 19 11 a las 22 30.mp4", sender: "Beelup", mediaType: "video/mp4" });
     const chat = (JSON.parse((db.prepare("SELECT payload_json AS p FROM outbox WHERE kind = 'chat_message'").get() as { p: string }).p) as { text: string }).text;
-    expect(chat).toBe("Bajé el partido de Beelup entero, desde que arranca hasta que termina (del 5:35 al 49:35 de la grabación; 44:00), 0 MB: está en Transferencias, en su calidad original.");
+    expect(chat).toBe("Bajé el partido de Beelup entero, crudo (55:00), 0 MB: está en Transferencias, en su calidad original.");
   });
 });
