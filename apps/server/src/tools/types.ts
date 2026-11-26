@@ -1,3 +1,4 @@
+import type { TransferServices } from "./transfer-tools.js";
 import type { DriveServices } from "./drive-tools.js";
 import type { ImageService } from "../images/image-service.js";
 import type { RepoProjects } from "../projects/repo-projects.js";
@@ -57,6 +58,8 @@ export interface ToolServices {
   videos?: VideoStore;
   /** The owner's Google Drive. */
   drive?: DriveServices;
+  /** Files passing between the owner's devices, and the links to upload or share them. */
+  transfers?: TransferServices;
   /** Image generation with OpenAI; undefined without an API key. */
   images?: Pick<ImageService, "start">;
   chatStudies?: ChatStudies;

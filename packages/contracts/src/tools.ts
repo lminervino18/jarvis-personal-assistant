@@ -286,6 +286,14 @@ export const toolInputs = {
     fileId: z.string().trim().min(1).max(500),
     account: GmailAccountLabel.optional(),
   },
+  transfer_list: {},
+  transfer_upload_link: {
+    /** Who will use the link, as the owner calls them («Marti»); it names what arrives. */
+    label: z.string().trim().min(1).max(60).optional(),
+  },
+  transfer_share_link: {
+    transferId: z.uuid(),
+  },
   image_create: {
     prompt: z.string().trim().min(3).max(4000),
     /** Photos the owner uploaded, used as references to edit or build on. */
@@ -321,6 +329,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "page_responses",
   "drive_search",
   "drive_download",
+  "transfer_list",
 ]);
 
 /** Built-in Claude tools the runtime may expose. They are all treated as untrusted sources. */
@@ -361,6 +370,8 @@ export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "drive_update",
   "drive_share",
   "drive_trash",
+  "transfer_upload_link",
+  "transfer_share_link",
 ]);
 
 export const ToolErrorCode = z.enum([

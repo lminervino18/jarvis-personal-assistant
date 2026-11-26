@@ -12,6 +12,10 @@ import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
 import { ProjectShipper } from "./projects/project-shipper.js";
 import { RepoProjects } from "./projects/repo-projects.js";
 import { createConnections } from "./integrations/connections.js";
+import { registerTransferRoutes } from "./transfers/transfer-routes.js";
+import { TransferStore } from "./transfers/transfer-store.js";
+import { TransferPreviews } from "./transfers/transfer-previews.js";
+import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
 import { ConversationStore } from "./conversation/conversation-store.js";
 import { ConversationHub } from "./conversation/hub.js";
@@ -93,6 +97,7 @@ const gmail = createGmailIntegration({
 const whatsapp = new WhatsAppStatusSource(db, config.timezone, tokenCipher ? new PairingStore(db, tokenCipher) : undefined);
 const connections = createConnections({ db, env: process.env, cipher: tokenCipher, publicOrigin: config.publicOrigin, gmailAccounts: gmail.accounts, whatsapp });
 const youtube = new YoutubeService({ apiKey: process.env.YOUTUBE_API_KEY });
+const transfers = new TransferStore(db);
 
 const services: ToolServices = {
   db,
@@ -102,6 +107,7 @@ const services: ToolServices = {
   drive: gmail.drive,
   gmail: gmail.service,
   youtube,
+  transfers: { store: transfers, publicOrigin: config.publicOrigin },
 };
 
 const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;
@@ -246,6 +252,18 @@ const app = await buildApp({
     if (speaker) registerEnrollmentRoutes(instance, helpers, { dir: join(config.dataDir, "voice", "enrollment"), speaker });
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
+    const transferRoutes = registerTransferRoutes(instance, helpers, {
+      db,
+      store: transfers,
+      dir: join(config.dataDir, "transfers"),
+      publicOrigin: config.publicOrigin,
+      ownerName: config.ownerDisplayName,
+      freeBytes: () => readDiskUsage(config.dataDir).freeBytes,
+      previews: new TransferPreviews(join(config.dataDir, "transfers"), defaultExec),
+    });
+    setInterval(() => {
+      transferRoutes.sweep().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "transfer sweep failed"));
+    }, 15 * 60_000).unref();
     registerVideoRoutes(instance, helpers, videos, attachments, videosDir, (input) => sendVideo(services, input, new Date()));
     registerDeviceRoutes(instance, helpers, {
       devices,
