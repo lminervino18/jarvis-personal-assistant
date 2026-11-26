@@ -28,6 +28,9 @@ RUN apt-get update \
  && unzip -q /tmp/yt-dlp.zip -d /opt/yt-dlp \
  && chmod -R a+rX /opt/yt-dlp \
  && chmod 755 /opt/yt-dlp/yt-dlp_linux
+ADD --checksum=sha256:e88c1d090740373fc606c1bafd81d9a5eadc642cce5667616e20e9d7a444f51c \
+  https://github.com/windtf/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz /tmp/wireproxy.tar.gz
+RUN mkdir -p /opt/wireproxy && tar -xzf /tmp/wireproxy.tar.gz -C /opt/wireproxy wireproxy && chmod 755 /opt/wireproxy/wireproxy
 
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS runtime
 RUN apt-get update \
@@ -91,3 +94,9 @@ USER jarvis
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "-e", "const t=Number(require('fs').readFileSync(process.env.AGENT_HEARTBEAT_FILE,'utf8'));process.exit(Date.now()-t<60000?0:1)"]
 CMD ["node", "dist/agent-runner.js"]
+
+FROM scratch AS warp
+COPY --from=media-tools /opt/wireproxy/wireproxy /wireproxy
+USER 10001:10001
+EXPOSE 40000
+ENTRYPOINT ["/wireproxy", "-c", "/etc/wireproxy/wireproxy.conf"]

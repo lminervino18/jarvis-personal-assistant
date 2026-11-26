@@ -2,9 +2,7 @@
 
 The owner can paste a YouTube, X or Instagram link, in Transferencias or to Jarvis (`transfer_from_link`). The server downloads the video and leaves it in Transferencias for 24 hours, with a push and a chat line when it is done or fails.
 
-Status:
-- X and Instagram: *validated with real service* from the server's own address, without an account.
-- YouTube: *pending owner connection*, because it blocks data center addresses (see below).
+Status: *validated with real service* for X and Instagram from the server's own address without an account, and for YouTube through Cloudflare WARP (4K AV1 from the server on 2026-11-26).
 
 ## Engine
 
@@ -33,6 +31,30 @@ YouTube answers «Sign in to confirm you’re not a bot» to data center address
 - `YTDLP_COOKIES_FILE`: a Netscape cookies file from a throwaway Google account, exported by the owner. yt-dlp rewrites cookies, so each run works on a copy.
 
 Both go in `/etc/jarvis/jarvis.env`; the cookies file lives on the server, never in the repo.
+
+### WARP in production
+
+The `warp` compose service (profile `warp`) runs [wireproxy](https://github.com/windtf/wireproxy):
+- a userspace WireGuard tunnel to Cloudflare WARP, exposing SOCKS5 on `warp:40000` inside the compose network only;
+- the image is built `FROM scratch` with the checksum-pinned binary, read-only and without capabilities.
+
+The server uses it with `YTDLP_YOUTUBE_PROXY=socks5h://warp:40000`.
+
+The identity is anonymous and was registered with [wgcf](https://github.com/ViRb3/wgcf), which accepts Cloudflare's WARP terms (the owner approved it on 2026-11-26). Its keys live in `/etc/jarvis/warp/`, owned by uid 10001 with mode 600:
+- `wgcf-account.toml`;
+- `wgcf-profile.conf`;
+- `wireproxy.conf`, which points `WGConfig` at `/etc/wireproxy/wgcf-profile.conf` and binds SOCKS5 to `0.0.0.0:40000`.
+
+**Renewal:**
+- The `jarvis-warp-check` systemd timer runs `infra/warp/check.sh` every 6 hours.
+- It asks yt-dlp, through the tunnel, for a short public video.
+- If YouTube answers with its bot check, it registers a new WARP identity and restarts `warp`.
+
+Setting it up on a new server, as root:
+1. Install the verified `wgcf` binary in `/usr/local/bin`.
+2. Run `wgcf register --accept-tos && wgcf generate` and move both files into `/etc/jarvis/warp/` next to `wireproxy.conf`.
+3. Add `warp` to `COMPOSE_PROFILES` in `/opt/jarvis/.env`, and the proxy variable to `jarvis.env`.
+4. Copy `infra/warp/check.sh` to `/usr/local/sbin/jarvis-warp-check`, plus the unit and timer from `infra/warp/`. Then `systemctl enable --now jarvis-warp-check.timer`.
 
 ## Limits and safety
 

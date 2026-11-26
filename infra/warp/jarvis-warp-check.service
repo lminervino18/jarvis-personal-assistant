@@ -1,0 +1,7 @@
+[Unit]
+Description=Renew the WARP identity when YouTube blocks it
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jarvis-warp-check

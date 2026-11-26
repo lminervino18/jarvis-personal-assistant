@@ -106,6 +106,24 @@ services:
           memory: 512m
           pids: 128
 
+  warp:
+    <<: *hardening
+    profiles: [warp]
+    image: jarvis-warp:${JARVIS_TAG:-local}
+    pull_policy: never
+    build:
+      context: .
+      target: warp
+    volumes:
+      - ${JARVIS_WARP_DIR:-/etc/jarvis/warp}:/etc/wireproxy:ro
+    expose: ["40000"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128m
+          pids: 64
+
   agent-runner:
     <<: *hardening
     profiles: [agents]
