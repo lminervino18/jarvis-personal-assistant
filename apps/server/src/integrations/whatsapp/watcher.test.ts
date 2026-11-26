@@ -97,18 +97,31 @@ describe("watching WhatsApp", () => {
     expect(requests[0]?.lines.map((line) => line.text)).toEqual(["che una pregunta", "@jarvis quién ganó el mundial 86"]);
   });
 
-  it("answers at most five times every half hour per chat, so nobody burns the owner's quota", async () => {
+  it("answers each person at most five times every half hour, adding up their private chat and every group", async () => {
     let clock = now;
-    const env = setup(async () => "Otra vez vos.");
+    const env = setup();
     const watcher = new WhatsAppWatcher({ db: env.db, ownerName: "Loren", now: () => clock, reply: async () => "Otra vez vos." });
     await watcher.tick();
-    for (const minutes of [0, 5, 10, 15, 20, 25, 31]) {
+    env.message(GROUP, "hola", { fromMe: true, at: new Date(now.getTime() - 86_400_000) });
+    env.db.prepare("INSERT INTO wa_lid_map (lid, jid, updated_at) VALUES ('99887766@lid', ?, ?)").run(MARTI, now.toISOString());
+    const ask = async (minutes: number, chat: string, options: { sender?: string; fromMe?: boolean } = {}) => {
       clock = new Date(now.getTime() + minutes * 60_000);
-      env.message(MARTI, `@jarvis pregunta del minuto ${minutes}`, { at: clock });
+      env.message(chat, `@jarvis pregunta ${minutes}`, { at: clock, ...options });
       await watcher.tick();
-    }
-    expect(env.sent()).toHaveLength(6);
-    expect(env.db.prepare("SELECT message_id FROM wa_auto_replies ORDER BY created_at").all()).toHaveLength(6);
+    };
+    await ask(0, MARTI);
+    await ask(1, GROUP, { sender: "99887766@lid" });
+    await ask(2, MARTI);
+    await ask(3, GROUP, { sender: "99887766@lid" });
+    await ask(4, MARTI);
+    await ask(5, GROUP, { sender: "99887766@lid" });
+    expect(env.sent()).toHaveLength(5);
+    await ask(6, GROUP, { sender: "5491100000002@s.whatsapp.net" });
+    await ask(7, GROUP, { fromMe: true });
+    await ask(8, MARTI, { fromMe: true });
+    expect(env.sent()).toHaveLength(8);
+    await ask(31, MARTI);
+    expect(env.sent()).toHaveLength(9);
   });
 
   it("answers with a voice note quoting the call, and with text when the voice is not available", async () => {

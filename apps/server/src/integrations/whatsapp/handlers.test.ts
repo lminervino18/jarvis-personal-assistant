@@ -118,3 +118,21 @@ describe("live events", () => {
     expect(count()).toBe(0);
   });
 });
+
+describe("hidden ids", () => {
+  it("learns which phone number is behind a hidden id, from messages and contacts", () => {
+    const { db, handlers } = setup();
+    handlers.messagesUpsert([
+      {
+        key: { remoteJid: "120363000000000001@g.us", id: "M1", fromMe: false, participant: "99887766@lid", participantAlt: "5491100000001@s.whatsapp.net" },
+        message: { conversation: "hola" },
+        messageTimestamp: Math.floor(now.getTime() / 1000),
+      } as WAMessage,
+    ]);
+    handlers.contactNames([{ id: "11223344@lid", phoneNumber: "5491100000002@s.whatsapp.net", notify: "Gero" }]);
+    expect(db.prepare("SELECT lid, jid FROM wa_lid_map ORDER BY lid").all()).toEqual([
+      { lid: "11223344@lid", jid: "5491100000002@s.whatsapp.net" },
+      { lid: "99887766@lid", jid: "5491100000001@s.whatsapp.net" },
+    ]);
+  });
+});

@@ -54,6 +54,14 @@ export class WhatsAppStore {
     private readonly cipher?: TokenCipher,
   ) {}
 
+  /** Remembers that a hidden WhatsApp id (…@lid) is this phone number, so one person is one person in every chat. */
+  rememberLid(lid: string, jid: string, now: Date): void {
+    if (!lid.endsWith("@lid") || !jid.endsWith("@s.whatsapp.net")) return;
+    this.db
+      .prepare("INSERT INTO wa_lid_map (lid, jid, updated_at) VALUES (?, ?, ?) ON CONFLICT (lid) DO UPDATE SET jid = excluded.jid, updated_at = excluded.updated_at")
+      .run(lid, jid, now.toISOString());
+  }
+
   upsertChat(chat: WaChatInfo, now: Date): void {
     this.db
       .prepare(

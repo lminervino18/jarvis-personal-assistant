@@ -1,5 +1,5 @@
 import type { BaileysEventMap, Chat, Contact, GroupMetadata, WAMessage } from "baileys";
-import { WAMessageStubType } from "baileys";
+import { jidNormalizedUser, WAMessageStubType, type WAMessageKey } from "baileys";
 import { chatJidOf, describeContent, isIgnoredJid, toNewMessage } from "./message-mapper.js";
 import type { InsertOutcome, NewWaMessage, WhatsAppStore } from "./message-store.js";
 
@@ -19,6 +19,7 @@ export class WhatsAppEventHandlers {
   ) {}
 
   messagesUpsert(messages: WAMessage[]): InsertOutcome {
+    for (const message of messages) this.rememberIds(message.key);
     const rows = messages.map(toNewMessage).filter((row): row is NewWaMessage => row !== undefined);
     this.touchChats(rows);
     return this.insertInBatches(rows);
@@ -61,6 +62,8 @@ export class WhatsAppEventHandlers {
 
   contactNames(contacts: Contact[]): void {
     for (const contact of contacts) {
+      const hidden = contact.lid ?? (contact.id?.endsWith("@lid") ? contact.id : undefined);
+      if (hidden && contact.phoneNumber) this.pairIds(hidden, contact.phoneNumber);
       const jid = contact.phoneNumber ?? contact.id;
       const name = contact.name ?? contact.notify;
       if (!jid || isIgnoredJid(jid) || jid.endsWith("@g.us") || !name) continue;
@@ -72,6 +75,22 @@ export class WhatsAppEventHandlers {
     for (const group of groups) {
       if (group.id && group.subject) this.store.upsertChat({ jid: group.id, name: group.subject, isGroup: true }, this.now());
     }
+  }
+
+  /** A message key sometimes carries both forms of an id: the hidden one (…@lid) and the phone number. */
+  private rememberIds(key: WAMessageKey): void {
+    for (const [one, other] of [
+      [key.participant, key.participantAlt],
+      [key.remoteJid, key.remoteJidAlt],
+    ]) {
+      if (one && other) this.pairIds(one, other);
+    }
+  }
+
+  private pairIds(one: string, other: string): void {
+    const [a, b] = [jidNormalizedUser(one), jidNormalizedUser(other)];
+    if (a.endsWith("@lid")) this.store.rememberLid(a, b, this.now());
+    else if (b.endsWith("@lid")) this.store.rememberLid(b, a, this.now());
   }
 
   private touchChats(rows: NewWaMessage[]): void {

@@ -16,10 +16,15 @@ const ACTIVE_GROUP_MS = 30 * 24 * 3_600_000;
 const ARRIVAL_WINDOW_MS = 10 * 60_000;
 const SHORT_MESSAGE_WORDS = 6;
 const BATCH = 200;
-/** Replies to @jarvis, so a chat cannot burn the owner's quota: one every 15 seconds, 5 every half hour per chat, 60 a day in all. */
+/**
+ * Replies to @jarvis, so nobody burns the owner's quota: 5 every half hour per person, adding up
+ * their private chat and every group; 15 every half hour per chat; one every 15 seconds in a chat; 60 a day in all.
+ */
 const REPLY_GAP_MS = 15_000;
 const DEFAULT_REPLY_LIMIT = { replies: 5, minutes: 30 };
+const REPLIES_PER_CHAT = 15;
 const REPLIES_PER_DAY = 60;
+const OWNER = "owner";
 const CONTEXT_MESSAGES = 25;
 const MAX_REPLY_CHARS = 700;
 /** Marks what Jarvis writes from the owner's account, so it never answers itself. */
@@ -106,7 +111,7 @@ export interface WhatsAppWatcherDeps {
   ownerName: string;
   /** Writes Jarvis's answer to a mention; undefined leaves it unanswered. Without it, mentions are ignored. */
   reply?(request: MentionRequest): Promise<string | undefined>;
-  /** Answers per chat in any window of so many minutes; 5 every 30 by default. */
+  /** Answers per person, in all their chats together, in any window of so many minutes; 5 every 30 by default. The owner has no such limit. */
   replyLimit?: { replies: number; minutes: number };
   /** Says the answer with JARVIS's voice; without it, or when it fails, the answer goes as text. */
   speak?(text: string): Promise<{ data: Buffer }>;
@@ -175,11 +180,19 @@ export class WhatsAppWatcher {
     return row?.name?.trim() || undefined;
   }
 
+  /** Who wrote a message, the same in every chat: their phone id, even when a group shows a hidden one. */
+  private person(row: Row): string {
+    if (row.from_me) return OWNER;
+    const jid = (row.chat_jid.endsWith("@g.us") ? row.sender_jid : row.chat_jid) ?? row.chat_jid;
+    if (!jid.endsWith("@lid")) return jid;
+    return (this.deps.db.prepare("SELECT jid FROM wa_lid_map WHERE lid = ?").get(jid) as { jid: string } | undefined)?.jid ?? jid;
+  }
+
   /** How the owner knows the person: their contact name, else the name they set, else their number. */
   private senderName(row: Row): string {
     if (row.from_me) return this.deps.ownerName;
-    const jid = row.chat_jid.endsWith("@g.us") ? row.sender_jid : row.chat_jid;
-    return this.chatName(jid) ?? row.sender_name?.trim() ?? jid?.split("@")[0] ?? "Alguien";
+    const jid = this.person(row);
+    return this.chatName(jid) ?? row.sender_name?.trim() ?? jid.split("@")[0] ?? "Alguien";
   }
 
   private alertArrival(row: Row, now: Date): void {
@@ -196,7 +209,7 @@ export class WhatsAppWatcher {
     );
   }
 
-  private allowedToReply(chatJid: string, now: Date): boolean {
+  private allowedToReply(chatJid: string, person: string, now: Date): boolean {
     const db = this.deps.db;
     const day = new Date(now.getTime() - 24 * 3_600_000).toISOString();
     const limit = this.deps.replyLimit ?? DEFAULT_REPLY_LIMIT;
@@ -205,14 +218,18 @@ export class WhatsAppWatcher {
     const count = (sql: string, ...args: string[]) => (db.prepare(sql).get(...args) as { n: number }).n;
     return (
       count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, gap) === 0 &&
-      count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, window) < limit.replies &&
+      count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE chat_jid = ? AND created_at > ?", chatJid, window) < REPLIES_PER_CHAT &&
+      (person === OWNER || count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE person = ? AND created_at > ?", person, window) < limit.replies) &&
       count("SELECT COUNT(*) AS n FROM wa_auto_replies WHERE created_at > ?", day) < REPLIES_PER_DAY
     );
   }
 
   private async answer(row: Row, now: Date): Promise<void> {
-    if (!this.allowedToReply(row.chat_jid, now)) return;
-    const claimed = this.deps.db.prepare("INSERT OR IGNORE INTO wa_auto_replies (chat_jid, message_id, created_at) VALUES (?, ?, ?)").run(row.chat_jid, row.id, now.toISOString()).changes;
+    const person = this.person(row);
+    if (!this.allowedToReply(row.chat_jid, person, now)) return;
+    const claimed = this.deps.db
+      .prepare("INSERT OR IGNORE INTO wa_auto_replies (chat_jid, message_id, person, created_at) VALUES (?, ?, ?, ?)")
+      .run(row.chat_jid, row.id, person, now.toISOString()).changes;
     if (claimed === 0) return;
     const recent = (
       this.deps.db
