@@ -120,4 +120,4 @@ Migration involved (the new version changed the schema and the old one cannot op
 | Turns fail right away | Token expired or revoked: renew it. Plan limit reached: the runtime reports it; wait or raise the plan. |
 | No reminders push | `VAPID_*` set on both server and worker? Browser resubscribed? Reminders still reach the chat. |
 | Backup unhealthy | `docker compose logs backup`: bad bucket key, wrong `RESTIC_PASSWORD` for an existing repository, or the bucket is unreachable. |
-| Disk filling | `docker system df`; `docker image prune` removes old tags (keep the previous one for rollback). |
+| Disk filling | Normally automatic: after each deploy, `deploy.sh` removes `jarvis*` images other than the running tag and the previous one, prunes dangling images and trims the build cache to 10 GB (`JARVIS_BUILD_CACHE_LIMIT`). The agent runner frees the dependencies of tasks finished more than a day ago. The worker warns by push and in the chat once a day while the disk is 80 % full or more. By hand: `df -h /`, `docker system df`, `docker image rm` old tags (never `-f`), `docker builder prune -f --max-used-space 10GB`. Never touch the volumes. |
