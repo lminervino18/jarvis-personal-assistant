@@ -5,6 +5,7 @@ import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { clip, withinBudget } from "./digest.js";
 import { fail, ok } from "./envelope.js";
 import { VOICE_NOTE_TYPE } from "../voice/voice-note.js";
+import { jarvisSpokeTo, VOICE_NOTE_NAME } from "../integrations/whatsapp/introductions.js";
 import { defineTool, type ToolContext } from "./types.js";
 
 const SOURCE = { provider: "whatsapp" };
@@ -119,20 +120,8 @@ export const whatsappSend = defineTool({
 });
 
 const VOICE_CHARS_PER_SECOND = 15;
-const VOICE_NOTE_NAME = "nota-de-voz.ogg";
 /** After this long without messages, a voice note opens with a greeting. */
 const QUIET_CHAT_MS = 4 * 3_600_000;
-
-/** Whether Jarvis already spoke to a chat with its own voice: a voice note or a video sent there before. */
-export function jarvisSpokeTo(db: ToolContext["services"]["db"], jid: string): boolean {
-  return (
-    db
-      .prepare(
-        "SELECT 1 FROM wa_outbox o JOIN attachments a ON a.id = o.attachment_id WHERE o.chat_jid = ? AND a.name = ? AND o.status != 'failed' UNION ALL SELECT 1 FROM video_deliveries WHERE channel = 'whatsapp' AND recipient = ? LIMIT 1",
-      )
-      .get(jid, VOICE_NOTE_NAME, jid) !== undefined
-  );
-}
 
 /** Whether a voice note opens with a greeting: the chat has been quiet for hours, or its last message is from another day. */
 function greetingDue(ctx: ToolContext, jid: string): boolean {

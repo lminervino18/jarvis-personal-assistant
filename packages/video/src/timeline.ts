@@ -25,6 +25,8 @@ export interface IntroScene {
   narration: string;
   owner: string;
   purpose: string;
+  /** Whether Jarvis presents itself: only the first time it talks to the recipient. */
+  introduce: boolean;
 }
 
 export type TimelineSceneContent = IntroScene | VideoScene;
@@ -78,9 +80,10 @@ export interface TimelineInput {
   media: Record<string, { file: string; kind: "image" | "video" }>;
 }
 
-export function introNarration(owner: string, purpose: string): string {
+/** The opening line: Jarvis presents itself only when the recipient does not know it yet. */
+export function introNarration(owner: string, purpose: string, introduce = true): string {
   const clean = purpose.trim().replace(/^para\s+/i, "").replace(/[.\s]+$/, "");
-  return `Hola, soy Jarvis, el asistente personal de ${owner}. Este mensaje es para ${clean}.`;
+  return introduce ? `Hola, soy Jarvis, el asistente personal de ${owner}. Este mensaje es para ${clean}.` : `Este mensaje es para ${clean}.`;
 }
 
 function normalize(word: string): string {

@@ -1,5 +1,6 @@
 import { copyFileSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { jarvisSpokeTo } from "../integrations/whatsapp/introductions.js";
 import { buildTimeline, introNarration, toSrt, toVtt, type NarratedSegment, type VideoTimeline } from "@jarvis/video/timeline";
 import type { AttachmentStore } from "../attachments/attachment-store.js";
 import type { Db } from "../db/database.js";
@@ -59,8 +60,9 @@ export class VideoPipeline {
     const dir = versionDir(this.deps.videosDir, videoId, version.version);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     try {
-      const narrated = await this.narrate(version, dir);
-      const timeline = this.timeline(version, dir, narrated.segments);
+      const introduce = this.introduces(version);
+      const narrated = await this.narrate(version, dir, introduce);
+      const timeline = this.timeline(version, dir, narrated.segments, introduce);
       this.deps.store.saveTimeline(videoId, version.version, timeline, this.now());
       writeFileSync(join(dir, "timeline.json"), JSON.stringify(timeline));
       if (!this.advance(version, "render", 0.4)) return;
@@ -97,9 +99,15 @@ export class VideoPipeline {
     return this.deps.store.stage(version.videoId, version.version, status, progress, this.now(), LEASE_MS);
   }
 
-  private async narrate(version: VideoVersion, dir: string): Promise<{ segments: NarratedSegment[]; characters: number; cachedCharacters: number }> {
+  /** Jarvis presents itself unless the video goes by WhatsApp to a chat it already spoke to. */
+  private introduces(version: VideoVersion): boolean {
+    const send = this.deps.store.get(version.videoId)?.send;
+    return !(send?.channel === "whatsapp" && jarvisSpokeTo(this.deps.db, send.to));
+  }
+
+  private async narrate(version: VideoVersion, dir: string, introduce: boolean): Promise<{ segments: NarratedSegment[]; characters: number; cachedCharacters: number }> {
     const owner = this.deps.store.get(version.videoId)?.ownerName ?? "";
-    const texts = [introNarration(owner, version.brief.purpose), ...version.brief.scenes.map((scene) => scene.narration)];
+    const texts = [introNarration(owner, version.brief.purpose, introduce), ...version.brief.scenes.map((scene) => scene.narration)];
     const segments: NarratedSegment[] = [];
     let characters = 0;
     let cachedCharacters = 0;
@@ -114,7 +122,7 @@ export class VideoPipeline {
     return { segments, characters, cachedCharacters };
   }
 
-  private timeline(version: VideoVersion, dir: string, segments: NarratedSegment[]): VideoTimeline {
+  private timeline(version: VideoVersion, dir: string, segments: NarratedSegment[], introduce: boolean): VideoTimeline {
     const { brief } = version;
     const owner = this.deps.store.get(version.videoId)?.ownerName ?? "";
     const media: Record<string, { file: string; kind: "image" | "video" }> = {};
@@ -128,7 +136,7 @@ export class VideoPipeline {
       writeFileSync(join(dir, file), stored.data, { mode: 0o600 });
       media[scene.attachmentId] = { file, kind };
     }
-    const intro = { type: "intro" as const, owner, purpose: brief.purpose.replace(/^para\s+/i, "").replace(/[.\s]+$/, ""), narration: segments[0]?.text ?? "" };
+    const intro = { type: "intro" as const, owner, purpose: brief.purpose.replace(/^para\s+/i, "").replace(/[.\s]+$/, ""), narration: segments[0]?.text ?? "", introduce };
     return buildTimeline({ format: brief.format, intro, scenes: brief.scenes, segments, media });
   }
 

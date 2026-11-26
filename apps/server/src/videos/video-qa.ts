@@ -88,8 +88,9 @@ export async function checkVideo(input: QaInput): Promise<VideoQa> {
   checks.push({ name: "subtítulos en orden", ok: ordered && timeline.captions.length > 0, detail: `${timeline.captions.length} frases` });
 
   const intro = timeline.scenes[0]?.content;
-  const hasIntro = intro?.type === "intro" && intro.narration.startsWith("Hola, soy Jarvis, el asistente personal de");
-  checks.push({ name: "presentación obligatoria", ok: hasIntro, detail: intro?.type === "intro" ? intro.narration : "falta" });
+  const presents = intro?.type === "intro" && intro.narration.startsWith("Hola, soy Jarvis, el asistente personal de");
+  const opening = intro?.type === "intro" && (intro.introduce ? presents : !presents && intro.narration.startsWith("Este mensaje es para"));
+  checks.push({ name: "apertura", ok: opening, detail: intro?.type === "intro" ? `${intro.introduce ? "con presentación" : "sin presentación"}: ${intro.narration}` : "falta" });
 
   if (input.transcripts?.length) {
     const recall = input.transcripts.map((item) => wordRecall(item.script, item.heard));

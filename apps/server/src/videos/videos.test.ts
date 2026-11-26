@@ -12,6 +12,7 @@ import { videoCreate, videoSend, videoStatus } from "../tools/video-tools.js";
 import { deliveryFor, sendRequestedVideos, sendVideo } from "./video-delivery.js";
 import { encodeWav } from "../voice/pcm.js";
 import { Narrator, type Narration } from "./narrator.js";
+import { WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
 import { videoPageHtml } from "./video-page.js";
 import { versionDir } from "./video-paths.js";
 import { VideoPipeline } from "./video-pipeline.js";
@@ -132,6 +133,34 @@ function fakeExec(store: VideoStore, videoId: string, codec = "h264"): Exec {
 }
 
 describe("video pipeline", () => {
+  it("skips the introduction when the video goes to a WhatsApp chat Jarvis already spoke to", async () => {
+    const { db, dir, store, attachments } = setup();
+    const chat = "5490000000002@s.whatsapp.net";
+    const note = attachments.save({ name: "nota-de-voz.ogg", mediaType: "audio/ogg", data: Buffer.from("OggS") }, NOW)!;
+    new WhatsAppOutbox(db).enqueue({ id: "earlier-note", chatJid: chat, text: "", attachmentId: note.id }, NOW);
+    const { videoId } = store.create(BRIEF, "Loren", NOW, { channel: "whatsapp", to: chat, recipient: "Carme", status: "pending" });
+    const claimed = store.claimNext(NOW, 60_000)!;
+    const pipeline = new VideoPipeline({
+      db,
+      store,
+      attachments,
+      narrator: fakeNarrator(tempDir()),
+      exec: fakeExec(store, videoId),
+      bundleDir: "bundle",
+      videosDir: join(dir, "videos"),
+      log: silent,
+      now: () => NOW,
+      render: async (request) => {
+        request.onProgress(1);
+        writeFileSync(request.output, "raw");
+      },
+    });
+    await pipeline.run(claimed);
+    const done = store.version(videoId)!;
+    expect(done.timeline?.scenes[0]?.content).toMatchObject({ type: "intro", introduce: false, narration: "Este mensaje es para invitarte al torneo." });
+    expect(done.qa?.checks.find((check) => check.name === "apertura")).toMatchObject({ ok: true });
+  });
+
   it("turns a queued video into checked files, tells the owner and keeps the narration for the preview", async () => {
     const { db, dir, store, attachments } = setup();
     const { videoId } = store.create(BRIEF, "Loren", NOW);

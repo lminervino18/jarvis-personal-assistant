@@ -45,7 +45,7 @@ export const SAMPLE_SCENES: VideoScene[] = [
 ];
 
 export function sampleTimeline(format: VideoFormat = "vertical"): VideoTimeline {
-  const intro = { type: "intro" as const, owner: "Loren", purpose: "mostrarte cómo puedo ayudarte a comunicar ideas con videos", narration: "" };
+  const intro = { type: "intro" as const, owner: "Loren", purpose: "mostrarte cómo puedo ayudarte a comunicar ideas con videos", narration: "", introduce: true };
   intro.narration = introNarration(intro.owner, intro.purpose);
   const segments = [intro.narration, ...SAMPLE_SCENES.map((scene) => scene.narration)].map(silentSegment);
   return buildTimeline({ format, intro, scenes: SAMPLE_SCENES, segments, media: {} });

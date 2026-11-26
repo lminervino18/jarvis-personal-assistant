@@ -5,6 +5,7 @@ import { buildTimeline, captionPages, introNarration, itemCues, toSrt, toVtt, wo
 describe("video timeline", () => {
   it("always opens with the spoken intro, whatever the purpose looks like", () => {
     expect(introNarration("Loren", "para invitarte al torneo.")).toBe("Hola, soy Jarvis, el asistente personal de Loren. Este mensaje es para invitarte al torneo.");
+    expect(introNarration("Loren", "para invitarte al torneo.", false)).toBe("Este mensaje es para invitarte al torneo.");
   });
 
   it("groups the TTS character timings into words with their real times", () => {
@@ -53,7 +54,7 @@ describe("video timeline", () => {
   });
 
   it("refuses a timeline whose scenes miss their narration", () => {
-    expect(() => buildTimeline({ format: "vertical", intro: { type: "intro", owner: "Loren", purpose: "x", narration: "x" }, scenes: SAMPLE_SCENES, segments: [], media: {} })).toThrow();
+    expect(() => buildTimeline({ format: "vertical", intro: { type: "intro", owner: "Loren", purpose: "x", narration: "x", introduce: true }, scenes: SAMPLE_SCENES, segments: [], media: {} })).toThrow();
   });
 
   it("writes SRT and WebVTT subtitles from the same captions", () => {

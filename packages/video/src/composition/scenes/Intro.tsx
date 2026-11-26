@@ -14,7 +14,7 @@ export const IntroScene: React.FC<SceneProps<"intro">> = ({ scene, content, layo
     <Stage layout={layout} style={{ justifyContent: "space-between" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 18, alignItems: layout.vertical ? "center" : "flex-start", ...rise(frame, 4, fps) }}>
         <p style={{ margin: 0, font: `700 ${layout.vertical ? 76 : 64}px/1 ${hud.font.display}`, letterSpacing: "0.32em", color: hud.color.text }}>J.A.R.V.IS</p>
-        <Kicker style={{ ...rise(frame, 10, fps) }}>Asistente personal de {content.owner}</Kicker>
+        {content.introduce ? <Kicker style={{ ...rise(frame, 10, fps) }}>Asistente personal de {content.owner}</Kicker> : null}
       </div>
       <Panel style={{ ...rise(frame, purposeAt, fps, 60), maxWidth: layout.vertical ? undefined : 1100, alignSelf: layout.vertical ? "stretch" : "flex-start" }}>
         <Kicker>Este mensaje es para</Kicker>
