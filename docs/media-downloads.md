@@ -24,6 +24,18 @@ YouTube's player challenges run in a JavaScript runtime: yt-dlp uses the contain
 3. Update the URL and `--checksum` in the Dockerfile.
 4. Deploy.
 
+## Beelup matches
+
+Beelup records amateur matches with the court's cameras. A player link (`https://beelup.com/player.php?id=…`) is read without yt-dlp (`downloads/beelup.ts`):
+- **Name:** the player page gives the match's name (court and time).
+- **Playlist:** `obtener.video.playlist.php?id=…&camara=central|izq|der&tipo=todo&formato=m3u8` gives each camera's HLS playlist. The camera with the most video wins.
+- **Safety:** every segment must be on `*.revivitupartido.com`, Beelup's video servers; otherwise nothing is downloaded.
+- **Download:** ffmpeg joins the playlist into one MP4 without re-encoding (`MediaConverter.remuxHls`). It is 1080p50 H.264, about 13 MB a minute.
+- **Where the match is played:** `MomentFinder.matchBounds` shows the model one frame every 30 to 60 seconds. It then shows frames every 10 seconds around the start and the end, each read with its own fast seek.
+- **Trim:** the warm-up before and the greetings after are cut without re-encoding (`trimCopy`), on the nearest keyframe.
+
+Beelup's own marks (`obtener.marcas.video.v6.php`) have the owner's manual ones and «aplausos» found by sound. Those are not used: on the 2026-11-19 match, only 5 of 11 goals had an «aplauso» within 40 s.
+
 ## Formats
 
 The owner's phone is an iPhone 15, whose A16 chip has no AV1 decoder, so Photos does not keep AV1 videos.
