@@ -1,5 +1,6 @@
 import { fetchEnrollment } from "../voice/enrollment-api.js";
 import { ConnectionsGroup } from "./ConnectionsGroup.js";
+import { WelcomeGroup } from "./WelcomeGroup.js";
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useDialogFocus } from "../hooks.js";
 import type { PushResult } from "../conversation/session.js";
@@ -106,6 +107,8 @@ export function Settings({ speech, speakerOn, online, demo, onToggleSpeaker, onE
       </div>
 
       {!demo && onTrainVoice && <VoiceRow onTrain={onTrainVoice} />}
+
+      {!demo && <WelcomeGroup />}
 
       {!demo && <ConnectionsGroup />}
 

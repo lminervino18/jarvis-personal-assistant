@@ -21,6 +21,8 @@ import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
 import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
+import { Welcome } from "./welcome/welcome.js";
+import { registerWelcomeRoutes } from "./welcome/welcome-routes.js";
 import { TransferSender } from "./transfers/transfer-delivery.js";
 import { readDiskUsage } from "./worker/disk-watch.js";
 import { TokenCipher } from "./crypto/token-cipher.js";
@@ -262,6 +264,7 @@ setInterval(() => {
   watcher.tick().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "whatsapp watch failed"));
 }, 4000).unref();
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
+const welcome = new Welcome({ dir: join(config.dataDir, "welcome"), ownerName: config.ownerDisplayName, exec: defaultExec, ...(voiceNarrator ? { narrator: voiceNarrator } : {}) });
 if (voiceNarrator) services.voiceNotes = new VoiceNoteMaker(voiceNarrator, defaultExec);
 if (runtime.complete) {
   services.chatStudies = new ChatStudies({ db, runtime, outbox: new Outbox(db), ownerName: config.ownerDisplayName, timezone: config.timezone, model: config.claude.summaryModel, log: logger });
@@ -311,6 +314,7 @@ const app = await buildApp({
     if (speaker) registerEnrollmentRoutes(instance, helpers, { dir: join(config.dataDir, "voice", "enrollment"), speaker });
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);
+    registerWelcomeRoutes(instance, helpers, { welcome, transfers, transfersDir });
     const transferRoutes = registerTransferRoutes(instance, helpers, {
       db,
       store: transfers,

@@ -1094,6 +1094,48 @@ button {
   border-bottom-right-radius: 12px;
 }
 
+.row-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--secondary);
+  font: inherit;
+  text-align: right;
+}
+
+.row-input:focus {
+  outline: none;
+  color: var(--label);
+}
+
+.row-input-short {
+  max-width: 72px;
+}
+
+.welcome-song {
+  overflow: hidden;
+  max-width: 60%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-songs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-songs .row {
+  overflow: hidden;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-action {
   color: var(--accent);
   cursor: pointer;

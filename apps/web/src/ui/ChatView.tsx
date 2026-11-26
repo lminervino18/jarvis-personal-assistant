@@ -1,7 +1,8 @@
-import type { RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 import { uploadChatAttachment } from "../attachments/upload.js";
 import type { Session, SessionSnapshot } from "../conversation/session.js";
 import { useFreshStart } from "../hooks.js";
+import { playWelcome } from "../welcome.js";
 import { Composer } from "./Composer.js";
 import { Thread } from "./Thread.js";
 
@@ -48,6 +49,9 @@ export function ChatView({ session, snapshot, dock, hidden, demo, onCall, active
   const online = snapshot.connection === "ready";
   const { thread } = snapshot;
   const fresh = useFreshStart(snapshot.callActive || snapshot.busy);
+  useEffect(() => {
+    if (fresh.since !== null) void playWelcome();
+  }, [fresh.since]);
   const since = fresh.since;
   const earlier = since === null ? 0 : thread.messages.filter((message) => Date.parse(message.at) <= since).length;
   const empty = thread.messages.length === earlier && !thread.transcript && (earlier > 0 || !thread.hasMore);
