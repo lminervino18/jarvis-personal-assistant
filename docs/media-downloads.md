@@ -31,8 +31,7 @@ Beelup records amateur matches with the court's cameras. A player link (`https:/
 - **Playlist:** `obtener.video.playlist.php?id=…&camara=central|izq|der&tipo=todo&formato=m3u8` gives each camera's HLS playlist. The camera with the most video wins.
 - **Safety:** every segment must be on `*.revivitupartido.com`, Beelup's video servers; otherwise nothing is downloaded.
 - **Download:** ffmpeg joins the playlist into one MP4 without re-encoding (`MediaConverter.remuxHls`). It is 1080p50 H.264, about 13 MB a minute.
-- **Where the match is played:** `MomentFinder.matchBounds` shows the model one frame every 30 to 60 seconds. It then shows frames every 10 seconds around the start and the end, each read with its own fast seek.
-- **Trim:** the warm-up before and the greetings after are cut without re-encoding (`trimCopy`), on the nearest keyframe.
+- **Raw:** the match comes whole, exactly as the camera recorded it, warm-up included. Nothing is trimmed.
 
 Beelup's own marks (`obtener.marcas.video.v6.php`) have the owner's manual ones and «aplausos» found by sound. Those are not used: on the 2026-11-19 match, only 5 of 11 goals had an «aplauso» within 40 s.
 
