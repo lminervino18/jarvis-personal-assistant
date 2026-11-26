@@ -97,14 +97,15 @@ export function transcriptText(cues: Cue[]): string {
 /**
  * Finds the parts of a video the owner described. It listens first (a timestamped transcription,
  * where a match commentary names the play), then looks at frames around what it heard to set the
- * exact start and end; a video nobody talks in is looked at from start to end.
+ * exact start and end. When the words say nothing (music, no voice), it looks at the whole video first.
  */
 export class MomentFinder {
   constructor(private readonly options: MomentFinderOptions) {}
 
   async find(video: string, duration: number, description: string, work: string, signal: AbortSignal): Promise<Moment[]> {
     const cues = await this.listen(video, work, signal);
-    const rough = cues.length ? await this.fromTranscript(cues, duration, description, signal) : await this.scan(video, duration, description, work, signal);
+    const heard = cues.length ? await this.fromTranscript(cues, duration, description, signal) : undefined;
+    const rough = heard?.length ? heard : await this.scan(video, duration, description, work, signal);
     if (!rough?.length) return [];
     return (await this.refine(video, duration, description, rough, work, signal)) ?? rough;
   }

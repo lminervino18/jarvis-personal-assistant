@@ -417,8 +417,14 @@ describe("finding a moment", () => {
       complete: async () => (++call === 1 ? '{"moments":[{"start":10,"end":30}]}' : "no sé"),
     });
     expect(await finder.find("in.mp4", 600, "el gol", work, new AbortController().signal)).toEqual([{ start: 10, end: 30 }]);
-    const none = new MomentFinder({ exec: fakeExec(), transcribe: async () => [{ start: 1, end: 2, text: "hola" }], complete: async () => '{"moments":[]}' });
-    expect(await none.find("in.mp4", 600, "el gol", work, new AbortController().signal)).toEqual([]);
+    const asked: number[] = [];
+    const none = new MomentFinder({
+      exec: fakeExec(),
+      transcribe: async () => [{ start: 1, end: 2, text: "gracias por ver" }],
+      complete: async (request) => (asked.push(request.files?.length ?? 0), '{"moments":[]}'),
+    });
+    expect(await none.find("in.mp4", 600, "cuando matan a la mariposa", work, new AbortController().signal)).toEqual([]);
+    expect(asked).toEqual([0, 3]);
   });
 });
 
