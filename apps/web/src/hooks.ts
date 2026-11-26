@@ -159,7 +159,8 @@ export function useStickToBottom(container: RefObject<HTMLElement | null>, conte
     const element = container.current;
     pinned.current = true;
     setAway(false);
-    element?.scrollTo({ top: element.scrollHeight, behavior: smooth ? "smooth" : "instant" });
+    const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    element?.scrollTo({ top: element.scrollHeight, behavior: smooth && !calm ? "smooth" : "instant" });
   };
   const keepPosition = () => {
     const element = container.current;
