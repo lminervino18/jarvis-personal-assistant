@@ -1,10 +1,10 @@
 [Unit]
-Description=Check every 6 hours that YouTube downloads still get through WARP
+Description=Check every 15 minutes that YouTube downloads still get through WARP
 
 [Timer]
-OnBootSec=15min
-OnUnitActiveSec=6h
-RandomizedDelaySec=10min
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=2min
 
 [Install]
 WantedBy=timers.target
