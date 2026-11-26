@@ -44,6 +44,21 @@ The owner's phone is an iPhone 15, whose A16 chip has no AV1 decoder, so Photos 
 
 ffmpeg runs at nice 10, so a long conversion never slows the chat.
 
+## Cuts
+
+`transfer_edit` keeps only some parts of a video and leaves the cut in Transferencias. The video comes from a link, a YouTube search or Transferencias. The job (`MediaQueue`) goes through three stages the owner sees:
+1. **Bajando:** the video, in the `iphone` format, which is enough to analyze and to deliver.
+2. **Buscando el momento**, when the owner described what to keep (`find`). `MomentFinder` (`apps/server/src/downloads/moment-finder.ts`) works it out:
+   - It transcribes the audio with timestamps (`OpenAiCompatibleStt.transcribeSegments`, Groq `verbose_json`). The model then marks the parts in the transcript: in a match, the commentary names the play.
+   - It sends the model about 90 frames of 480 px from 20 seconds around each part, so it sets the exact start and end by looking. When the video has no usable voice, 80 frames over the whole video come first.
+   - Models only answer JSON with seconds, checked to be inside the video and at most 15 minutes per part. What the video says or shows never reaches the chat.
+3. **Recortando:** `MediaConverter.cut` reads each part with its own fast seek and joins them with ffmpeg's `concat`. The result is H.264 up to 1080p, optionally cropped to 9:16 (`vertical`), or only the audio as MP3.
+
+Afterwards:
+- By default only the cut stays. A downloaded video is never kept unless `keepSource`; a file already in Transferencias is kept unless the owner asked to delete it.
+- The chat notice lists only the times kept and the size.
+- The locating calls use `CLAUDE_MODEL` through `runtime.complete`, on the subscription. A cut costs about two calls, the second with images.
+
 ## Saving on the iPhone
 
 An installed web app on iOS cannot download files: the link goes nowhere. On phones the tiles and the viewer instead bring the original into the page and open the share sheet with the file (`navigator.share({ files })`). The share sheet offers «Guardar video», «Guardar en Archivos», WhatsApp and AirDrop. When the download took longer than iOS allows between the tap and the sheet, the button turns into «Guardar» and the next tap opens the sheet at once. Computers keep the plain download link.
