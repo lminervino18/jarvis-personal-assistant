@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from "react";
 import { useDialogFocus } from "../hooks.js";
 import {
+  cancelDownload,
   contentUrl,
   createUploadLink,
   deleteTransfer,
@@ -9,7 +10,9 @@ import {
   previewUrl,
   revokeUploadLink,
   shareTransfer,
+  startDownload,
   timeLeft,
+  type MediaDownload,
   type TransferFile,
   type TransfersState,
 } from "../transfers/api.js";
@@ -21,10 +24,91 @@ const ARMED_MS = 4000;
 /** How long a finished upload stays listed before only its tile remains. */
 const DONE_VISIBLE_MS = 4000;
 
-const origins = { phone: "Desde el celu", computer: "Desde una compu", link: "Por link" } as const;
+const origins = { phone: "Desde el celu", computer: "Desde una compu", link: "Por link", download: "Bajado de internet" } as const;
+const ACTIVE_REFRESH_MS = 2000;
 
 function from(item: TransferFile): string {
-  return item.origin === "link" && item.sender ? `De ${item.sender}` : origins[item.origin];
+  return (item.origin === "link" || item.origin === "download") && item.sender ? `De ${item.sender}` : origins[item.origin];
+}
+
+/** Paste a YouTube, X or Instagram link and the server downloads the video in its best quality. */
+function DownloadFromLink({ downloads, onChange }: { downloads: MediaDownload[]; onChange(): void }) {
+  const [url, setUrl] = useState("");
+  const [compatible, setCompatible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const pending = downloads.filter((item) => item.status !== "done" && item.status !== "cancelled");
+
+  const start = async (link: string, quality: MediaDownload["quality"]) => {
+    setBusy(true);
+    setMessage(null);
+    const error = await startDownload(link, quality);
+    setBusy(false);
+    if (error) return setMessage(error);
+    setUrl("");
+    onChange();
+  };
+
+  const status = (item: MediaDownload) =>
+    item.status === "queued" ? "En espera" : item.status === "running" ? `Bajando · ${Math.floor(item.progress * 100)} %` : (item.error ?? "No se pudo bajar.");
+
+  return (
+    <section className="transfer-download" aria-labelledby="transfer-download-title">
+      <h3 id="transfer-download-title">Bajar un video</h3>
+      <form
+        className="transfer-link-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (url.trim()) void start(url.trim(), compatible ? "compatible" : "max");
+        }}
+      >
+        <label className="sr-only" htmlFor="transfer-download-url">
+          Link de YouTube, X o Instagram
+        </label>
+        <input id="transfer-download-url" type="url" inputMode="url" value={url} placeholder="Pegá un link de YouTube, X o Instagram" onChange={(event) => setUrl(event.target.value)} />
+        <button type="submit" className="button primary" disabled={busy || !url.trim()}>
+          {busy ? "Pidiendo…" : "Bajar"}
+        </button>
+      </form>
+      <label className="transfer-check">
+        <input type="checkbox" checked={compatible} onChange={(event) => setCompatible(event.target.checked)} />
+        <span>Compatible con cualquier celu (H.264, hasta 1080p en YouTube). Sin marcar: la máxima calidad que haya.</span>
+      </label>
+      {message && (
+        <p className="transfer-message" role="alert">
+          {message}
+        </p>
+      )}
+      {pending.length > 0 && (
+        <ul className="transfer-uploads" aria-label="Descargas">
+          {pending.map((item) => (
+            <li key={item.id} className="transfer-upload" data-status={item.status === "failed" ? "failed" : "uploading"}>
+              <div className="transfer-upload-head">
+                <span className="transfer-upload-name">{item.site} · {item.url.replace(/^https:\/\/(www\.)?/, "")}</span>
+                <span className="transfer-upload-status">{status(item)}</span>
+              </div>
+              {item.status !== "failed" && (
+                <div className="transfer-bar" role="progressbar" aria-label={`Bajando de ${item.site}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(item.progress * 100)}>
+                  <div style={{ transform: `scaleX(${Math.max(0.02, item.progress)})` }} />
+                </div>
+              )}
+              <div className="transfer-download-actions">
+                {item.status === "failed" ? (
+                  <button type="button" className="row-link" onClick={() => void start(item.url, item.quality)}>
+                    Reintentar
+                  </button>
+                ) : (
+                  <button type="button" className="row-link row-link-danger" onClick={() => void cancelDownload(item.id).then(onChange)}>
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 /** Uploads in progress, shared by Transferencias and the public upload page. */
@@ -214,6 +298,14 @@ export function TransfersScreen({ onClose, embedded }: Props) {
     setTimeout(() => !ownerUploads.busy() && ownerUploads.clearDone(), DONE_VISIBLE_MS);
   }, [refresh]);
 
+  const downloading = typeof state === "object" && (state.downloads ?? []).some((item) => item.status === "queued" || item.status === "running");
+
+  useEffect(() => {
+    if (!downloading) return;
+    const timer = setInterval(refresh, ACTIVE_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [downloading, refresh]);
+
   useEffect(() => {
     refresh();
     const timer = setInterval(refresh, REFRESH_MS);
@@ -289,6 +381,8 @@ export function TransfersScreen({ onClose, embedded }: Props) {
         <input ref={picker} type="file" multiple hidden onChange={(event) => (upload([...(event.target.files ?? [])]), (event.target.value = ""))} />
 
         <UploadProgress queue={ownerUploads} />
+
+        {typeof state === "object" && state.downloads && <DownloadFromLink downloads={state.downloads} onChange={refresh} />}
 
         {state === "loading" && <p className="build-empty">Cargando…</p>}
         {state === "failed" && (

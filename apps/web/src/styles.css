@@ -2137,6 +2137,7 @@ button {
 
 .transfers-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 16px;
 }
@@ -2181,6 +2182,7 @@ button {
 
 .transfer-uploads {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 0;
   padding: 0;
@@ -2717,4 +2719,38 @@ button {
   margin: 0;
   color: var(--secondary);
   font-size: 14px;
+}
+
+.transfer-download {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.transfer-download h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.transfer-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+.transfer-check input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.transfer-download-actions {
+  display: flex;
+  justify-content: flex-end;
 }

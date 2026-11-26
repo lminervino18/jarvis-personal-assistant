@@ -1,6 +1,6 @@
 export interface TransferFile {
   id: string;
-  origin: "phone" | "computer" | "link";
+  origin: "phone" | "computer" | "link" | "download";
   sender?: string;
   name: string;
   mediaType: string;
@@ -18,9 +18,21 @@ export interface UploadLink {
   expiresAt: string;
 }
 
+export interface MediaDownload {
+  id: string;
+  url: string;
+  site: "YouTube" | "X" | "Instagram";
+  quality: "max" | "compatible";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  progress: number;
+  error?: string;
+}
+
 export interface TransfersState {
   items: TransferFile[];
   links: UploadLink[];
+  /** Videos being downloaded from YouTube, X or Instagram; null when the server cannot download them. */
+  downloads: MediaDownload[] | null;
 }
 
 export const contentUrl = (id: string) => `/api/transfers/${id}/content`;
@@ -64,4 +76,21 @@ export function formatSize(bytes: number): string {
 export function timeLeft(expiresAt: string, now: Date): string {
   const minutes = Math.max(0, Math.round((Date.parse(expiresAt) - now.getTime()) / 60_000));
   return minutes >= 60 ? `${Math.round(minutes / 60)} h` : `${Math.max(1, minutes)} min`;
+}
+
+/** Asks the server to download a video; answers an error to show, or null when it started. */
+export async function startDownload(url: string, quality: MediaDownload["quality"]): Promise<string | null> {
+  const response = await fetch("/api/transfers/downloads", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ url, quality }),
+  }).catch(() => null);
+  if (response?.ok) return null;
+  if (response?.status === 400) return "Ese link no es de YouTube, X ni Instagram.";
+  return "No pude empezar la descarga. Probá de nuevo.";
+}
+
+export async function cancelDownload(id: string): Promise<boolean> {
+  return (await json<{ ok: boolean }>(`/api/transfers/downloads/${id}`, { method: "DELETE" })) !== null;
 }
