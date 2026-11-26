@@ -2222,8 +2222,6 @@ button {
 
 .transfer-upload[data-status="failed"] .transfer-upload-status {
   color: var(--orange);
-  white-space: normal;
-  text-align: right;
 }
 
 .transfer-bar {
@@ -2293,6 +2291,29 @@ button {
 
 .transfer-tile-download:active {
   transform: scale(0.94);
+}
+
+.transfer-tile-download[data-phase] {
+  width: auto;
+  min-width: 40px;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.transfer-tile-download[data-phase="preparing"],
+.transfer-tile-download[data-phase="ready"],
+.transfer-tile-download[data-phase="failed"] {
+  padding: 0 12px;
+}
+
+.transfer-tile-download[data-phase="ready"] {
+  background: var(--accent);
+  color: #fff;
 }
 
 .transfer-tile-delete {
@@ -2732,22 +2753,61 @@ button {
   font-size: 17px;
 }
 
-.transfer-check {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+.transfer-formats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: var(--grouped);
+}
+
+.transfer-format {
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--secondary);
-  font-size: 13px;
-  line-height: 1.35;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.transfer-check input {
-  flex: none;
-  width: 20px;
-  height: 20px;
+.transfer-format[aria-checked="true"] {
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--label);
+}
+
+.transfer-hint {
   margin: 0;
-  accent-color: var(--accent);
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.transfer-upload-error,
+.transfer-upload-note {
+  margin: 8px 0 0;
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.transfer-upload[data-status="failed"] .transfer-upload-error {
+  color: var(--orange);
+}
+
+.transfer-convert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 14px;
+  color: var(--secondary);
+  font-size: 14px;
 }
 
 .transfer-download-actions {

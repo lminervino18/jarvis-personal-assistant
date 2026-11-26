@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useDialogFocus } from "../hooks.js";
 import { contentUrl, formatSize, previewUrl, type TransferFile } from "../transfers/api.js";
+import { useSaveToDevice } from "../transfers/save.js";
 
 const SWIPE_PX = 60;
 const TAP_PX = 10;
@@ -13,8 +14,33 @@ interface Props {
   index: number;
   onIndex(index: number): void;
   onClose(): void;
+  /** Whether this device keeps files through the share sheet (a phone) instead of a download. */
+  sharing: boolean;
   onShare(item: TransferFile): Promise<string | null>;
+  onConvert(item: TransferFile, format: Conversion): Promise<string | null>;
   onDelete(item: TransferFile): Promise<boolean>;
+}
+
+type Conversion = "mp3" | "iphone";
+const CONVERSION_NAMES: Record<Conversion, string> = { mp3: "MP3", iphone: "Para iPhone" };
+
+/** What a file can become: a video gives its audio or an iPhone version, a song in another format gives an MP3. */
+function conversionsFor(item: TransferFile): Conversion[] {
+  if (item.preview === "video") return ["iphone", "mp3"];
+  return item.preview === "audio" && !/\.mp3$/i.test(item.name) ? ["mp3"] : [];
+}
+
+const SAVE_TEXT = { idle: "Guardar o compartir", ready: "Listo: tocá para guardar", saved: "Guardar o compartir", failed: "No pude traerlo. Reintentar" } as const;
+
+/** The main action on a phone: bring the original and open the share sheet, with «Guardar video» or «Guardar en Archivos». */
+function SaveOnPhone({ item }: { item: TransferFile }) {
+  const { state, save } = useSaveToDevice(item);
+  const text = state.phase === "preparing" ? `Preparando… ${Math.floor(state.progress * 100)} %` : SAVE_TEXT[state.phase];
+  return (
+    <button type="button" className="button primary" data-phase={state.phase} disabled={state.phase === "preparing"} onClick={() => void save()}>
+      {text}
+    </button>
+  );
 }
 
 export function MusicIcon() {
@@ -51,7 +77,7 @@ export function zoomWidth(image: Size, stage: Size): number {
  * Full-screen look at one file of Transferencias at a time. Photos always fit the screen and zoom
  * with a double tap or «Ampliar»; videos stream; arrows, keys or a swipe move between files.
  */
-export function TransferViewer({ items, index, onIndex, onClose, onShare, onDelete }: Props) {
+export function TransferViewer({ items, index, onIndex, onClose, sharing, onShare, onConvert, onDelete }: Props) {
   const item = items[index];
   const dialog = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -112,6 +138,12 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
     const url = await onShare(item);
     if (!url) return setMessage("No pude crear el link. Probá de nuevo.");
     setLink(url);
+  };
+
+  const convert = async (format: Conversion) => {
+    setMessage(null);
+    const error = await onConvert(item, format);
+    setMessage(error ?? (format === "mp3" ? "Sacándole el audio: aparece en Transferencias cuando esté." : "Haciendo la versión para iPhone: aparece en Transferencias cuando esté."));
   };
 
   const copy = async () => {
@@ -240,10 +272,24 @@ export function TransferViewer({ items, index, onIndex, onClose, onShare, onDele
             {message}
           </p>
         )}
+        {conversionsFor(item).length > 0 && (
+          <div className="transfer-convert">
+            <span>Convertir a</span>
+            {conversionsFor(item).map((format) => (
+              <button key={format} type="button" className="row-link" onClick={() => void convert(format)}>
+                {CONVERSION_NAMES[format]}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="transfer-buttons">
-          <a className="button primary" href={contentUrl(item.id)} download={item.name}>
-            Bajar original
-          </a>
+          {sharing ? (
+            <SaveOnPhone key={item.id} item={item} />
+          ) : (
+            <a className="button primary" href={contentUrl(item.id)} download={item.name}>
+              Bajar original
+            </a>
+          )}
           {!link && (
             <button type="button" className="button" onClick={() => void share()}>
               Compartir link

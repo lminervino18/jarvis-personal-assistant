@@ -18,21 +18,33 @@ export interface UploadLink {
   expiresAt: string;
 }
 
-export interface MediaDownload {
+/** What a job produces: a video the iPhone keeps in Photos, the best the site has, or only the audio. */
+export type MediaFormat = "iphone" | "max" | "mp3" | "m4a";
+
+/** A download from YouTube, X or Instagram, or the conversion of a file already in Transferencias. */
+export interface MediaJob {
   id: string;
-  url: string;
-  site: "YouTube" | "X" | "Instagram";
-  quality: "max" | "compatible";
+  source: "link" | "search" | "transfer";
+  /** The link, the words searched, or the id of the file being converted. */
+  target: string;
+  /** What the owner reads: the link without its prefix, the words searched, or the file's name. */
+  label: string;
+  site: string;
+  format: MediaFormat;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   progress: number;
   error?: string;
+  /** When a download YouTube blocked is tried again. */
+  retryAt?: string;
+  /** Who gets the file when it is ready. */
+  sendTo?: string;
 }
 
 export interface TransfersState {
   items: TransferFile[];
   links: UploadLink[];
-  /** Videos being downloaded from YouTube, X or Instagram; null when the server cannot download them. */
-  downloads: MediaDownload[] | null;
+  /** Downloads and conversions; null when the server cannot do them. */
+  jobs: MediaJob[] | null;
 }
 
 export const contentUrl = (id: string) => `/api/transfers/${id}/content`;
@@ -78,17 +90,28 @@ export function timeLeft(expiresAt: string, now: Date): string {
   return minutes >= 60 ? `${Math.round(minutes / 60)} h` : `${Math.max(1, minutes)} min`;
 }
 
-/** Asks the server to download a video; answers an error to show, or null when it started. */
-export async function startDownload(url: string, quality: MediaDownload["quality"]): Promise<string | null> {
-  const response = await fetch("/api/transfers/downloads", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url, quality }),
-  }).catch(() => null);
+/** A link to download, or else words to search on YouTube. */
+export function downloadRequest(text: string): { url: string } | { search: string } {
+  const value = text.trim();
+  return /^https?:\/\//i.test(value) ? { url: value } : { search: value };
+}
+
+async function post(url: string, body: object): Promise<Response | null> {
+  return fetch(url, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+}
+
+/** Asks the server to download a video or its audio; answers an error to show, or null when it started. */
+export async function startDownload(text: string, format: MediaFormat): Promise<string | null> {
+  const response = await post("/api/transfers/downloads", { ...downloadRequest(text), format });
   if (response?.ok) return null;
   if (response?.status === 400) return "Ese link no es de YouTube, X ni Instagram.";
   return "No pude empezar la descarga. Probá de nuevo.";
+}
+
+/** Asks the server to convert a file; answers an error to show, or null when it started. */
+export async function convertTransfer(id: string, format: Exclude<MediaFormat, "max">): Promise<string | null> {
+  const response = await post(`/api/transfers/${id}/convert`, { format });
+  return response?.ok ? null : "No pude empezar la conversión. Probá de nuevo.";
 }
 
 export async function cancelDownload(id: string): Promise<boolean> {

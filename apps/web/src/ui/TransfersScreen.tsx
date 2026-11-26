@@ -3,6 +3,7 @@ import { useDialogFocus } from "../hooks.js";
 import {
   cancelDownload,
   contentUrl,
+  convertTransfer,
   createUploadLink,
   deleteTransfer,
   fetchTransfers,
@@ -12,10 +13,12 @@ import {
   shareTransfer,
   startDownload,
   timeLeft,
-  type MediaDownload,
+  type MediaFormat,
+  type MediaJob,
   type TransferFile,
   type TransfersState,
 } from "../transfers/api.js";
+import { savesBySharing, useSaveToDevice } from "../transfers/save.js";
 import { ownerUploads, TRANSFER_ARRIVED, type UploadItem, type UploadQueue } from "../transfers/uploads.js";
 import { MusicIcon, TransferViewer } from "./TransferViewer.js";
 
@@ -31,74 +34,105 @@ function from(item: TransferFile): string {
   return (item.origin === "link" || item.origin === "download") && item.sender ? `De ${item.sender}` : origins[item.origin];
 }
 
-/** Paste a YouTube, X or Instagram link and the server downloads the video in its best quality. */
-function DownloadFromLink({ downloads, onChange }: { downloads: MediaDownload[]; onChange(): void }) {
-  const [url, setUrl] = useState("");
-  const [compatible, setCompatible] = useState(false);
+const DOWNLOAD_FORMATS: { format: MediaFormat; label: string; hint: string }[] = [
+  { format: "iphone", label: "Video", hint: "H.264 hasta 1080p: se guarda en Fotos del iPhone." },
+  { format: "max", label: "Máxima", hint: "La mejor que haya (4K en AV1 o VP9): para la compu, el iPhone 15 no lo guarda." },
+  { format: "mp3", label: "Solo audio", hint: "MP3, para escuchar o mandar una canción." },
+];
+const FORMAT_SHORT: Record<MediaFormat, string> = { iphone: "para iPhone", max: "máxima calidad", mp3: "MP3", m4a: "M4A" };
+
+function jobTitle(job: MediaJob): string {
+  if (job.source === "transfer") return `${job.label} → ${FORMAT_SHORT[job.format]}`;
+  return job.source === "search" ? `YouTube · «${job.label}» · ${FORMAT_SHORT[job.format]}` : `${job.site} · ${job.label}`;
+}
+
+function jobStatus(job: MediaJob, now: Date): string {
+  if (job.status === "failed") return "Falló";
+  if (job.status === "running") return `${job.source === "transfer" ? "Convirtiendo" : "Bajando"} · ${Math.floor(job.progress * 100)} %`;
+  return job.retryAt ? `Reintenta en ${timeLeft(job.retryAt, now)}` : "En espera";
+}
+
+/** A link from YouTube, X or Instagram, or words to search on YouTube: the server downloads the video or only its audio. */
+function DownloadFromLink({ jobs, now, onChange }: { jobs: MediaJob[]; now: Date; onChange(): void }) {
+  const [text, setText] = useState("");
+  const [format, setFormat] = useState<MediaFormat>("iphone");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const pending = downloads.filter((item) => item.status !== "done" && item.status !== "cancelled");
+  const pending = jobs.filter((job) => job.status !== "done" && job.status !== "cancelled");
 
-  const start = async (link: string, quality: MediaDownload["quality"]) => {
+  const run = async (request: () => Promise<string | null>, clear: boolean) => {
     setBusy(true);
     setMessage(null);
-    const error = await startDownload(link, quality);
+    const error = await request();
     setBusy(false);
     if (error) return setMessage(error);
-    setUrl("");
+    if (clear) setText("");
     onChange();
   };
-
-  const status = (item: MediaDownload) =>
-    item.status === "queued" ? "En espera" : item.status === "running" ? `Bajando · ${Math.floor(item.progress * 100)} %` : (item.error ?? "No se pudo bajar.");
+  const retry = (job: MediaJob) =>
+    void run(() => (job.source === "transfer" ? convertTransfer(job.target, job.format === "max" ? "iphone" : job.format) : startDownload(job.target, job.format)), false);
 
   return (
     <section className="transfer-download" aria-labelledby="transfer-download-title">
-      <h3 id="transfer-download-title">Bajar un video</h3>
+      <h3 id="transfer-download-title">Bajar un video o una canción</h3>
       <form
         className="transfer-link-form"
         onSubmit={(event) => {
           event.preventDefault();
-          if (url.trim()) void start(url.trim(), compatible ? "compatible" : "max");
+          if (text.trim()) void run(() => startDownload(text, format), true);
         }}
       >
         <label className="sr-only" htmlFor="transfer-download-url">
-          Link de YouTube, X o Instagram
+          Link de YouTube, X o Instagram, o qué buscar en YouTube
         </label>
-        <input id="transfer-download-url" type="url" inputMode="url" value={url} placeholder="Pegá un link de YouTube, X o Instagram" onChange={(event) => setUrl(event.target.value)} />
-        <button type="submit" className="button primary" disabled={busy || !url.trim()}>
+        <input
+          id="transfer-download-url"
+          type="text"
+          enterKeyHint="go"
+          autoComplete="off"
+          value={text}
+          placeholder="Pegá un link o escribí qué buscar en YouTube"
+          onChange={(event) => setText(event.target.value)}
+        />
+        <button type="submit" className="button primary" disabled={busy || !text.trim()}>
           {busy ? "Pidiendo…" : "Bajar"}
         </button>
       </form>
-      <label className="transfer-check">
-        <input type="checkbox" checked={compatible} onChange={(event) => setCompatible(event.target.checked)} />
-        <span>Compatible con cualquier celu (H.264, hasta 1080p en YouTube). Sin marcar: la máxima calidad que haya.</span>
-      </label>
+      <div className="transfer-formats" role="radiogroup" aria-label="Formato">
+        {DOWNLOAD_FORMATS.map((option) => (
+          <button key={option.format} type="button" role="radio" aria-checked={format === option.format} className="transfer-format" onClick={() => setFormat(option.format)}>
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <p className="transfer-hint">{DOWNLOAD_FORMATS.find((option) => option.format === format)?.hint}</p>
       {message && (
         <p className="transfer-message" role="alert">
           {message}
         </p>
       )}
       {pending.length > 0 && (
-        <ul className="transfer-uploads" aria-label="Descargas">
-          {pending.map((item) => (
-            <li key={item.id} className="transfer-upload" data-status={item.status === "failed" ? "failed" : "uploading"}>
+        <ul className="transfer-uploads" aria-label="Descargas y conversiones">
+          {pending.map((job) => (
+            <li key={job.id} className="transfer-upload" data-status={job.status === "failed" ? "failed" : "uploading"}>
               <div className="transfer-upload-head">
-                <span className="transfer-upload-name">{item.site} · {item.url.replace(/^https:\/\/(www\.)?/, "")}</span>
-                <span className="transfer-upload-status">{status(item)}</span>
+                <span className="transfer-upload-name">{jobTitle(job)}</span>
+                <span className="transfer-upload-status">{jobStatus(job, now)}</span>
               </div>
-              {item.status !== "failed" && (
-                <div className="transfer-bar" role="progressbar" aria-label={`Bajando de ${item.site}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(item.progress * 100)}>
-                  <div style={{ transform: `scaleX(${Math.max(0.02, item.progress)})` }} />
+              {job.status !== "failed" && (
+                <div className="transfer-bar" role="progressbar" aria-label={jobTitle(job)} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(job.progress * 100)}>
+                  <div style={{ transform: `scaleX(${Math.max(0.02, job.progress)})` }} />
                 </div>
               )}
+              {job.error && <p className="transfer-upload-error">{job.error}</p>}
+              {job.sendTo && job.status !== "failed" && <p className="transfer-upload-note">Cuando esté, se lo mando a {job.sendTo}.</p>}
               <div className="transfer-download-actions">
-                {item.status === "failed" ? (
-                  <button type="button" className="row-link" onClick={() => void start(item.url, item.quality)}>
+                {job.status === "failed" ? (
+                  <button type="button" className="row-link" onClick={() => retry(job)}>
                     Reintentar
                   </button>
                 ) : (
-                  <button type="button" className="row-link row-link-danger" onClick={() => void cancelDownload(item.id).then(onChange)}>
+                  <button type="button" className="row-link row-link-danger" onClick={() => void cancelDownload(job.id).then(onChange)}>
                     Cancelar
                   </button>
                 )}
@@ -115,8 +149,7 @@ function DownloadFromLink({ downloads, onChange }: { downloads: MediaDownload[];
 export function UploadProgress({ queue }: { queue: UploadQueue }) {
   const items = useSyncExternalStore(queue.subscribe, queue.getSnapshot);
   if (items.length === 0) return null;
-  const status = (item: UploadItem) =>
-    item.status === "uploading" ? `${Math.floor(item.progress * 100)} %` : item.status === "done" ? "Listo" : (item.error ?? "Se cortó la subida.");
+  const status = (item: UploadItem) => (item.status === "uploading" ? `${Math.floor(item.progress * 100)} %` : item.status === "done" ? "Listo" : "Falló");
   return (
     <ul className="transfer-uploads" aria-label="Subidas">
       {items.map((item) => (
@@ -129,9 +162,12 @@ export function UploadProgress({ queue }: { queue: UploadQueue }) {
             <div style={{ transform: `scaleX(${item.status === "uploading" ? Math.max(0.02, item.progress) : 1})` }} />
           </div>
           {item.status === "failed" && (
-            <button type="button" className="row-link" onClick={() => queue.retry(item.key)}>
-              Reintentar
-            </button>
+            <>
+              <p className="transfer-upload-error">{item.error ?? "Se cortó la subida."}</p>
+              <button type="button" className="row-link" onClick={() => queue.retry(item.key)}>
+                Reintentar
+              </button>
+            </>
           )}
         </li>
       ))}
@@ -139,7 +175,27 @@ export function UploadProgress({ queue }: { queue: UploadQueue }) {
   );
 }
 
-function Tile({ item, now, onOpen, onDelete }: { item: TransferFile; now: Date; onOpen(): void; onDelete(item: TransferFile): Promise<boolean> }) {
+export function ShareGlyph({ size = 18 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" width={size} height={size}>
+      <path fill="currentColor" d="m12 2.6 4.7 4.7-1.4 1.4L13 6.4V15h-2V6.4L8.7 8.7 7.3 7.3 12 2.6ZM5 10h4v2H7v8h10v-8h-2v-2h4v12H5V10Z" />
+    </svg>
+  );
+}
+
+/** On a phone, the tile's button brings the original and opens the share sheet to keep it in Photos or Files. */
+function TileSave({ item }: { item: TransferFile }) {
+  const { state, save } = useSaveToDevice(item);
+  const label = state.phase === "preparing" ? `${Math.floor(state.progress * 100)} %` : state.phase === "ready" ? "Guardar" : state.phase === "failed" ? "Reintentar" : null;
+  const aria = state.phase === "preparing" ? `Preparando ${item.name}` : state.phase === "ready" ? `Guardar ${item.name}: listo` : `Guardar o compartir ${item.name}`;
+  return (
+    <button type="button" className="transfer-tile-download glass" data-phase={state.phase} aria-label={aria} onClick={() => void save()}>
+      {label ?? <ShareGlyph />}
+    </button>
+  );
+}
+
+function Tile({ item, now, sharing, onOpen, onDelete }: { item: TransferFile; now: Date; sharing: boolean; onOpen(): void; onDelete(item: TransferFile): Promise<boolean> }) {
   const [broken, setBroken] = useState(false);
   const [armed, setArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -194,11 +250,15 @@ function Tile({ item, now, onOpen, onDelete }: { item: TransferFile; now: Date; 
           </svg>
         )}
       </button>
-      <a className="transfer-tile-download glass" href={contentUrl(item.id)} download={item.name} aria-label={`Bajar ${item.name}`}>
-        <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
-          <path fill="currentColor" d="M11 4h2v9.2l3.3-3.3 1.4 1.4-5.7 5.7-5.7-5.7 1.4-1.4 3.3 3.3V4ZM5 18h14v2H5v-2Z" />
-        </svg>
-      </a>
+      {sharing ? (
+        <TileSave item={item} />
+      ) : (
+        <a className="transfer-tile-download glass" href={contentUrl(item.id)} download={item.name} aria-label={`Bajar ${item.name}`}>
+          <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+            <path fill="currentColor" d="M11 4h2v9.2l3.3-3.3 1.4 1.4-5.7 5.7-5.7-5.7 1.4-1.4 3.3 3.3V4ZM5 18h14v2H5v-2Z" />
+          </svg>
+        </a>
+      )}
     </li>
   );
 }
@@ -298,7 +358,8 @@ export function TransfersScreen({ onClose, embedded }: Props) {
     setTimeout(() => !ownerUploads.busy() && ownerUploads.clearDone(), DONE_VISIBLE_MS);
   }, [refresh]);
 
-  const downloading = typeof state === "object" && (state.downloads ?? []).some((item) => item.status === "queued" || item.status === "running");
+  const sharing = useState(savesBySharing)[0];
+  const downloading = typeof state === "object" && (state.jobs ?? []).some((job) => job.status === "queued" || job.status === "running");
 
   useEffect(() => {
     if (!downloading) return;
@@ -382,7 +443,7 @@ export function TransfersScreen({ onClose, embedded }: Props) {
 
         <UploadProgress queue={ownerUploads} />
 
-        {typeof state === "object" && state.downloads && <DownloadFromLink downloads={state.downloads} onChange={refresh} />}
+        {typeof state === "object" && state.jobs && <DownloadFromLink jobs={state.jobs} now={now} onChange={refresh} />}
 
         {state === "loading" && <p className="build-empty">Cargando…</p>}
         {state === "failed" && (
@@ -397,7 +458,7 @@ export function TransfersScreen({ onClose, embedded }: Props) {
         {items.length > 0 && (
           <ul className="transfer-grid" aria-label="Archivos">
             {items.map((item, index) => (
-              <Tile key={item.id} item={item} now={now} onOpen={() => setOpen(index)} onDelete={removeFile} />
+              <Tile key={item.id} item={item} now={now} sharing={sharing} onOpen={() => setOpen(index)} onDelete={removeFile} />
             ))}
           </ul>
         )}
@@ -411,7 +472,13 @@ export function TransfersScreen({ onClose, embedded }: Props) {
           index={open}
           onIndex={setOpen}
           onClose={() => setOpen(null)}
+          sharing={sharing}
           onShare={async (item) => (await shareTransfer(item.id))?.url ?? null}
+          onConvert={async (item, format) => {
+            const error = await convertTransfer(item.id, format);
+            if (!error) refresh();
+            return error;
+          }}
           onDelete={async (item) => {
             const done = await removeFile(item);
             if (done) setOpen(items.length > 1 ? Math.min(open, items.length - 2) : null);
