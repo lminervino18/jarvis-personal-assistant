@@ -93,6 +93,7 @@ export interface DownloadQueueDeps {
 export class DownloadQueue {
   private readonly outbox: Outbox;
   private running: { id: string; controller: AbortController } | undefined;
+  private stopping = false;
 
   constructor(private readonly deps: DownloadQueueDeps) {
     this.outbox = new Outbox(deps.db);
@@ -133,6 +134,13 @@ export class DownloadQueue {
       .prepare("SELECT * FROM media_downloads WHERE status IN ('queued', 'running') OR updated_at > ? ORDER BY created_at DESC LIMIT 20")
       .all(since) as Row[];
     return rows.map(toDownload);
+  }
+
+  /** Stops for a shutdown: what was downloading goes back in line, to start over after the restart. */
+  async stop(): Promise<void> {
+    this.stopping = true;
+    this.running?.controller.abort();
+    await this.idle();
   }
 
   cancel(id: string): boolean {
@@ -184,13 +192,17 @@ export class DownloadQueue {
       this.update(job.id, { status: "done", progress: 1, transferId: transfer.id });
       this.notify(job, `Ya está «${file.title}» de ${job.site}${file.height ? ` (${file.height}p)` : ""}.`, `Terminé de bajar el video de ${job.site} que pediste${file.height ? ` (${file.height}p, ${megabytes(size)})` : ` (${megabytes(size)})`}: está en Transferencias, en su calidad original.`);
     } catch (error) {
+      if (this.stopping) {
+        this.update(job.id, { status: "queued", progress: 0 });
+        return;
+      }
       const reason = error instanceof DownloadError ? error.reason : "failed";
       this.update(job.id, { status: reason === "cancelled" ? "cancelled" : "failed", error: FAILURES[reason] });
       if (reason !== "cancelled") this.notify(job, `No pude bajar el video de ${job.site}.`, `No pude bajar el video de ${job.site} que pediste. ${FAILURES[reason]}`);
     } finally {
       rmSync(work, { recursive: true, force: true });
       this.running = undefined;
-      void this.pump();
+      if (!this.stopping) void this.pump();
     }
   }
 

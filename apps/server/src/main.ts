@@ -336,6 +336,7 @@ app.log.info({ stt: voice.stt.provider, tts: voice.tts.provider }, "voice provid
 const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   systemMessageFeed.stop();
+  await downloads?.stop();
   await app.close();
   await pagesServer?.close();
   db.close();

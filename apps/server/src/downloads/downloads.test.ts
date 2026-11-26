@@ -159,6 +159,21 @@ describe("download queue", () => {
     expect(JSON.parse(env.outbox()[0]!.payload).text).toContain(FAILURES.blocked);
   });
 
+  it("puts back in line, without telling the owner it failed, what a shutdown interrupts", async () => {
+    const env = setup(
+      (work) =>
+        new Promise((_resolve, reject) => {
+          writeFileSync(join(work, "video.mp4.part"), "x");
+          setTimeout(() => reject(new DownloadError("cancelled")), 20);
+        }),
+    );
+    const job = env.queue.add("https://youtu.be/aqz-KE-bpKQ");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await env.queue.stop();
+    expect(env.queue.get(job!.id)?.status).toBe("queued");
+    expect(env.outbox()).toEqual([]);
+  });
+
   it("goes back to what a restart interrupted", async () => {
     let calls = 0;
     const env = setup(async (work) => {
