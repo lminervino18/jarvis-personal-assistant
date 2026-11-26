@@ -139,6 +139,8 @@ infra/scripts/deploy.sh "$(git rev-parse --short HEAD)"      # snapshot, build, 
 infra/scripts/deploy.sh rollback                             # previous tag
 ```
 
+After a successful deploy, `deploy.sh` keeps only the running tag and the previous one of the `jarvis*` images and trims the build cache to 10 GB, so repeated deploys do not fill the disk.
+
 Database migrations only move forward. Rolling back the image does not undo a migration; if the new version migrated the database and the old one cannot read it, restore the pre-deploy snapshot as described in `docs/runbook.md`.
 
 ## 7. Verifying the toolchain without a server
