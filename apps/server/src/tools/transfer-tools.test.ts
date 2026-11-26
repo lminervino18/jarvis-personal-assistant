@@ -147,7 +147,7 @@ describe("transfer_from_link", () => {
     const env = setup();
     expect(error(await runTool(env.ctx, tool("transfer_from_link"), {}))?.code).toBe("invalid_input");
     expect(error(await runTool(env.ctx, tool("transfer_from_link"), { url: "https://youtu.be/aqz-KE-bpKQ", search: "Crimen" }))?.code).toBe("invalid_input");
-    expect(error(await runTool(env.ctx, tool("transfer_from_link"), { url: "https://vimeo.com/1" }))?.message).toBe("Solo bajo de YouTube, X o Instagram.");
+    expect(error(await runTool(env.ctx, tool("transfer_from_link"), { url: "https://vimeo.com/1" }))?.message).toBe("Solo bajo de YouTube, X, Instagram o Beelup.");
     await env.media.stop();
   });
 
