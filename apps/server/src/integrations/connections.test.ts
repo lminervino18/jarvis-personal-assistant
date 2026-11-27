@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { TokenCipher } from "../crypto/token-cipher.js";
 import { openMigratedDatabase } from "../db/database.js";
 import { createConnections } from "./connections.js";
+import { WhatsAppStore } from "./whatsapp/message-store.js";
 
 const ORIGIN = "https://jarvis.example.test";
 const GITHUB_TOKEN = "gho_synthetic_token_value";
@@ -99,5 +100,16 @@ describe("Vercel connection", () => {
     const removed = await app.inject({ method: "POST", url: "/api/integrations/vercel/disconnect" });
     expect(removed.json()).toEqual({ disconnected: true });
     expect(connections.accounts?.token("vercel")).toBeUndefined();
+  });
+
+  it("asks the WhatsApp bridge to connect again from Configuración", async () => {
+    const db = openMigratedDatabase(":memory:");
+    const whatsapp = { status: async () => [] };
+    const app = Fastify();
+    createConnections({ db, env: {}, publicOrigin: ORIGIN, whatsapp }).registerRoutes(app, { requireOwner: () => true });
+    await app.ready();
+    new WhatsAppStore(db).setStatus("baileys", "logged_out", new Date());
+    expect((await app.inject({ method: "POST", url: "/api/connections/whatsapp/wake" })).json()).toEqual({ ok: true });
+    expect(new WhatsAppStore(db).takeWake(new Date())).toBe(true);
   });
 });

@@ -31,6 +31,9 @@ const HEARTBEAT_MS = 60_000;
 const STABLE_MS = 120_000;
 const QR_VALID_MS = 60_000;
 const OUTBOX_POLL_MS = 3_000;
+const WAKE_POLL_MS = 5_000;
+const SLOW_RETRY_FROM_MS = 10 * 60_000;
+const NEEDS_PAIRING = "Hay que vincular WhatsApp: abrí Configuración y escaneá el QR.";
 
 /** The slice of a Baileys socket the bridge uses: events, plus sending a text the owner confirmed. */
 export interface BridgeSocket {
@@ -60,8 +63,10 @@ const errorName = (error: unknown) => (error instanceof Error ? error.name : "un
 
 /**
  * WhatsApp session. It reacts to events and records them, and sends only texts the owner
- * confirmed through the outbox, one at a time. It never sends receipts or presence, reconnects
- * with capped backoff, and stops when the session is signed out or invalid.
+ * confirmed through the outbox, one at a time. It never sends receipts or presence, and reconnects
+ * with capped backoff, then once every half hour. When the session is signed out or invalid, or
+ * WhatsApp refuses it, it waits for the owner: opening Configuración asks it to connect again, with
+ * a fresh QR when there is no session. It never offers QR codes nobody asked for.
  */
 export class WhatsAppBridge {
   phase: BridgePhase = "idle";
@@ -70,6 +75,7 @@ export class WhatsAppBridge {
   private heartbeat?: NodeJS.Timeout;
   private stableTimer?: NodeJS.Timeout;
   private outboxTimer?: NodeJS.Timeout;
+  private wakeTimer?: NodeJS.Timeout;
   private sending = false;
   private readonly handlers: WhatsAppEventHandlers;
   private readonly now: () => Date;
@@ -82,7 +88,9 @@ export class WhatsAppBridge {
   }
 
   start(): void {
-    if (this.phase === "idle") this.open();
+    if (this.phase !== "idle") return;
+    if (this.options.auth.state.creds.me) this.open();
+    else this.waitForOwner("logged_out", NEEDS_PAIRING);
   }
 
   stop(): void {
@@ -96,6 +104,9 @@ export class WhatsAppBridge {
   }
 
   private open(): void {
+    clearInterval(this.wakeTimer);
+    this.wakeTimer = undefined;
+    this.options.store.takeWake(this.now());
     this.phase = "connecting";
     const socket = this.options.connect(this.options.auth.state);
     this.socket = socket;
@@ -216,9 +227,11 @@ export class WhatsAppBridge {
 
   private scheduleReconnect(delayMs: number, attempt: number): void {
     this.phase = "waiting";
-    this.options.store.setStatus("baileys", "disconnected", this.now(), `Reconectando (intento ${attempt}).`);
+    const detail = delayMs >= SLOW_RETRY_FROM_MS ? `Sin conexión; vuelvo a probar en ${Math.round(delayMs / 60_000)} minutos.` : `Reconectando (intento ${attempt}).`;
+    this.options.store.setStatus("baileys", "disconnected", this.now(), detail);
     this.options.log.warn({ attempt, delayMs }, "whatsapp connection closed, reconnecting");
     this.reconnectTimer = setTimeout(() => this.open(), delayMs);
+    this.watchForWake();
   }
 
   private halt(decision: Extract<CloseDecision, { action: "stop" }>): void {
@@ -226,9 +239,26 @@ export class WhatsAppBridge {
       this.options.auth.clear();
       this.options.pairing.forgetAccount();
     }
-    this.options.store.refreshSyncState("baileys", decision.status, this.now(), decision.detail);
+    this.options.log.warn({ status: decision.status }, "whatsapp bridge stopped, waiting for the owner to reconnect it");
+    this.waitForOwner(decision.status, decision.detail);
+  }
+
+  /** Stays down until the owner asks for a connection from Configuración. */
+  private waitForOwner(status: WaSyncStatus, detail: string): void {
+    this.options.store.refreshSyncState("baileys", status, this.now(), detail);
     this.phase = "stopped";
-    this.options.log.warn({ status: decision.status }, "whatsapp bridge stopped, it will not reconnect on its own");
+    this.watchForWake();
+  }
+
+  /** While disconnected, the owner can ask from Configuración to connect right now. */
+  private watchForWake(): void {
+    this.wakeTimer = setInterval(() => {
+      if (!this.options.store.takeWake(this.now())) return;
+      this.options.log.info("whatsapp reconnection asked by the owner");
+      clearTimeout(this.reconnectTimer);
+      this.options.policy.reset();
+      this.open();
+    }, WAKE_POLL_MS);
   }
 
   private clearTimers(): void {
@@ -236,6 +266,7 @@ export class WhatsAppBridge {
     clearInterval(this.heartbeat);
     clearTimeout(this.stableTimer);
     clearInterval(this.outboxTimer);
-    this.reconnectTimer = this.heartbeat = this.stableTimer = this.outboxTimer = undefined;
+    clearInterval(this.wakeTimer);
+    this.reconnectTimer = this.heartbeat = this.stableTimer = this.outboxTimer = this.wakeTimer = undefined;
   }
 }

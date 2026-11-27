@@ -1,6 +1,8 @@
 import type { TokenCipher } from "../../crypto/token-cipher.js";
 import type { Db } from "../../db/database.js";
 
+const WAKE_VALID_MS = 2 * 60_000;
+
 /** Cipher context of a media locator, so it cannot be swapped with another encrypted value. */
 export const MEDIA_LOCATOR_CONTEXT = "wa-media-locator";
 
@@ -134,6 +136,19 @@ export class WhatsAppStore {
            latest_utc = excluded.latest_utc, message_count = excluded.message_count, last_event_at = excluded.last_event_at, detail = excluded.detail`,
       )
       .run(source, status, totals.earliest, totals.latest, totals.total, now.toISOString(), detail);
+  }
+
+  /** Asks the stopped bridge to connect again, with a fresh QR when it has no session. It is honored for two minutes. */
+  requestWake(now: Date): void {
+    this.db.prepare("UPDATE wa_sync_state SET wake_requested_at = ? WHERE source = 'baileys'").run(now.toISOString());
+  }
+
+  /** Whether the owner asked the bridge to connect in the last two minutes. The request is used up. */
+  takeWake(now: Date): boolean {
+    const row = this.db.prepare("SELECT wake_requested_at AS at FROM wa_sync_state WHERE source = 'baileys'").get() as { at: string | null } | undefined;
+    if (!row?.at) return false;
+    this.db.prepare("UPDATE wa_sync_state SET wake_requested_at = NULL WHERE source = 'baileys'").run();
+    return now.getTime() - Date.parse(row.at) <= WAKE_VALID_MS;
   }
 
   /** Records a status change without touching coverage columns (used by the bridge on every connection event). */

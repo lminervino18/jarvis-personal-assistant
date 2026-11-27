@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { CardActions } from "../cards/actions.js";
 import { CardView } from "../cards/Cards.js";
-import { disconnect, fetchConnections, GITHUB_CONNECT_URL, gmailConnectUrl, type ConnectionsState } from "../connections/api.js";
+import { disconnect, fetchConnections, GITHUB_CONNECT_URL, gmailConnectUrl, wakeWhatsApp, type ConnectionsState } from "../connections/api.js";
 
 const GMAIL_LABELS = [
   { label: "personal", name: "Gmail personal" },
@@ -21,6 +21,7 @@ type Step = "idle" | "armed" | "busy";
 type Status = "connected" | "warning" | "off";
 
 const ARMED_MS = 4000;
+const WHATSAPP_POLL_MS = 3000;
 
 const STATUS_TEXT: Record<Status, string> = { connected: "Conectado", warning: "Con problemas", off: "Sin conectar" };
 
@@ -81,8 +82,25 @@ export function ConnectionsGroup() {
   const [busy, setBusy] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [woken, setWoken] = useState(false);
+
   const refresh = () => void fetchConnections().then((next) => setState(next ?? "failed"));
   useEffect(refresh, []);
+
+  const whatsappDown = typeof state === "object" && state.whatsapp !== null && !["connected", "disabled"].includes(state.whatsapp.status);
+  const qrShown = typeof state === "object" && Boolean(state.whatsapp?.pairing);
+  const wake = () => {
+    setWoken(true);
+    void wakeWhatsApp().then(refresh);
+  };
+  useEffect(() => {
+    if (whatsappDown && !qrShown && !woken) wake();
+  }, [whatsappDown, qrShown, woken]);
+  useEffect(() => {
+    if (!whatsappDown) return;
+    const timer = setInterval(refresh, WHATSAPP_POLL_MS);
+    return () => clearInterval(timer);
+  }, [whatsappDown]);
 
   useEffect(() => {
     if (!armed) return;
@@ -137,7 +155,18 @@ export function ConnectionsGroup() {
           account={whatsappAccount}
           status={whatsappShown.status}
           statusText={whatsappShown.text}
-          action={whatsappShown.status === "connected" && <DisconnectButton app="WhatsApp" step={step("whatsapp")} onClick={() => void remove("whatsapp")} />}
+          action={
+            whatsappShown.status === "connected" ? (
+              <DisconnectButton app="WhatsApp" step={step("whatsapp")} onClick={() => void remove("whatsapp")} />
+            ) : (
+              whatsappDown &&
+              !whatsapp.pairing && (
+                <button type="button" className="connection-button" onClick={wake}>
+                  {whatsapp.status === "needs_action" ? "Generar QR" : "Reintentar"}
+                </button>
+              )
+            )
+          }
         />
       )}
       {whatsapp?.pairing && <CardView card={whatsapp.pairing} actions={NO_ACTIONS} />}

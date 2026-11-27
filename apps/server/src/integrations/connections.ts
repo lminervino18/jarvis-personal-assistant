@@ -8,6 +8,7 @@ import { GitHubClient, GitHubError } from "./github/github-client.js";
 import { OAuthStateStore } from "./oauth-states.js";
 import { ServiceAccountStore, type ServiceProvider } from "./service-accounts.js";
 import { VercelClient, VercelError } from "./vercel/vercel-client.js";
+import { WhatsAppStore } from "./whatsapp/message-store.js";
 
 export interface ConnectionsDeps {
   db: Db;
@@ -83,6 +84,13 @@ export function createConnections(deps: ConnectionsDeps): Connections {
         github: { available: Boolean(github && accounts), account: accounts?.get("github")?.account ?? null },
         vercel: { available: Boolean(accounts), account: accounts?.get("vercel")?.account ?? null, domain: projectsDomain ?? null },
       };
+    });
+
+    app.post("/api/connections/whatsapp/wake", ROUTE_LIMIT, async (request, reply) => {
+      if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+      if (!deps.whatsapp) return reply.code(404).send({ error: "not_configured" });
+      new WhatsAppStore(deps.db).requestWake(new Date());
+      return { ok: true };
     });
 
     app.get("/api/integrations/github/start", ROUTE_LIMIT, async (request, reply) => {

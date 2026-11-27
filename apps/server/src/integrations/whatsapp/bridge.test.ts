@@ -95,7 +95,11 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
   });
   const status = () => db.prepare("SELECT status, detail FROM wa_sync_state WHERE source = 'baileys'").get() as { status: string; detail: string | null } | undefined;
   const count = () => (db.prepare("SELECT count(*) AS n FROM wa_messages").get() as { n: number }).n;
-  return { db, cipher, auth, pairing, outbox, bridge, sockets, status, count, log };
+  const askToConnect = () => {
+    store.requestWake(new Date());
+    vi.advanceTimersByTime(5_000);
+  };
+  return { db, cipher, store, auth, pairing, outbox, bridge, sockets, status, count, log, askToConnect };
 }
 
 beforeEach(() => {
@@ -120,8 +124,9 @@ describe("bridge lifecycle", () => {
   });
 
   it("publishes the pairing QR privately and clears it once linked", () => {
-    const { bridge, sockets, status, pairing, db } = setup({ paired: false });
+    const { bridge, sockets, status, pairing, db, askToConnect } = setup({ paired: false });
     bridge.start();
+    askToConnect();
     sockets[0]?.emit("connection.update", { qr: "qr-secret-fixture" });
     expect(status()?.status).toBe("pairing");
     expect(pairing.card(new Date())).toMatchObject({ kind: "pairing", provider: "whatsapp", qr: "qr-secret-fixture" });
@@ -196,8 +201,8 @@ describe("reconnection", () => {
     expect(Math.max(...delays)).toBeLessThanOrEqual(300_000);
   });
 
-  it("gives up after the maximum number of consecutive attempts", () => {
-    const { bridge, sockets, status, log } = setup({ maxAttempts: 3 });
+  it("after the quick attempts, keeps trying once every half hour", () => {
+    const { bridge, sockets, status } = setup({ maxAttempts: 3 });
     bridge.start();
     for (let attempt = 0; attempt < 3; attempt++) {
       sockets.at(-1)?.close(408);
@@ -205,12 +210,23 @@ describe("reconnection", () => {
     }
     expect(sockets).toHaveLength(4);
     sockets.at(-1)?.close(408);
-    expect(bridge.phase).toBe("stopped");
-    expect(status()).toMatchObject({ status: "error" });
-    expect(status()?.detail).toContain("Se agotaron los 3 reintentos");
-    vi.advanceTimersByTime(24 * 60 * 60_000);
+    expect(status()).toEqual({ status: "disconnected", detail: "Sin conexión; vuelvo a probar en 30 minutos." });
+    vi.advanceTimersByTime(25 * 60_000);
     expect(sockets).toHaveLength(4);
-    expect(log.warn).toHaveBeenCalled();
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(sockets).toHaveLength(5);
+  });
+
+  it("connects right away when the owner asks during a slow wait", () => {
+    const { bridge, sockets, askToConnect } = setup({ maxAttempts: 1 });
+    bridge.start();
+    sockets[0]?.close(408);
+    vi.advanceTimersByTime(300_000);
+    sockets[1]?.close(408);
+    askToConnect();
+    expect(sockets).toHaveLength(3);
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(sockets).toHaveLength(3);
   });
 
   it("resets the attempt counter only after a connection has been stable", () => {
@@ -230,8 +246,9 @@ describe("reconnection", () => {
   });
 
   it("reconnects quickly when WhatsApp asks for a restart after pairing", () => {
-    const { bridge, sockets } = setup({ paired: false });
+    const { bridge, sockets, askToConnect } = setup({ paired: false });
     bridge.start();
+    askToConnect();
     sockets[0]?.close(515);
     vi.advanceTimersByTime(2_000);
     expect(sockets).toHaveLength(2);
@@ -288,14 +305,38 @@ describe("terminal states", () => {
   });
 
   it("does not loop on QR codes when pairing is never completed", () => {
-    const { bridge, sockets, status } = setup({ paired: false });
+    const { bridge, sockets, status, askToConnect } = setup({ paired: false });
     bridge.start();
+    askToConnect();
     sockets[0]?.emit("connection.update", { qr: "qr-1" });
     sockets[0]?.close(408);
     vi.advanceTimersByTime(60 * 60_000);
     expect(sockets).toHaveLength(1);
     expect(status()).toMatchObject({ status: "disconnected" });
     expect(status()?.detail).toContain("venció sin vincularse");
+  });
+
+  it("without a session, waits for the owner and offers a QR only when asked", () => {
+    const { bridge, sockets, status, askToConnect } = setup({ paired: false });
+    bridge.start();
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(sockets).toHaveLength(0);
+    expect(status()).toEqual({ status: "logged_out", detail: "Hay que vincular WhatsApp: abrí Configuración y escaneá el QR." });
+    askToConnect();
+    expect(sockets).toHaveLength(1);
+  });
+
+  it("after a logout, connects again only when the owner asks, never on an old request", () => {
+    const { bridge, sockets, store, askToConnect } = setup();
+    bridge.start();
+    sockets[0]?.open();
+    store.requestWake(new Date());
+    vi.advanceTimersByTime(3 * 60_000);
+    sockets[0]?.close(401);
+    vi.advanceTimersByTime(60 * 60_000);
+    expect(sockets).toHaveLength(1);
+    askToConnect();
+    expect(sockets).toHaveLength(2);
   });
 });
 
@@ -556,9 +597,10 @@ describe("status source", () => {
   });
 
   it("exposes the pairing card while a QR is pending", async () => {
-    const { db, bridge, sockets, pairing } = setup({ paired: false });
+    const { db, bridge, sockets, pairing, askToConnect } = setup({ paired: false });
     const source = new WhatsAppStatusSource(db, "America/Argentina/Buenos_Aires", pairing, () => new Date());
     bridge.start();
+    askToConnect();
     expect(source.pairingCard()).toBeUndefined();
     sockets[0]?.emit("connection.update", { qr: "qr-fixture" });
     expect(source.pairingCard()).toMatchObject({ kind: "pairing", qr: "qr-fixture" });

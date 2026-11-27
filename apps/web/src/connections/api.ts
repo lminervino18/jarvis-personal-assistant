@@ -21,6 +21,12 @@ export async function fetchConnections(): Promise<ConnectionsState | null> {
   }
 }
 
+/** Asks the stopped WhatsApp bridge to connect again: a fresh QR when it has to be linked. Answers whether it was asked. */
+export async function wakeWhatsApp(): Promise<boolean> {
+  const response = await fetch("/api/connections/whatsapp/wake", { method: "POST", credentials: "same-origin" }).catch(() => null);
+  return response?.ok === true;
+}
+
 /** Disconnects a service; a Gmail account is revoked at Google too. Answers whether it worked. */
 export async function disconnect(provider: "github" | "gmail-personal" | "gmail-work"): Promise<boolean> {
   const gmail = provider.startsWith("gmail-");
