@@ -9,7 +9,7 @@ import { TokenCipher } from "../../crypto/token-cipher.js";
 import { openMigratedDatabase } from "../../db/database.js";
 import { useDbAuthState } from "./auth-state.js";
 import { ownChat, WhatsAppBridge, type BridgeSocket, type OutgoingContent } from "./bridge.js";
-import { InstanceLockError, acquireInstanceLock } from "./instance-lock.js";
+import { InstanceLockError, acquireInstanceLock, processIsAlive } from "./instance-lock.js";
 import { WhatsAppStore } from "./message-store.js";
 import { PairingStore } from "./pairing-store.js";
 import { ReconnectPolicy } from "./reconnect-policy.js";
@@ -350,6 +350,13 @@ describe("auth state", () => {
 });
 
 describe("instance lock", () => {
+  it("does not mistake one of its own threads for another bridge", () => {
+    const thread = readdirSync(`/proc/${process.pid}/task`).map(Number).find((id) => id !== process.pid);
+    expect(thread).toBeDefined();
+    expect(processIsAlive(thread as number)).toBe(false);
+    expect(processIsAlive(process.pid)).toBe(true);
+  });
+
   let dir: string;
   beforeEach(() => {
     vi.useRealTimers();

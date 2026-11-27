@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export class InstanceLockError extends Error {
@@ -7,7 +7,12 @@ export class InstanceLockError extends Error {
   }
 }
 
-const processIsAlive = (pid: number) => {
+/**
+ * Whether another process with this id is running. A thread of this same process does not count:
+ * in a restarted container the previous bridge's pid is often the id of one of our own threads.
+ */
+export const processIsAlive = (pid: number) => {
+  if (pid !== process.pid && existsSync(`/proc/${process.pid}/task/${pid}`)) return false;
   try {
     process.kill(pid, 0);
     return true;
