@@ -16,7 +16,7 @@ All commands run on the server in `/opt/jarvis` as the deploy user. First deploy
 | Push notifications | Sign in on the phone, allow notifications when the app asks. Requires the `VAPID_*` keys. Without them reminders reach the chat only. |
 | Claude | `claude setup-token` on your computer, set `CLAUDE_CODE_OAUTH_TOKEN` in `/etc/jarvis/jarvis.env`, then `docker compose up -d server`. |
 | Gmail | Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `TOKEN_ENCRYPTION_KEY`, restart the server, then open `https://<domain>/api/integrations/google/start?label=personal` while signed in. Details and the Testing-mode seven-day expiry in `docs/integrations/gmail.md`. |
-| WhatsApp (experimental) | Add `WHATSAPP_ENABLED=true` and `TOKEN_ENCRYPTION_KEY`, enable the profile, `docker compose up -d whatsapp-bridge`, and scan the pairing card from WhatsApp, Linked devices. One container only. Read `docs/integrations/whatsapp.md` for the ban risk first. |
+| WhatsApp (experimental) | Add `WHATSAPP_ENABLED=true` and `TOKEN_ENCRYPTION_KEY`, enable the profile, `docker compose up -d whatsapp-bridge`, then open Configuración in the app and scan the QR it shows from WhatsApp, Linked devices. If the session is lost later, Jarvis tells you and the same screen offers a new QR. One container only. Read `docs/integrations/whatsapp.md` for the ban risk first. |
 | YouTube | Set `YOUTUBE_API_KEY`, restart the server. |
 
 Changing `jarvis.env` needs `docker compose up -d <service>`; `restart` does not reread the file.
