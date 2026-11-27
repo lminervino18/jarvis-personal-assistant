@@ -22,6 +22,7 @@ import { MediaQueue } from "./downloads/media-queue.js";
 import { BeelupSource } from "./downloads/beelup.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
 import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
+import { BridgeMonitor } from "./integrations/whatsapp/bridge-monitor.js";
 import { Welcome } from "./welcome/welcome.js";
 import { registerWelcomeRoutes } from "./welcome/welcome-routes.js";
 import { TransferSender } from "./transfers/transfer-delivery.js";
@@ -279,6 +280,8 @@ const watchWhatsApp = () => {
 };
 watchWhatsApp();
 setInterval(watchWhatsApp, 4000).unref();
+const bridgeMonitor = new BridgeMonitor(db);
+setInterval(() => bridgeMonitor.check(), 60_000).unref();
 /** The welcome sounds more robotic than calls, like the suit's JARVIS. */
 const WELCOME_ROBOTIC_INTENSITY = 0.6;
 const voiceNarrator = narratorFromEnv(process.env, join(config.dataDir, "voice-notes", "cache"));
