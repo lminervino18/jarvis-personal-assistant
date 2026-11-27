@@ -2,17 +2,23 @@ import type { Db } from "../../db/database.js";
 
 const DAY_MS = 86_400_000;
 const RECENT_DAYS = 90;
-/** Below this, the owner does not really talk with the person: a doubt only counts among people above it. */
-const ACTIVE = 1;
-/** How far ahead the best match must be to pick it without asking. */
-const CLEAR_LEAD = 2;
+/**
+ * Below this, the owner does not really talk with the person, and a doubt only counts among people
+ * above it. One private message in the last two months is enough; writing in a group (at most 1.5) is not.
+ */
+const ACTIVE = 2;
+/** Among people whose name fits by whole words, the owner must talk with one more than this many times as much to pick it without asking. */
+const DOMINANCE = 2;
+const WHOLE_WORD = 2;
 const CHOICES = 3;
+/** Names with no letters are WhatsApp's masked numbers («+54∙∙∙∙56»), not names. */
+const HAS_LETTER = /\p{L}/u;
 
 /** Someone the owner may mean, with the facts that tell people apart. */
 export interface PersonMatch {
   /** Their chat id: the phone one, or the hidden one (…@lid) while the number is unknown. */
   jid: string;
-  /** How the owner has them saved, else how they call themselves on WhatsApp. */
+  /** How the owner has them saved (the name of their phone chat), else how they call themselves on WhatsApp. */
   name: string;
   /** Other names seen for them (the one they set on WhatsApp). */
   also: string[];
@@ -110,6 +116,7 @@ export class WhatsAppPeople {
   find(query: string): PersonMatch[] {
     const names = new Map<string, { saved?: string; seen: Set<string>; match: number }>();
     const add = (jid: string, name: string, saved: boolean) => {
+      if (!HAS_LETTER.test(name)) return;
       const phone = this.personOf(jid);
       const match = nameMatch(query, name);
       if (!phone) return;
@@ -119,13 +126,20 @@ export class WhatsAppPeople {
       entry.match = Math.max(entry.match, match);
       names.set(phone, entry);
     };
-    for (const row of this.db.prepare("SELECT jid, name FROM wa_chats WHERE is_group = 0 AND name IS NOT NULL").all() as NamedRow[]) add(row.jid, row.name, true);
+    for (const row of this.db.prepare("SELECT jid, name FROM wa_chats WHERE is_group = 0 AND name IS NOT NULL").all() as NamedRow[]) {
+      add(row.jid, row.name, row.jid.endsWith("@s.whatsapp.net"));
+    }
     for (const row of this.db.prepare("SELECT DISTINCT sender_jid AS jid, sender_name AS name FROM wa_messages WHERE from_me = 0 AND sender_jid IS NOT NULL AND sender_name IS NOT NULL").all() as NamedRow[]) {
       add(row.jid, row.name, false);
     }
     const since = new Date(this.now().getTime() - RECENT_DAYS * DAY_MS).toISOString();
-    const privateStats = this.db.prepare("SELECT COUNT(*) AS n, COALESCE(SUM(from_me), 0) AS mine FROM wa_messages WHERE chat_jid = ? AND ts_utc > ?");
-    const lastPrivate = this.db.prepare("SELECT MAX(ts_utc) AS last FROM wa_messages WHERE chat_jid = ?");
+    const lids = this.db.prepare("SELECT lid FROM wa_lid_map WHERE jid = ?");
+    const privateStats = (ids: string[]) =>
+      this.db
+        .prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(from_me), 0) AS mine, MAX(ts_utc) AS last FROM wa_messages WHERE chat_jid IN (${ids.map(() => "?").join(", ")}) AND ts_utc > ?`)
+        .get(...ids, since) as { n: number; mine: number; last: string | null };
+    const lastPrivate = (ids: string[]) =>
+      (this.db.prepare(`SELECT MAX(ts_utc) AS last FROM wa_messages WHERE chat_jid IN (${ids.map(() => "?").join(", ")})`).get(...ids) as { last: string | null }).last;
     const lastGroup = this.db.prepare(
       `SELECT m.ts_utc AS last, c.name AS name FROM wa_messages m JOIN wa_chats c ON c.jid = m.chat_jid
        WHERE m.chat_jid LIKE '%@g.us' AND (m.sender_jid = ? OR m.sender_jid IN (SELECT lid FROM wa_lid_map WHERE jid = ?))
@@ -134,8 +148,9 @@ export class WhatsAppPeople {
     return [...names.entries()]
       .filter(([, entry]) => entry.match > 0)
       .map(([jid, entry]) => {
-        const stats = privateStats.get(jid, since) as { n: number; mine: number };
-        const last = (lastPrivate.get(jid) as { last: string | null }).last;
+        const ids = [jid, ...(lids.all(jid) as { lid: string }[]).map((row) => row.lid)];
+        const stats = privateStats(ids);
+        const last = stats.last ?? lastPrivate(ids);
         const group = lastGroup.get(jid, jid) as { last: string; name: string | null } | undefined;
         const activity = 2 * Math.log1p(stats.n) + 3 * Math.log1p(stats.mine) + recency(last, this.now()) + 0.5 * recency(group?.last ?? null, this.now());
         const name = entry.saved ?? [...entry.seen][0] ?? `+${jid.split("@")[0]}`;
@@ -145,17 +160,21 @@ export class WhatsAppPeople {
   }
 
   /**
-   * Who the owner means. With one clear candidate among the people they talk with, that one;
-   * when several of those fit about as well, the likeliest three to ask about.
+   * Who the owner means, among the people they talk with when there are any. The one whose name
+   * fits best, when only one fits that well. Among several whose names fit by whole words, one the
+   * owner talks with more than twice as much as the next. Otherwise, a doubt: the likeliest three to ask about.
+   * A name that only starts others («lu» for Lucas and Lucía) is always a doubt.
    */
   pick(query: string): PersonPick {
     const matches = this.find(query);
     if (matches.length === 0) return { none: true };
     const active = matches.filter((person) => person.activity >= ACTIVE);
     const pool = active.length ? active : matches;
-    const [first, second] = pool;
-    if (first && (!second || score(first) - score(second) >= CLEAR_LEAD)) return { person: first };
-    return { choices: pool.slice(0, CHOICES) };
+    const best = Math.max(...pool.map((person) => person.match));
+    const fitting = pool.filter((person) => person.match === best).sort((a, b) => b.activity - a.activity);
+    const [first, second] = fitting;
+    if (first && (!second || (best >= WHOLE_WORD && first.activity > DOMINANCE * second.activity))) return { person: first };
+    return { choices: fitting.slice(0, CHOICES) };
   }
 }
 

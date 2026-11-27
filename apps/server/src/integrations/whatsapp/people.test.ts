@@ -70,6 +70,41 @@ describe("WhatsApp people", () => {
     expect(people.pick("Martina")).toEqual({ none: true });
   });
 
+  it("always asks when the name only starts the names of people the owner talks with", () => {
+    const { chat, talk, people } = setup();
+    chat(LU, "Lucas");
+    chat(LUCIA, "Lucía Pérez");
+    talk(LU, 60, 0);
+    talk(LUCIA, 2, 20);
+    const pick = people.pick("lu");
+    expect("choices" in pick && pick.choices.map((person) => person.name)).toEqual(["Lucas", "Lucía Pérez"]);
+  });
+
+  it("among whole-word fits, picks one only when the owner talks with them twice as much", () => {
+    const { chat, talk, people } = setup();
+    chat(LU, "Juan Pérez");
+    chat(LUCIA, "Juan Gómez");
+    talk(LU, 60, 0);
+    talk(LUCIA, 2, 40);
+    expect(people.pick("juan")).toMatchObject({ person: { jid: LU } });
+    talk(LUCIA, 60, 0);
+    expect("choices" in people.pick("juan")).toBe(true);
+  });
+
+  it("ignores masked numbers as names and counts a private chat kept under a hidden id", () => {
+    const { db, chat, message, talk, people } = setup();
+    chat(LU, "+54∙∙∙∙∙∙∙∙∙01");
+    db.prepare("INSERT INTO wa_lid_map (lid, jid, updated_at) VALUES ('99887766@lid', ?, ?)").run(LU, NOW.toISOString());
+    chat("99887766@lid", "Marti");
+    talk("99887766@lid", 20, 0);
+    message(GROUP, { daysAgo: 3, sender: LUCIA, senderName: "Martina" });
+    const [marti, martina] = people.find("marti");
+    expect(marti).toMatchObject({ jid: LU, name: "Marti", lastPrivate: expect.any(String) });
+    expect(marti?.activity).toBeGreaterThan(10);
+    expect(martina?.name).toBe("Martina");
+    expect(people.pick("marti")).toMatchObject({ person: { jid: LU } });
+  });
+
   it("sends to someone known only from a group, by number, or by a hidden id", () => {
     const { db, chat, message } = setup();
     chat(GROUP, "Fútbol jueves", true);
