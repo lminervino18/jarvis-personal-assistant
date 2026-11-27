@@ -13,6 +13,9 @@ import { DEFAULT_RECONNECT, ReconnectPolicy } from "./integrations/whatsapp/reco
 import { conservativeSocketConfig } from "./integrations/whatsapp/socket-config.js";
 import { createLogger } from "./logger.js";
 
+const quiet = () => {};
+Object.assign(console, { log: quiet, info: quiet, warn: quiet, error: quiet, debug: quiet, trace: quiet });
+
 const STARTUP_DELAY_MS = 15_000;
 const STARTUP_JITTER_MS = 10_000;
 
