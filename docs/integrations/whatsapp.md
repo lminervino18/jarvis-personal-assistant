@@ -123,6 +123,16 @@ Jarvis introduces itself only the first time it talks to a chat with its own voi
 - `voice/voice-note.ts` narrates with the call voice and effect through the same `Narrator` as the videos (ElevenLabs `/with-timestamps`, cached under `DATA_DIR/voice-notes/cache`). ffmpeg then encodes it as mono Opus at 48 kHz in Ogg, saved as an attachment of type `audio/ogg; codecs=opus`.
 - The outbox entry has no text, so the bridge sends only the audio with `ptt: true`. Baileys computes the duration with `music-metadata`.
 
+## Finding people to write to
+
+Every sending tool (`whatsapp_send`, voice notes, files, videos, images) resolves its recipient through `liveChat` in `tools/whatsapp-tools.ts`, which asks `WhatsAppReader.resolveChat` with `liveOnly`. Reading tools keep matching chat names only.
+- **Ids and numbers** go straight through, even for someone with no private chat yet: a phone id, a hidden id (`…@lid`) or a number the owner typed.
+- **Groups** named exactly as asked are left to the chat names.
+- **People** (`integrations/whatsapp/people.ts`): one entry per person, joining how the owner saved them (`wa_chats`) and every name they use in groups or chats (`wa_messages.sender_name`), across hidden ids through `wa_lid_map`. A hidden id with no known number counts as its own person.
+- **Fit:** 3 for the whole name, 2 when every word said is a word of the name, 1.5 when every word starts one («lu» in «Lucía»).
+- **Activity:** private messages in the last 90 days (the owner's own count more), how recent the private chat is, and, half as much, how recently they wrote in a group.
+- **Picking:** only people with some activity count when there are any. The best one is used when it leads the next by a clear margin. Otherwise the owner gets a `person_choice` card with the likeliest three: their number, when they last talked and a group where they write. A tap sends «Es Lu Gómez (+549…).» as the owner, and the tool error tells the model to wait for that pick.
+
 ## «Abajo» alerts and @jarvis
 
 `WhatsAppWatcher` (`apps/server/src/integrations/whatsapp/watcher.ts`) runs in the server every 4 seconds. It reads the messages the bridge stored since its last look; its cursor lives in `wa_watch_state`, and the first look ever starts from now. Messages older than 10 minutes, such as history syncs, are skipped. It only watches private chats and the groups where the owner wrote in the last 30 days.
