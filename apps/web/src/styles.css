@@ -648,6 +648,10 @@ button {
   font-weight: 600;
 }
 
+.person-choice .choice-option {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 @media (max-width: 380px) {
   .choice-option {
     grid-template-columns: 72px minmax(0, 1fr) auto;

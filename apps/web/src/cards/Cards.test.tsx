@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { CardActions } from "./actions.js";
 import { CardView } from "./Cards.js";
+import { personPick } from "./PersonChoiceCard.js";
 import { playerStatusLabel } from "./youtube-api.js";
 
 const actions: CardActions = {
@@ -10,6 +11,7 @@ const actions: CardActions = {
   registerPlayer: () => () => {},
   reportPlayer: () => {},
   enablePush: async () => ({ ok: true }),
+  say: () => {},
   taskAction: () => {},
 };
 
@@ -193,5 +195,24 @@ describe("youtube card when playback is blocked", () => {
     const chart = render({ kind: "chart", title: "Avance", chart: "progress", labels: ["#1"], series: [{ name: "Avance", values: [60] }], unit: "%" });
     expect(chart).toContain("Gráfico: Avance");
     expect(chart).toContain("Avance: 60");
+  });
+});
+
+describe("person choice card", () => {
+  it("lists who the owner may mean and turns a pick into what the owner would say", () => {
+    const card = {
+      kind: "person_choice" as const,
+      query: "lu",
+      options: [
+        { chatId: "5491100000001@s.whatsapp.net", name: "Lu Gómez", detail: "+5491100000001 · hablaron ayer" },
+        { chatId: "99887766@lid", name: "Lucía", detail: "nunca hablaron por privado · escribe en «Fútbol jueves»" },
+      ],
+    };
+    const html = renderToStaticMarkup(<CardView card={card} actions={actions} />);
+    expect(html).toContain("¿Cuál lu?");
+    expect(html).toContain("hablaron ayer");
+    expect(html.match(/Es esta/g)).toHaveLength(2);
+    expect(personPick(card.options[0]!)).toBe("Es Lu Gómez (+5491100000001).");
+    expect(personPick(card.options[1]!)).toBe("Es Lucía (99887766@lid).");
   });
 });

@@ -10,6 +10,7 @@ const actions: CardActions = {
   registerPlayer: () => () => {},
   reportPlayer: () => {},
   enablePush: async () => ({ ok: true }),
+  say: () => {},
   taskAction: () => {},
 };
 

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { VideoBrief, VideoSendRequest } from "@jarvis/contracts";
 import { LINK_DAYS } from "../files/file-links.js";
-import { WhatsAppReader } from "../integrations/whatsapp/message-reader.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { deliveryFor, sendVideo } from "../videos/video-delivery.js";
 import { videoPageHtml } from "../videos/video-page.js";
@@ -10,7 +9,7 @@ import { repetitionProblem } from "../videos/video-script.js";
 import type { VideoSend, VideoStore, VideoVersion } from "../videos/video-store.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
-import { queryFailure } from "./whatsapp-tools.js";
+import { liveChat, queryFailure } from "./whatsapp-tools.js";
 
 const SOURCE = { provider: "videos" };
 const DISABLED = "Los videos no están configurados en el servidor.";
@@ -35,8 +34,8 @@ function resolveSend(ctx: ToolContext, request: VideoSendRequest): VideoSend | {
     return { ...base, to: request.to, recipient: request.to, account };
   }
   try {
-    const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(request.to, { liveOnly: true });
-    return { ...base, to: chat.jid, recipient: chat.name?.trim() || request.to };
+    const chat = liveChat(ctx, request.to);
+    return { ...base, to: chat.jid, recipient: chat.name };
   } catch (error) {
     return { problem: queryFailure(error) };
   }
@@ -161,7 +160,7 @@ export const videoSend = defineTool({
       return { input: { ...input, account } };
     }
     try {
-      const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(input.to, { liveOnly: true });
+      const chat = liveChat(ctx, input.to);
       if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", "WhatsApp no está conectado ahora: el video no se envió.") };
       return { input: { ...input, to: chat.jid } };
     } catch (error) {
@@ -172,7 +171,7 @@ export const videoSend = defineTool({
   describe(ctx, input) {
     const version = readyVersion(ctx, input.videoId);
     const recipient =
-      input.channel === "whatsapp" ? (new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(input.to, { liveOnly: true }).name?.trim() ?? input.to) : input.to;
+      input.channel === "whatsapp" ? liveChat(ctx, input.to).name : input.to;
     if (typeof version === "string") return { title: "Enviar video", summary: `Para ${recipient}`, details: [{ label: "Mensaje", value: input.text || "Sin texto" }] };
     const delivery = deliveryFor(version, input.channel);
     const file = delivery.file === "link" ? `Link que vence en ${LINK_DAYS} días (el archivo no entra en ${CHANNEL_NAME[input.channel]})` : `${delivery.file === "full" ? "Completo" : "Liviano"}, ${megabytes(delivery.size)}`;

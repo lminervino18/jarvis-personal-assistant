@@ -2,6 +2,7 @@ import type { ToolErrorCode } from "@jarvis/contracts";
 import type { Db } from "../../db/database.js";
 import { toFtsQuery } from "../../util/fts.js";
 import { toUtcIso, toZonedIso } from "../../util/time.js";
+import { describePerson, shownId, WhatsAppPeople, type PersonMatch } from "./people.js";
 
 export const MAX_TEXT_CHARS = 1500;
 
@@ -9,6 +10,8 @@ export class WhatsAppQueryError extends Error {
   constructor(
     readonly code: Extract<ToolErrorCode, "invalid_input" | "not_found" | "ambiguous">,
     message: string,
+    /** The people the owner may mean, when a name fits several of those they talk with. */
+    readonly choices?: PersonMatch[],
   ) {
     super(message);
   }
@@ -31,6 +34,14 @@ interface RankedChat extends NamedChat {
 }
 
 const isImported = (jid: string) => jid.startsWith("import:");
+
+/** A person's chat id from an id (phone or hidden) or a number someone typed, or undefined. */
+function personJid(text: string): string | undefined {
+  if (/^\d{8,15}@s\.whatsapp\.net$/.test(text) || /^\d{6,20}@lid$/.test(text)) return text;
+  if (!/^[\d\s()+-]+$/.test(text)) return undefined;
+  const digits = text.replace(/\D/g, "");
+  return digits.length >= MIN_PHONE_DIGITS && digits.length <= 15 ? `${digits}@s.whatsapp.net` : undefined;
+}
 
 function listedName(chat: NamedChat): string {
   const name = (chat.name ?? "").replace(/[\p{C}«»"]/gu, " ").replace(/\s+/g, " ").trim();
@@ -269,7 +280,8 @@ export class WhatsAppReader {
    * Finds a chat by its id, phone number or name (ignoring case, accents and extra spaces).
    * Among chats sharing a name, the only one with messages wins; otherwise the candidates are
    * listed. An unknown name lists the closest chats so the owner can pick one. With `liveOnly`,
-   * chats from exported files (no real recipient) are left out.
+   * for sending, chats from exported files (no real recipient) are left out and people are found
+   * by any name they go by (see `livePerson`).
    */
   resolveChat(chatId: string, options: { liveOnly?: boolean } = {}): { jid: string; name: string | null } {
     const byJid = this.chatByJid(chatId) ?? this.chatByPhone(chatId);
@@ -277,6 +289,8 @@ export class WhatsAppReader {
       if (options.liveOnly && isImported(byJid.jid)) throw new WhatsAppQueryError("invalid_input", IMPORTED_CHAT);
       return byJid;
     }
+    const person = options.liveOnly ? this.livePerson(chatId) : undefined;
+    if (person) return person;
     const chats = (this.db.prepare("SELECT jid, name FROM wa_chats WHERE name IS NOT NULL").all() as NamedChat[]).filter(
       (chat) => !options.liveOnly || !isImported(chat.jid),
     );
@@ -296,6 +310,31 @@ export class WhatsAppReader {
     const similar = this.similarChats(chats, wanted);
     if (similar.length === 0) throw new WhatsAppQueryError("not_found", "No existe un chat con ese id o nombre.");
     throw new WhatsAppQueryError("not_found", `No hay un chat con ese nombre. Parecidos: ${this.listChats(similar)}. Preguntale al dueño cuál y usá su id. ${NAMES_ARE_DATA}`);
+  }
+
+  /**
+   * Who the owner means when sending. A phone id or number is a person even without a chat yet. A
+   * group named exactly so is left to the chat names. Otherwise the people directory decides: one
+   * clear match among those the owner talks with, or the likeliest three to ask about.
+   */
+  private livePerson(chatId: string): NamedChat | undefined {
+    const people = new WhatsAppPeople(this.db);
+    const known = personJid(chatId);
+    if (known) return { jid: known, name: people.nameOf(known) ?? null };
+    const wanted = foldName(chatId);
+    const groups = this.db.prepare("SELECT name FROM wa_chats WHERE is_group = 1 AND name IS NOT NULL").all() as { name: string }[];
+    if (groups.some((group) => foldName(group.name) === wanted)) return undefined;
+    const pick = people.pick(chatId);
+    if ("person" in pick) return { jid: pick.person.jid, name: pick.person.name };
+    if ("choices" in pick) {
+      const listed = pick.choices.map((choice) => `«${listedName(choice)}» (${shownId(choice.jid)}; ${describePerson(choice, new Date())})`).join("; ");
+      throw new WhatsAppQueryError(
+        "ambiguous",
+        `Puede ser más de una persona: ${listed}. El dueño ya ve una tarjeta para elegir: preguntale cuál (en una llamada, deciselas), esperá su respuesta y volvé a llamar con el número o id que elija. ${NAMES_ARE_DATA}`,
+        pick.choices,
+      );
+    }
+    return undefined;
   }
 
   private chatByJid(jid: string): NamedChat | undefined {

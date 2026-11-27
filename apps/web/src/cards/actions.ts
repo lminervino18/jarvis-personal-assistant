@@ -8,4 +8,6 @@ export interface CardActions {
   reportPlayer(requestId: string, videoId: string, state: PlayerReport): void;
   enablePush(): Promise<PushResult>;
   taskAction(taskId: string, action: TaskCardAction, approvalId?: string): void;
+  /** Sends a message as if the owner had written it, such as their pick from a card. */
+  say(text: string): void;
 }

@@ -205,6 +205,25 @@ export const MediaChoiceCard = z.object({
   expiresAt: IsoDateTime,
 });
 
+/** Up to three people the owner may mean by a name; tapping one tells Jarvis which. */
+export const PersonChoiceCard = z.object({
+  kind: z.literal("person_choice"),
+  /** The name the owner said. */
+  query: z.string().max(120),
+  options: z
+    .array(
+      z.object({
+        /** Their WhatsApp chat id: the phone one, or the hidden one (…@lid) while the number is unknown. */
+        chatId: z.string().regex(/^\d{6,20}@(s\.whatsapp\.net|lid)$/),
+        name: z.string().max(120),
+        /** What tells them apart: their number, when they last talked, a group where they write. */
+        detail: z.string().max(200),
+      }),
+    )
+    .min(2)
+    .max(3),
+});
+
 export const Card = z.discriminatedUnion("kind", [
   YoutubeCard,
   SourcesCard,
@@ -221,5 +240,6 @@ export const Card = z.discriminatedUnion("kind", [
   AttachmentCard,
   VideoCard,
   MediaChoiceCard,
+  PersonChoiceCard,
 ]);
 export type Card = z.infer<typeof Card>;

@@ -205,6 +205,10 @@ export class Session {
   }
 
   /** Sends a typed message, optionally with attachments already uploaded with `POST /api/attachments`. */
+  say(text: string): void {
+    this.sendText(text);
+  }
+
   sendText(text: string, attachments: readonly Extract<Card, { kind: "attachment" }>[] = []): boolean {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return false;

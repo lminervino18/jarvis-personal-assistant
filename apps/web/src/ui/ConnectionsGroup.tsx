@@ -14,6 +14,7 @@ const NO_ACTIONS: CardActions = {
   registerPlayer: () => () => {},
   reportPlayer: () => {},
   enablePush: async () => ({ ok: true }),
+  say: () => {},
 };
 
 type Provider = "github" | "gmail-personal" | "gmail-work" | "drive" | "whatsapp";

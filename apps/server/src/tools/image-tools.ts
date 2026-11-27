@@ -1,17 +1,11 @@
-import { WhatsAppQueryError, WhatsAppReader } from "../integrations/whatsapp/message-reader.js";
-import { OWN_CHAT } from "../integrations/whatsapp/outbox.js";
+import { WhatsAppQueryError } from "../integrations/whatsapp/message-reader.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { fail, ok } from "./envelope.js";
-import { defineTool, type ToolContext } from "./types.js";
+import { defineTool } from "./types.js";
+import { whatsappRecipient } from "./whatsapp-tools.js";
 
 const SOURCE = { provider: "images" };
 const QUALITY_NAMES = { low: "baja", medium: "media", high: "alta" } as const;
-
-function recipient(ctx: ToolContext, to: string): { jid: string; name: string } {
-  if (to === OWN_CHAT) return { jid: OWN_CHAT, name: "vos" };
-  const chat = new WhatsAppReader(ctx.services.db, ctx.services.timezone).resolveChat(to, { liveOnly: true });
-  return { jid: chat.jid, name: chat.name?.trim() || chat.jid };
-}
 
 export const imageCreate = defineTool({
   name: "image_create",
@@ -26,7 +20,7 @@ export const imageCreate = defineTool({
     if (!input.sendTo) return { input };
     if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", "WhatsApp no está conectado ahora: no puedo mandarla.") };
     try {
-      return { input: { ...input, sendTo: { ...input.sendTo, to: recipient(ctx, input.sendTo.to).jid } } };
+      return { input: { ...input, sendTo: { ...input.sendTo, to: whatsappRecipient(ctx, input.sendTo.to).jid } } };
     } catch (error) {
       const message = error instanceof WhatsAppQueryError ? error.message : "No encontré ese chat de WhatsApp.";
       return { refused: fail("not_found", message) };
@@ -38,14 +32,14 @@ export const imageCreate = defineTool({
       summary: input.prompt.slice(0, 120),
       details: [
         { label: "Calidad", value: QUALITY_NAMES[input.quality ?? "medium"] },
-        ...(input.sendTo ? [{ label: "Para", value: recipient(ctx, input.sendTo.to).name }] : []),
+        ...(input.sendTo ? [{ label: "Para", value: whatsappRecipient(ctx, input.sendTo.to).name }] : []),
       ],
     };
   },
   async execute(ctx, input) {
     const images = ctx.services.images;
     if (!images) return fail("disabled", "La generación de imágenes no está configurada en el servidor.");
-    const sendTo = input.sendTo ? { ...recipient(ctx, input.sendTo.to), ...(input.sendTo.text ? { text: input.sendTo.text } : {}) } : undefined;
+    const sendTo = input.sendTo ? { ...whatsappRecipient(ctx, input.sendTo.to), ...(input.sendTo.text ? { text: input.sendTo.text } : {}) } : undefined;
     images.start({ prompt: input.prompt, referenceIds: input.attachmentIds ?? [], quality: input.quality ?? "medium", format: input.format ?? "square", ...(sendTo ? { sendTo } : {}) });
     return ok(SOURCE, [{ status: "generating", quality: input.quality ?? "medium", ...(sendTo ? { sendTo: sendTo.name } : {}) }], {
       note: "Se genera en segundo plano (10 a 60 segundos) y aparece en el chat. No digas que ya está ni que la mandaste.",
