@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   BinaryFrameKind,
   ClientMessage,
+  MAX_TEXT_CHARS,
   ServerMessage,
   decodeAudioFrame,
   encodeAudioFrame,
@@ -35,6 +36,13 @@ describe("protocol", () => {
     const base = { type: "user.text", conversationId: crypto.randomUUID(), turnId: crypto.randomUUID(), replyMode: "text" };
     expect(ClientMessage.safeParse({ ...base, text: "¿Qué tengo mañana?" }).success).toBe(true);
     expect(ClientMessage.safeParse({ ...base, text: "   " }).success).toBe(false);
+  });
+
+  it("takes a long pasted prompt, up to the limit", () => {
+    const base = { type: "user.text", conversationId: crypto.randomUUID(), turnId: crypto.randomUUID(), replyMode: "text" };
+    expect(ClientMessage.safeParse({ ...base, text: "a".repeat(MAX_TEXT_CHARS) }).success).toBe(true);
+    expect(ClientMessage.safeParse({ ...base, text: "a".repeat(MAX_TEXT_CHARS + 1) }).success).toBe(false);
+    expect(ClientMessage.safeParse({ type: "build.request", text: "a".repeat(12_000) }).success).toBe(true);
   });
 
   it("does not let the server emit client-owned states", () => {

@@ -25,12 +25,15 @@ export const HelloMessage = z.object({
   history: z.boolean().optional(),
 });
 
+/** The longest text the owner can send in one message, a pasted prompt included. */
+export const MAX_TEXT_CHARS = 20_000;
+
 export const UserTextMessage = z
   .object({
     type: z.literal("user.text"),
     conversationId: Id,
     turnId: Id,
-    text: z.string().trim().max(4000),
+    text: z.string().trim().max(MAX_TEXT_CHARS),
     replyMode: ReplyMode,
     /** Files the owner uploaded with `POST /api/attachments` for this message. */
     attachments: z.array(Id).max(4).optional(),
@@ -120,10 +123,10 @@ export const TaskActionMessage = z.object({
 export const BuildListMessage = z.object({ type: z.literal("build.list") });
 
 /** A change the owner wants in JARVIS itself; it becomes a task on the jarvis project without going through the model. */
-export const BuildRequestMessage = z.object({ type: z.literal("build.request"), text: z.string().trim().min(1).max(4000) });
+export const BuildRequestMessage = z.object({ type: z.literal("build.request"), text: z.string().trim().min(1).max(MAX_TEXT_CHARS) });
 
 /** An answer or a change request for a build task. */
-export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(4000) });
+export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(MAX_TEXT_CHARS) });
 
 const Pixels = z.number().int().min(0).max(10_000);
 

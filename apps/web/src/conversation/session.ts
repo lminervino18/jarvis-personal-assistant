@@ -1,4 +1,5 @@
 import {
+  MAX_TEXT_CHARS,
   STT_INPUT_FORMAT,
   type AssistantState,
   type AudioFormat,
@@ -94,6 +95,9 @@ const SPEAKER_KEY = "jarvis.speaker";
 const PLAYBACK_LEAD_SECONDS = 0.12;
 const HISTORY_PAGE = 40;
 const SESSION_EXPIRED_CLOSE_CODE = 4001;
+const tooLong = (text: string) =>
+  `El mensaje es muy largo: tiene ${text.length.toLocaleString("es-AR")} caracteres y el máximo es ${MAX_TEXT_CHARS.toLocaleString("es-AR")}. No se envió.`;
+
 const OUTPUT_FORMATS: AudioFormat[] = [24000, 16000, 22050, 48000].map((sampleRate) => ({
   encoding: "pcm_s16le",
   sampleRate: sampleRate as AudioFormat["sampleRate"],
@@ -212,6 +216,7 @@ export class Session {
   sendText(text: string, attachments: readonly Extract<Card, { kind: "attachment" }>[] = []): boolean {
     const trimmed = text.trim();
     if (!trimmed && attachments.length === 0) return false;
+    if (trimmed.length > MAX_TEXT_CHARS) return this.refuse(tooLong(trimmed));
     const conversationId = this.client.conversationId;
     if (!conversationId) return this.refuse("No hay conexión: el mensaje no se envió.");
     this.interruptAssistant("superseded");
@@ -502,6 +507,7 @@ export class Session {
   requestBuild(text: string): boolean {
     const trimmed = text.trim();
     if (!trimmed) return false;
+    if (trimmed.length > MAX_TEXT_CHARS) return this.refuse(tooLong(trimmed));
     if (!this.client.send({ type: "build.request", text: trimmed })) return this.refuse("No hay conexión: el pedido no se envió.");
     return true;
   }
@@ -509,6 +515,7 @@ export class Session {
   buildFeedback(taskId: string, text: string): boolean {
     const trimmed = text.trim();
     if (!trimmed) return false;
+    if (trimmed.length > MAX_TEXT_CHARS) return this.refuse(tooLong(trimmed));
     if (!this.client.send({ type: "build.feedback", taskId, text: trimmed })) return this.refuse("No hay conexión: la respuesta no se envió.");
     return true;
   }

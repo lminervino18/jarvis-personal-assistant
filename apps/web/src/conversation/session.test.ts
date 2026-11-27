@@ -197,6 +197,15 @@ describe("Session text turns", () => {
     expect(session.getSnapshot().thread.messages[0]).toMatchObject({ role: "user", text: "", cards: [photo] });
   });
 
+  it("says a pasted text is too long instead of sending it", () => {
+    const { session, socket, connect } = setup();
+    connect();
+    expect(session.sendText("a".repeat(20_001))).toBe(false);
+    expect(socket().last("user.text")).toBeUndefined();
+    expect(session.getSnapshot().notice?.text).toBe("El mensaje es muy largo: tiene 20.001 caracteres y el máximo es 20.000. No se envió.");
+    expect(session.sendText("a".repeat(20_000))).toBe(true);
+  });
+
   it("refuses to send while offline and keeps the notice", () => {
     const { session } = setup();
     expect(session.sendText("hola")).toBe(false);
