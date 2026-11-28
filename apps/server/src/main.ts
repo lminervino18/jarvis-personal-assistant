@@ -6,6 +6,7 @@ import { builtinTools, type ModelRuntime } from "@jarvis/contracts";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { registerEnrollmentRoutes } from "./voice/enrollment-routes.js";
+import { PlanUsageReader, registerUsageRoutes } from "./runtime/plan-usage.js";
 import { SpeakerCheck, sherpaEmbedder } from "./voice/speaker-check.js";
 import { ImageService } from "./images/image-service.js";
 import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
@@ -329,6 +330,7 @@ const orchestrator = new ConversationOrchestrator({
   log: logger,
 });
 const devices = new DeviceStore(db);
+const planUsage = config.claude.oauthToken ? new PlanUsageReader(config.claude.oauthToken) : undefined;
 
 const app = await buildApp({
   config,
@@ -340,6 +342,7 @@ const app = await buildApp({
   registerRoutes: async (instance, helpers) => {
     await gmail.registerRoutes(instance, helpers);
     connections.registerRoutes(instance, helpers);
+    if (planUsage) registerUsageRoutes(instance, helpers, planUsage);
     if (speaker) registerEnrollmentRoutes(instance, helpers, { dir: join(config.dataDir, "voice", "enrollment"), speaker });
     if (tasks && workLayout && config.tasks) registerTaskRoutes(instance, helpers, tasks, workLayout, config.tasks.maxAttachmentBytes);
     registerAttachmentRoutes(instance, helpers, attachments, voice.stt instanceof OpenAiCompatibleStt ? voice.stt : undefined);

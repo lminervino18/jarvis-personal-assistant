@@ -1125,6 +1125,42 @@ button {
   color: var(--orange);
 }
 
+.usage-row {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 8px;
+  padding-top: 10px;
+  padding-bottom: 12px;
+}
+
+.usage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--separator);
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--green);
+}
+
+.usage-fill[data-level="mid"] {
+  background: var(--orange);
+}
+
+.usage-fill[data-level="high"] {
+  background: var(--red);
+}
+
 .group-footer {
   margin: 6px 16px 0;
   color: var(--secondary);

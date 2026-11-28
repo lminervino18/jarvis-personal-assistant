@@ -117,3 +117,9 @@ Same bench with the new default, `claude-latency.ts 5 low claude-sonnet-5-5`, me
 | New session, simple | 2.07 s | 2.30 s | 2.55 s | 3.00 s |
 | Resumed, simple | 2.13 s | 2.58 s | 2.84 s | 2.94 s |
 | Resumed, one tool call | 4.27 s | 4.73 s | 4.44 s | 4.80 s |
+
+## Plan usage in Configuración
+
+Configuración shows how much of the Claude plan is used: the 5-hour session window and the weekly one, each with its reset time (`GET /api/usage`, `apps/server/src/runtime/plan-usage.ts`).
+- The long-lived token from `claude setup-token` cannot call Anthropic's usage endpoint: it lacks the `user:profile` scope.
+- Every Messages response carries the plan's `anthropic-ratelimit-unified-5h-*` and `-7d-*` headers, so the server asks Haiku for one token and reads them. The answer is cached for two minutes.
