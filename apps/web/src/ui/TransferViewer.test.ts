@@ -17,3 +17,11 @@ describe("zooming a photo in Transferencias", () => {
     expect(zoomWidth({ width: 120, height: 90 }, phone)).toBe(366);
   });
 });
+
+describe("saving big files on a phone", () => {
+  it("leaves the page's memory alone above 150 MB, which made iOS restart the app", async () => {
+    const { isLarge } = await import("../transfers/save.js");
+    expect(isLarge({ size: 574_872_423 })).toBe(true);
+    expect(isLarge({ size: 40 * 1024 * 1024 })).toBe(false);
+  });
+});

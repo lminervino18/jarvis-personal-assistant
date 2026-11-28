@@ -149,7 +149,8 @@ describe("share links", () => {
     const env = await setup();
     await env.upload(OWNER, "cumple.mov", video);
     const [item] = (await env.list()).items;
-    const { url } = (await (await env.call(`/api/transfers/${item!.id}/share`, { method: "POST", headers: OWNER })).json()) as { url: string };
+    const { url, download } = (await (await env.call(`/api/transfers/${item!.id}/share`, { method: "POST", headers: OWNER })).json()) as { url: string; download: string };
+    expect(download).toBe(url.replace("/bajar/", "/api/public/files/") + "/content");
     const token = tokenOf(url);
     expect(url).toBe(`https://jarvis.example/bajar/${token}`);
     expect(await (await env.call(`/api/public/files/${token}`)).json()).toMatchObject({ name: "cumple.mov", size: video.length });

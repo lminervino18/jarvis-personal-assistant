@@ -15,6 +15,16 @@ export function savesBySharing(): boolean {
   }
 }
 
+/**
+ * Above this size a phone does not bring the file into the page: a 575 MB match made iOS kill
+ * the app for memory (2026-11-27). Safari downloads it instead, straight to Archivos.
+ */
+export const LARGE_FILE_BYTES = 150 * 1024 * 1024;
+
+export function isLarge(item: Pick<TransferFile, "size">): boolean {
+  return item.size > LARGE_FILE_BYTES;
+}
+
 /** Downloads a Transferencias file into the page, untouched, reporting how much arrived. */
 export async function fetchFile(item: Pick<TransferFile, "id" | "name" | "mediaType">, onProgress: (fraction: number) => void): Promise<File> {
   const response = await fetch(contentUrl(item.id), { credentials: "same-origin" });

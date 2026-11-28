@@ -67,7 +67,7 @@ export async function deleteTransfer(id: string): Promise<boolean> {
   return (await json<{ ok: boolean }>(`/api/transfers/${id}`, { method: "DELETE" })) !== null;
 }
 
-export const shareTransfer = (id: string) => json<{ url: string; expiresAt: string }>(`/api/transfers/${id}/share`, { method: "POST" });
+export const shareTransfer = (id: string) => json<{ url: string; download: string; expiresAt: string }>(`/api/transfers/${id}/share`, { method: "POST" });
 
 export const createUploadLink = (label: string | undefined) =>
   json<{ url: string; link: UploadLink }>("/api/transfers/links", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(label ? { label } : {}) });

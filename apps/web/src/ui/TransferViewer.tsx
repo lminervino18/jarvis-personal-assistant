@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { useDialogFocus } from "../hooks.js";
-import { contentUrl, formatSize, previewUrl, type TransferFile } from "../transfers/api.js";
-import { useSaveToDevice } from "../transfers/save.js";
+import { contentUrl, formatSize, previewUrl, shareTransfer, type TransferFile } from "../transfers/api.js";
+import { isLarge, useSaveToDevice } from "../transfers/save.js";
 
 const SWIPE_PX = 60;
 const TAP_PX = 10;
@@ -31,6 +31,33 @@ function conversionsFor(item: TransferFile): Conversion[] {
 }
 
 const SAVE_TEXT = { idle: "Guardar o compartir", ready: "Listo: tocá para guardar", saved: "Guardar o compartir", failed: "No pude traerlo. Reintentar" } as const;
+
+/** A big file on a phone: a one-day direct link, made as the file opens, that Safari downloads to Archivos by itself. */
+function SaveLargeOnPhone({ item }: { item: TransferFile }) {
+  const [download, setDownload] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    void shareTransfer(item.id).then(
+      (shared) => alive && setDownload(shared?.download ?? null),
+      () => alive && setDownload(null),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [item.id]);
+  if (!download) {
+    return (
+      <button type="button" className="button primary" disabled>
+        {download === null ? "No pude preparar la descarga" : "Preparando…"}
+      </button>
+    );
+  }
+  return (
+    <a className="button primary" href={download} target="_blank" rel="noopener noreferrer">
+      Bajar con Safari
+    </a>
+  );
+}
 
 /** The main action on a phone: bring the original and open the share sheet, with «Guardar video» or «Guardar en Archivos». */
 function SaveOnPhone({ item }: { item: TransferFile }) {
@@ -284,7 +311,11 @@ export function TransferViewer({ items, index, onIndex, onClose, sharing, onShar
         )}
         <div className="transfer-buttons">
           {sharing ? (
-            <SaveOnPhone key={item.id} item={item} />
+            isLarge(item) ? (
+              <SaveLargeOnPhone key={item.id} item={item} />
+            ) : (
+              <SaveOnPhone key={item.id} item={item} />
+            )
           ) : (
             <a className="button primary" href={contentUrl(item.id)} download={item.name}>
               Bajar original

@@ -76,6 +76,8 @@ export function transferUrls(publicOrigin: string) {
   return {
     upload: (token: string) => `${publicOrigin}/subir/${token}`,
     share: (token: string) => `${publicOrigin}/bajar/${token}`,
+    /** The file itself, as a download, for a browser that saves it on its own. */
+    content: (token: string) => `${publicOrigin}/api/public/files/${token}/content`,
   };
 }
 
@@ -270,7 +272,7 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
     const params = IdParams.safeParse(request.params);
     const shared = params.success ? store.createShareLink(params.data.id, now()) : undefined;
-    return shared ? { url: urls.share(shared.token), expiresAt: shared.expiresAt } : reply.code(404).send({ error: "not_found" });
+    return shared ? { url: urls.share(shared.token), download: urls.content(shared.token), expiresAt: shared.expiresAt } : reply.code(404).send({ error: "not_found" });
   });
 
   app.post("/api/transfers/downloads", async (request, reply) => {
