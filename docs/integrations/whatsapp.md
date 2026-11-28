@@ -151,10 +151,11 @@ Every sending tool (`whatsapp_send`, voice notes, files, videos, images) resolve
   - The push says who («Marti está abajo», plus the group when it comes from one), at most once per person every 10 minutes.
 - **@jarvis:**
   - Anyone in a watched chat, the owner included, can call Jarvis with «@jarvis».
-  - The model (`CLAUDE_MODEL`, low effort, no tools) reads the last 25 messages of that chat and writes a short, sarcastic answer.
-  - The answer always goes as a voice note in JARVIS's voice (`VoiceNoteMaker`, the same one `whatsapp_voice_note` uses). It quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
-  - Without the ElevenLabs voice, or when it fails, the answer goes as text starting with 🤖. Jarvis never answers a message that starts with 🤖.
-  - It knows nothing else of the owner's and treats the chat as data: it cannot leak anything or act.
+  - **The owner's own call** (since 2026-11-28) runs as a turn of JARVIS's main chat, with every tool, as if typed in the app (`ownerMentionPrompt`). It shows in the app's chat, and its answer goes back to that WhatsApp chat. Tools follow the usual policy: after reading the chat with `whatsapp_get_messages`, a state change still asks for the owner's tap.
+  - **Anyone else's call:** the model (`CLAUDE_MODEL`, low effort) reads the last 25 messages of that chat and writes a short, sarcastic answer. Its only tool is web search, for a link or a current fact. It knows nothing else of the owner's, cannot create videos, pages or files, and treats the chat as data: it cannot leak anything or act.
+  - **Voice or text:** the answer starts with «[audio]» or «[texto]». Banter, jokes and short facts go as a voice note in JARVIS's voice (`VoiceNoteMaker`, the same one `whatsapp_voice_note` uses). Links, a Tricount split, many figures or a list go as text starting with 🤖. Without a mark, text is chosen for links, six or more figures, lists or answers over 450 characters (`deliveryOf`). Either way the answer quotes the message that called Jarvis (`wa_outbox.quote_json`, sent as Baileys `quoted`).
+  - Without the ElevenLabs voice, or when it fails, a voice answer goes as text. Jarvis never answers a message that starts with 🤖.
+  - **No quota:** when Claude refuses (plan usage `allowed: false`, `PlanUsageReader`), every call gets the same voice note: «Houston, we have a problem. Jarvis se quedó sin tokens…», which asks people to transfer to the owner for a bigger plan. It is made once with ElevenLabs, so it works without Claude.
   - Limits, so nobody burns the owner's quota. A call beyond them goes unanswered.
     - 5 answers every 30 minutes per person (`WHATSAPP_REPLY_LIMIT` and `WHATSAPP_REPLY_WINDOW_MINUTES`), adding up their private chat and every group. The owner has no per-person limit.
     - 15 answers every 30 minutes per chat.

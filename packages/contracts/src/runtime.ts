@@ -64,6 +64,8 @@ export interface CompletionRequest {
   files?: RuntimeFile[];
   model?: string;
   effort?: "low" | "medium" | "high";
+  /** Lets the model search the web (a few searches) before answering; nothing else. */
+  webSearch?: boolean;
 }
 
 export interface ModelRuntime {

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { AttachmentStore } from "../../attachments/attachment-store.js";
 import { openMigratedDatabase } from "../../db/database.js";
-import { JARVIS_MARK, mentionsJarvis, saysAbajo, WhatsAppWatcher, type MentionRequest } from "./watcher.js";
+import { deliveryOf, JARVIS_MARK, mentionsJarvis, noTokensText, ownerMentionPrompt, saysAbajo, WhatsAppWatcher, type MentionRequest } from "./watcher.js";
 
 const MARTI = "5491100000001@s.whatsapp.net";
 const GROUP = "120363000000000001@g.us";
@@ -144,6 +144,61 @@ describe("watching WhatsApp", () => {
     silent.message(MARTI, "@jarvis cuánto es 2+2");
     await textOnly.tick();
     expect(silent.sent()).toEqual([{ chat: MARTI, text: `${JARVIS_MARK} Cuatro.` }]);
+  });
+
+  it("sends banter as a voice note and links, figures or lists as text", () => {
+    expect(deliveryOf("[audio] Cuatro, genio.")).toEqual({ mode: "voice", text: "Cuatro, genio." });
+    expect(deliveryOf("[texto] Flor → Pavón: $13.495")).toEqual({ mode: "text", text: "Flor → Pavón: $13.495" });
+    expect(deliveryOf("Tomá: https://youtu.be/x")).toMatchObject({ mode: "text" });
+    expect(deliveryOf("Gero 12.179, Lucas 12.179, Fran 12.179, Stefa 11.667, Pavón 735 y Santi 13.495")).toMatchObject({ mode: "text" });
+    expect(deliveryOf("Opciones:\n- una\n- otra")).toMatchObject({ mode: "text" });
+    expect(deliveryOf("Obvio que sí, jefe.")).toMatchObject({ mode: "voice" });
+  });
+
+  it("runs the owner's own @jarvis as a full JARVIS turn and sends what it decides as text", async () => {
+    const env = setup(async () => "nunca para el dueño");
+    const asked: MentionRequest[] = [];
+    const attachments = new AttachmentStore(env.db, mkdtempSync(join(tmpdir(), "jarvis-watch-")));
+    const watcher = new WhatsAppWatcher({
+      db: env.db,
+      ownerName: "Loren",
+      now: () => now,
+      attachments,
+      reply: async () => "nunca para el dueño",
+      ownerTurn: async (request) => (asked.push(request), "[texto] Flor → Loren: $13.495\n\nAlias Loren: lminervino18"),
+      speak: async () => ({ data: Buffer.from("OggS") }),
+    });
+    await watcher.tick();
+    env.message(GROUP, "@jarvis hacé un tricount", { fromMe: true });
+    await watcher.tick();
+    expect(asked[0]).toMatchObject({ chatId: GROUP, chatName: "Los pibes", isGroup: true, mention: { fromOwner: true } });
+    expect(env.sent()).toEqual([{ chat: GROUP, text: `${JARVIS_MARK} Flor → Loren: $13.495\n\nAlias Loren: lminervino18` }]);
+    expect(ownerMentionPrompt(asked[0]!)).toContain("[audio] o [texto]");
+  });
+
+  it("answers with the same funny voice note when Claude has no quota left, made once", async () => {
+    const env = setup();
+    const said: string[] = [];
+    const attachments = new AttachmentStore(env.db, mkdtempSync(join(tmpdir(), "jarvis-watch-")));
+    let calls = 0;
+    const watcher = new WhatsAppWatcher({
+      db: env.db,
+      ownerName: "Loren",
+      now: () => now,
+      attachments,
+      reply: async () => (calls++, "no debería llamarse"),
+      outOfQuota: async () => true,
+      speak: async (text) => (said.push(text), { data: Buffer.from("OggS") }),
+    });
+    env.message(GROUP, "hola", { fromMe: true, at: new Date(now.getTime() - 3_600_000) });
+    await watcher.tick();
+    env.message(MARTI, "@jarvis estás?");
+    env.message(GROUP, "@jarvis dale", { sender: "5491100000002@s.whatsapp.net", senderName: "Gero" });
+    await watcher.tick();
+    expect(calls).toBe(0);
+    expect(said).toEqual([noTokensText("Loren")]);
+    expect(noTokensText("Loren")).toContain("Houston, we have a problem");
+    expect(env.db.prepare("SELECT COUNT(*) FROM wa_outbox WHERE attachment_id IS NOT NULL").pluck().get()).toBe(2);
   });
 
   it("stays quiet in groups the owner does not write in, and when the model gives nothing", async () => {

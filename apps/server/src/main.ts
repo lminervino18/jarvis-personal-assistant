@@ -27,7 +27,7 @@ import { warpHealer } from "./downloads/warp-control.js";
 import { YtDlpUpdater } from "./downloads/ytdlp-updater.js";
 import { DriveUploads } from "./integrations/drive/drive-uploads.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
-import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
+import { ownerMentionPrompt, sarcasticReplier, WhatsAppWatcher, type MentionRequest } from "./integrations/whatsapp/watcher.js";
 import { BridgeMonitor } from "./integrations/whatsapp/bridge-monitor.js";
 import { Welcome } from "./welcome/welcome.js";
 import { registerWelcomeRoutes } from "./welcome/welcome-routes.js";
@@ -276,9 +276,14 @@ if (media && runtime.complete) {
     }),
   );
 }
+const planUsage = config.claude.oauthToken ? new PlanUsageReader(config.claude.oauthToken) : undefined;
+/** Set once the orchestrator exists: the owner's @jarvis in WhatsApp runs as a turn of the main chat. */
+let ownerMentionTurn: ((request: MentionRequest) => Promise<string | undefined>) | undefined;
 const watcher = new WhatsAppWatcher({
   db,
   ownerName: config.ownerDisplayName,
+  ownerTurn: (request) => ownerMentionTurn?.(request) ?? Promise.resolve(undefined),
+  outOfQuota: async () => (await planUsage?.read())?.allowed === false,
   replyLimit: { replies: Number(process.env.WHATSAPP_REPLY_LIMIT ?? 5), minutes: Number(process.env.WHATSAPP_REPLY_WINDOW_MINUTES ?? 30) },
   attachments,
   speak: (text) => (services.voiceNotes ? services.voiceNotes.make(text) : Promise.reject(new Error("no voice"))),
@@ -332,8 +337,19 @@ const orchestrator = new ConversationOrchestrator({
   textOnlySources,
   log: logger,
 });
+ownerMentionTurn = async (request) => {
+  const conversation = store.resolveOrCreate();
+  const turnId = randomUUID();
+  await orchestrator.startTurn({ conversationId: conversation.id, turnId, text: ownerMentionPrompt(request), inputMode: "text", replyMode: "text", inputEndedAt: performance.now() });
+  const answer = store
+    .turnMessages(turnId)
+    .filter((item) => item.role === "assistant")
+    .map((item) => item.text)
+    .join("\n\n")
+    .trim();
+  return answer || undefined;
+};
 const devices = new DeviceStore(db);
-const planUsage = config.claude.oauthToken ? new PlanUsageReader(config.claude.oauthToken) : undefined;
 
 const app = await buildApp({
   config,
