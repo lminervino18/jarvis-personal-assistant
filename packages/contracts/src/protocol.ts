@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ActivityEvent } from "./activity.js";
 import { AudioFormat } from "./audio.js";
-import { Card, TaskCard } from "./cards.js";
+import { Card } from "./cards.js";
 import { ReplyMode, ServerAssistantState } from "./states.js";
 import { TaskCardAction } from "./tasks.js";
 
@@ -119,14 +119,30 @@ export const TaskActionMessage = z.object({
   approvalId: Id.optional(),
 });
 
-/** Opens or refreshes build mode: the server answers with `build.tasks`. */
+/** Opens or refreshes Construir: the server answers with `build.chat`. */
 export const BuildListMessage = z.object({ type: z.literal("build.list") });
 
 /** A change the owner wants in JARVIS itself; it becomes a task on the jarvis project without going through the model. */
 export const BuildRequestMessage = z.object({ type: z.literal("build.request"), text: z.string().trim().min(1).max(MAX_TEXT_CHARS) });
 
-/** An answer or a change request for a build task. */
-export const BuildFeedbackMessage = z.object({ type: z.literal("build.feedback"), taskId: Id, text: z.string().trim().min(1).max(MAX_TEXT_CHARS) });
+/** Stops what the Construir agent is doing right now. */
+export const BuildStopMessage = z.object({ type: z.literal("build.stop") });
+
+/** One line of the Construir conversation. */
+export const BuildChatMessage = z.object({ id: z.number().int(), role: z.enum(["owner", "assistant"]), text: z.string().max(60_000), at: z.string() });
+export type BuildChatMessage = z.infer<typeof BuildChatMessage>;
+
+/** Where the Construir agent is: its steps (the progress bar), what it is doing and how a publication goes. */
+export const BuildChatState = z.object({
+  status: z.enum(["idle", "working", "waiting", "offline"]),
+  activity: z.string().max(200).optional(),
+  steps: z.array(z.object({ text: z.string().max(200), status: z.enum(["pending", "in_progress", "completed"]) })).max(60),
+  resumeAt: z.string().optional(),
+  publication: z
+    .object({ status: z.enum(["queued", "running", "published", "failed"]), step: z.string().max(40).optional(), title: z.string().max(100) })
+    .optional(),
+});
+export type BuildChatState = z.infer<typeof BuildChatState>;
 
 const Pixels = z.number().int().min(0).max(10_000);
 
@@ -187,7 +203,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TaskActionMessage,
   BuildListMessage,
   BuildRequestMessage,
-  BuildFeedbackMessage,
+  BuildStopMessage,
   ClientViewportMessage,
   ClientAudioMessage,
   WarmMessage,
@@ -308,7 +324,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
     code: z.string(),
     message: z.string(),
   }),
-  ServerBase.extend({ type: z.literal("build.tasks"), tasks: z.array(TaskCard).max(50) }),
+  ServerBase.extend({ type: z.literal("build.chat"), messages: z.array(BuildChatMessage).max(300), state: BuildChatState }),
   ServerBase.extend({ type: z.literal("pong"), t: z.number() }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;

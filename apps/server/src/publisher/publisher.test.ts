@@ -61,7 +61,7 @@ function setup(answers: (call: Call) => Partial<ExecResult> | undefined = () => 
 describe("patch paths", () => {
   it("reads every path a patch touches and blocks the privileged ones", () => {
     const patch = `${PATCH}diff --git a/infra/scripts/deploy.sh b/infra/scripts/deploy.sh\ndiff --git a/apps/server/src/publisher/spool.ts b/apps/server/src/publisher/spool.ts\ndiff --git a/Dockerfile b/Dockerfile\n`;
-    expect(forbiddenPaths(patchPaths(patch))).toEqual(["infra/scripts/deploy.sh", "apps/server/src/publisher/spool.ts", "Dockerfile"]);
+    expect(forbiddenPaths(patchPaths(patch))).toEqual(["infra/scripts/deploy.sh", "apps/server/src/publisher/spool.ts"]);
     expect(forbiddenPaths(["apps/web/../../etc/passwd"])).toHaveLength(1);
     expect(forbiddenPaths(patchPaths(PATCH))).toEqual([]);
   });

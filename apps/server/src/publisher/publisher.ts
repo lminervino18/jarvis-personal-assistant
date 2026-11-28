@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { PublishRequest, sha256, verifyRequest, type PublishResult } from "./spool.js";
 
 /** Paths a build change may never touch: they run with more privileges than the app (deploy, installer, image build) or guard publishing itself. */
-const FORBIDDEN = [/^infra\//, /^\.github\//, /^\.claude\//, /^Dockerfile$/, /^\.dockerignore$/, /^docker-compose[^/]*\.ya?ml$/, /^apps\/server\/src\/publisher\//];
+/**
+ * What a build change may never touch. By the owner's decision (2026-11-28) Construir changes
+ * anything else, the Dockerfile and infra included; only the publisher and the deploy script stay
+ * out, because the automatic rollback and every later fix depend on them.
+ */
+const FORBIDDEN = [/^apps\/server\/src\/publisher\//, /^infra\/scripts\/deploy\.sh$/];
 const OUTPUT_TAIL_LINES = 12;
 const MESSAGE_CHARS = 600;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

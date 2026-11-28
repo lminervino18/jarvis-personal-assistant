@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import type { CardActions } from "../cards/actions.js";
-import { taskActionsFor } from "../cards/Cards.js";
-import type { BuildTask, Notice, SessionSnapshot } from "../conversation/session.js";
-import { safeHref } from "../format.js";
+import { useEffect, useRef } from "react";
+import type { BuildChatState } from "@jarvis/contracts";
+import { Markdown } from "../conversation/markdown.js";
+import type { BuildChat, Notice, SessionSnapshot } from "../conversation/session.js";
 import { useDialogFocus } from "../hooks.js";
 import { Composer } from "./Composer.js";
 
 interface Props {
-  tasks: BuildTask[] | null;
+  chat: BuildChat | null;
   online: boolean;
   notice: Notice | null;
-  actions: CardActions;
   dictation: SessionSnapshot["dictation"];
   dictated: SessionSnapshot["dictated"];
   levels: () => { input: number };
@@ -19,15 +17,13 @@ interface Props {
   onDictationCancel(): void;
   onRefresh(): void;
   onRequest(text: string): boolean;
-  onReply(taskId: string, text: string): boolean;
+  onStop(): void;
   onClose(): void;
   /** Shown inside the wide layout's main panel instead of covering the screen. */
   embedded?: boolean;
 }
 
-const REFRESH_MS = 4000;
-
-const phaseLines = { plan: "Pensando cómo hacerlo…", execute: "Programando…", review: "Revisándolo con otro agente…" } as const;
+const REFRESH_MS = 2500;
 
 const publishSteps: Record<string, string> = {
   verify: "verificando",
@@ -39,42 +35,74 @@ const publishSteps: Record<string, string> = {
   deploy: "desplegando",
 };
 
-/** Where a change to JARVIS is, in one sentence. */
-export function buildLine(task: BuildTask): string {
-  if (task.paused && (task.status === "queued" || task.status === "running")) return "En pausa.";
-  const publication = task.publication;
-  switch (task.status) {
-    case "queued":
-    case "running":
-      return `${task.phase ? phaseLines[task.phase] : "En cola…"}${task.iteration > 1 ? ` (vuelta ${task.iteration})` : ""}`;
-    case "awaiting_owner":
-      return task.blocker?.kind === "question" ? `Necesito que me respondas: ${task.blocker.message}` : (task.blocker?.message ?? "Estoy esperando algo de vos.");
-    case "ready":
-      return "Revisado y aprobado: lo publico ahora.";
-    case "accepted":
-      if (!publication || publication.status === "queued") return "Revisado y aprobado: lo publico ahora.";
-      if (publication.status === "running") return `Publicando${publication.step ? `: ${publishSteps[publication.step] ?? publication.step}` : ""}…`;
-      if (publication.status === "published") return `Listo, ya está en producción${publication.commit ? ` (commit ${publication.commit.slice(0, 7)})` : ""}.`;
-      return `No se pudo publicar${publication.message ? `: ${publication.message}` : "."}`;
-    case "failed":
-      return `No pude terminarlo${task.blocker?.message ? `: ${task.blocker.message}` : "."}`;
-    case "cancelled":
-      return "Cancelado.";
+/** How far the agent is, from 0 to 1: its finished steps, and the publication once it publishes. */
+export function buildProgress(state: BuildChatState): number | null {
+  if (state.publication?.status === "queued") return 0.9;
+  if (state.publication?.status === "running") return 0.95;
+  if (state.steps.length === 0) return null;
+  return state.steps.filter((step) => step.status === "completed").length / state.steps.length;
+}
+
+/** One line on what is happening, in the owner's words. */
+export function buildStatusLine(state: BuildChatState, now = new Date()): string | null {
+  if (state.status === "offline") return "El constructor no está corriendo en el servidor: tu mensaje queda guardado y lo leo cuando arranque.";
+  if (state.publication && (state.publication.status === "queued" || state.publication.status === "running")) {
+    const step = state.publication.step ? publishSteps[state.publication.step] ?? state.publication.step : "en cola";
+    return `Publicando: ${step}…`;
   }
+  if (state.status === "waiting" && state.resumeAt) {
+    const at = new Date(state.resumeAt);
+    const time = at.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
+    const day = at.toDateString() === now.toDateString() ? "" : ` del ${at.toLocaleDateString("es-AR", { weekday: "long" })}`;
+    return `Esperando que se renueve el plan: sigo solo a las ${time}${day}.`;
+  }
+  if (state.status === "working") return state.activity ?? "Trabajando…";
+  return null;
+}
+
+function Progress({ state, onStop }: { state: BuildChatState; onStop(): void }) {
+  const line = buildStatusLine(state);
+  const progress = buildProgress(state);
+  if (!line && progress === null) return null;
+  const busy = state.status === "working" || state.publication?.status === "queued" || state.publication?.status === "running";
+  return (
+    <div className="build-progress" data-status={state.status}>
+      {progress !== null && busy && (
+        <div className="build-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+          <div className="build-bar-fill" style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }} />
+        </div>
+      )}
+      <div className="build-progress-line">
+        {line && <p>{line}</p>}
+        {state.status === "working" && (
+          <button type="button" className="build-stop" onClick={onStop}>
+            Frenar
+          </button>
+        )}
+      </div>
+      {busy && state.steps.length > 0 && (
+        <ol className="build-steps">
+          {state.steps.map((step, index) => (
+            <li key={index} data-status={step.status}>
+              {step.text}
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
 }
 
 /**
- * Construir: changes to JARVIS itself, as a conversation. Each request is programmed by an agent,
- * reviewed by another and published on its own; Jarvis only asks when something is unclear.
+ * Construir: a conversation with the agent that changes JARVIS. It answers questions, builds what
+ * the owner asks, has it reviewed and publishes it on its own; the bar shows its steps.
  */
 export function BuildScreen(props: Props) {
-  const { tasks, online, notice, actions, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onReply, onClose, embedded } = props;
+  const { chat, online, notice, dictation, dictated, levels, onDictate, onDictationStop, onDictationCancel, onRefresh, onRequest, onStop, onClose, embedded } = props;
   const list = useRef<HTMLOListElement>(null);
-  const [sent, setSent] = useState<string | null>(null);
   const dialog = useRef<HTMLElement>(null);
   useDialogFocus(dialog, !embedded);
-  const visible = (tasks ?? []).filter((task) => !task.archived).reverse();
-  const asking = [...visible].reverse().find((task) => task.status === "awaiting_owner" && task.blocker?.kind === "question");
+  const messages = chat?.messages ?? [];
 
   useEffect(() => {
     onRefresh();
@@ -91,16 +119,14 @@ export function BuildScreen(props: Props) {
 
   useEffect(() => {
     list.current?.lastElementChild?.scrollIntoView({ block: "end" });
-  }, [visible.length]);
-
-  const send = (value: string): boolean => (asking ? onReply(asking.taskId, value) : onRequest(value));
+  }, [messages.length]);
 
   return (
     <section ref={dialog} className={`build${embedded ? " build-embedded" : ""}`} {...(embedded ? {} : { role: "dialog", "aria-modal": true, tabIndex: -1 })} aria-labelledby="build-title">
       <header className="build-header">
         <div>
           <h2 id="build-title">Construir</h2>
-          <p>Pedile cambios a Jarvis: los programa, los revisa y los publica solo</p>
+          <p>Hablale como a Claude Code: pregunta, construye, revisa y publica solo</p>
         </div>
         {!embedded && (
           <button type="button" className="build-done" onClick={onClose}>
@@ -110,60 +136,27 @@ export function BuildScreen(props: Props) {
       </header>
 
       <div className="build-list">
-        {tasks === null && <p className="build-empty">{online ? "Cargando…" : "Sin conexión con el servidor. Reintento solo en cuanto vuelva."}</p>}
-        {tasks !== null && visible.length === 0 && (
-          <p className="build-empty">Contame qué querés que cambie en mí: una herramienta, algo de la pantalla, un modo nuevo. Si algo no me queda claro, te pregunto.</p>
+        {chat === null && <p className="build-empty">{online ? "Cargando…" : "Sin conexión con el servidor. Reintento solo en cuanto vuelva."}</p>}
+        {chat !== null && messages.length === 0 && (
+          <p className="build-empty">Contame qué querés que cambie en mí o preguntame cómo funciona algo. Lo construyo, lo reviso con otro agente y lo publico sin pedirte nada.</p>
         )}
         <ol className="build-thread" ref={list}>
-          {visible.map((task) => {
-            const url = safeHref(task.publication?.url);
-            return (
-              <li key={task.taskId} className="build-turn">
-                <p className="build-request">{task.title}</p>
-                <div className="build-answer" data-status={task.publication?.status ?? task.status}>
-                  <p>{buildLine(task)}</p>
-                  {task.summary && <p className="build-summary">{task.summary}</p>}
-                  <p className="build-links">
-                    #{task.ref}
-                    {task.iteration > 0 && (
-                      <>
-                        {" · "}
-                        <a href={`/api/tasks/${task.ref}/diff`} target="_blank" rel="noopener noreferrer">
-                          ver cambios
-                        </a>
-                      </>
-                    )}
-                    {url && (
-                      <>
-                        {" · "}
-                        <a href={url} target="_blank" rel="noopener noreferrer">
-                          abrir
-                        </a>
-                      </>
-                    )}
-                  </p>
-                  {sent !== `${task.taskId}:${task.updatedAt}` &&
-                    taskActionsFor(task).map((button) => (
-                      <button
-                        key={button.action}
-                        type="button"
-                        className="build-action"
-                        onClick={() => {
-                          setSent(`${task.taskId}:${task.updatedAt}`);
-                          actions.taskAction(task.taskId, button.action, button.action === "approve" || button.action === "reject" ? task.blocker?.approvalId : undefined);
-                        }}
-                      >
-                        {button.label}
-                      </button>
-                    ))}
-                </div>
+          {messages.map((message) =>
+            message.role === "owner" ? (
+              <li key={message.id} className="build-turn">
+                <p className="build-request">{message.text}</p>
               </li>
-            );
-          })}
+            ) : (
+              <li key={message.id} className="build-turn build-reply">
+                <Markdown text={message.text} />
+              </li>
+            ),
+          )}
         </ol>
       </div>
 
       <div className="build-composer">
+        {chat && <Progress state={chat.state} onStop={onStop} />}
         {notice && (
           <p className={`build-notice build-notice-${notice.level}`} role={notice.level === "error" ? "alert" : "status"}>
             {notice.text}
@@ -175,12 +168,12 @@ export function BuildScreen(props: Props) {
           dictation={dictation}
           dictated={dictated}
           levels={levels}
-          onSend={(value) => send(value)}
+          onSend={(value) => onRequest(value)}
           onDictate={onDictate}
           onDictationStop={onDictationStop}
           onDictationCancel={onDictationCancel}
           onStop={() => {}}
-          placeholder={asking ? `Respondé a la tarea #${asking.ref}` : "¿Qué querés que construya?"}
+          placeholder={chat?.state.status === "working" ? "Escribí: lo leo cuando termine este paso" : "¿Qué construimos?"}
         />
       </div>
     </section>

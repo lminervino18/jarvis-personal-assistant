@@ -120,10 +120,9 @@ export function Conversation({ session, onLogout, demo }: Props) {
   const build = (embedded: boolean) => (
     <BuildScreen
       embedded={embedded}
-      tasks={snapshot.buildTasks}
+      chat={snapshot.buildChat}
       online={online}
       notice={notice}
-      actions={session}
       dictation={snapshot.dictation}
       dictated={snapshot.dictated}
       levels={session.getLevels}
@@ -132,7 +131,7 @@ export function Conversation({ session, onLogout, demo }: Props) {
       onDictationCancel={() => session.cancelDictation()}
       onRefresh={refreshBuild}
       onRequest={(text) => session.requestBuild(text)}
-      onReply={(taskId, text) => session.buildFeedback(taskId, text)}
+      onStop={() => session.stopBuild()}
       onClose={closePanel}
     />
   );

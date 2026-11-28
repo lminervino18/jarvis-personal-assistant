@@ -426,33 +426,20 @@ describe("Session voice turns", () => {
     expect(socket().last("audio.begin")?.turnId).not.toBe(turnId);
   });
 
-  it("asks for build tasks, keeps them and sends build requests and answers", () => {
+  it("asks for the Construir chat, keeps it and sends requests and stops", () => {
     const { session, socket, connect } = setup();
     connect(true);
     session.refreshBuild();
     expect(socket().last("build.list")).toEqual({ type: "build.list" });
-    const task = {
-      kind: "task" as const,
-      taskId: "3f0c6f53-9a0e-4c4e-9a43-2e0a8a5f1b10",
-      ref: 9,
-      title: "Botón nuevo",
-      status: "ready" as const,
-      phase: null,
-      paused: false,
-      iteration: 1,
-      costUsd: 0.1,
-      budgetUsd: 5,
-      build: true,
-      updatedAt: "2026-11-22T12:00:00.000Z",
-    };
-    socket().server({ type: "build.tasks", tasks: [task] });
-    expect(session.getSnapshot().buildTasks).toEqual([task]);
+    const chat = { messages: [{ id: 1, role: "owner" as const, text: "hola", at: "2026-11-28T10:00:00.000Z" }], state: { status: "idle" as const, steps: [] } };
+    socket().server({ type: "build.chat", ...chat });
+    expect(session.getSnapshot().buildChat).toEqual(chat);
 
     expect(session.requestBuild("  agregá un botón  ")).toBe(true);
     expect(socket().last("build.request")).toEqual({ type: "build.request", text: "agregá un botón" });
     expect(session.requestBuild("   ")).toBe(false);
-    expect(session.buildFeedback(task.taskId, "más grande")).toBe(true);
-    expect(socket().last("build.feedback")).toEqual({ type: "build.feedback", taskId: task.taskId, text: "más grande" });
+    session.stopBuild();
+    expect(socket().last("build.stop")).toEqual({ type: "build.stop" });
   });
 
   it("closes the microphone when the conversation ends", async () => {

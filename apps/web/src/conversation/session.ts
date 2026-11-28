@@ -3,6 +3,8 @@ import {
   STT_INPUT_FORMAT,
   type AssistantState,
   type AudioFormat,
+  type BuildChatMessage,
+  type BuildChatState,
   type Card,
   type ClientMessage,
   type ReplyMode,
@@ -49,11 +51,14 @@ export interface SessionSnapshot {
   audioBlocked: boolean;
   notice: Notice | null;
   needsLogin: boolean;
-  /** Build mode tasks, newest first; null until build mode is opened. */
-  buildTasks: BuildTask[] | null;
+  /** The Construir conversation and the agent's progress; null until Construir is opened. */
+  buildChat: BuildChat | null;
 }
 
-export type BuildTask = Extract<Card, { kind: "task" }>;
+export interface BuildChat {
+  messages: BuildChatMessage[];
+  state: BuildChatState;
+}
 
 export interface Levels {
   input: number;
@@ -140,7 +145,7 @@ export class Session {
   private audioWanted = false;
   private needsLogin = false;
   private notice: Notice | null = null;
-  private buildTasks: BuildTask[] | null = null;
+  private buildChat: BuildChat | null = null;
   private viewportReports = 0;
   private captureReports = 0;
   private bargeCandidate: string | null = null;
@@ -498,7 +503,7 @@ export class Session {
     this.client.send({ type: "warm" });
   }
 
-  /** Asks for the build mode task list; the answer arrives as `build.tasks`. */
+  /** Asks for the Construir conversation; the answer arrives as `build.chat`. */
   refreshBuild(): void {
     this.client.send({ type: "build.list" });
   }
@@ -512,12 +517,9 @@ export class Session {
     return true;
   }
 
-  buildFeedback(taskId: string, text: string): boolean {
-    const trimmed = text.trim();
-    if (!trimmed) return false;
-    if (trimmed.length > MAX_TEXT_CHARS) return this.refuse(tooLong(trimmed));
-    if (!this.client.send({ type: "build.feedback", taskId, text: trimmed })) return this.refuse("No hay conexión: la respuesta no se envió.");
-    return true;
+  /** Stops what the Construir agent is doing. */
+  stopBuild(): void {
+    this.client.send({ type: "build.stop" });
   }
 
   loadOlder(): void {
@@ -692,8 +694,8 @@ export class Session {
       case "notice":
         this.setNotice(message.level === "warning" ? "warning" : "info", message.message);
         break;
-      case "build.tasks":
-        this.buildTasks = message.tasks;
+      case "build.chat":
+        this.buildChat = { messages: message.messages, state: message.state };
         break;
       case "error":
         if (!message.turnId) this.setNotice("error", message.message);
@@ -937,7 +939,7 @@ export class Session {
       audioBlocked: this.audioWanted && this.engine !== null && !this.engine.running,
       notice: this.notice,
       needsLogin: this.needsLogin,
-      buildTasks: this.buildTasks,
+      buildChat: this.buildChat,
     };
   }
 

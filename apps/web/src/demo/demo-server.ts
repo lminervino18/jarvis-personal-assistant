@@ -1,4 +1,4 @@
-import type { Card, ClientMessage, HistoryItem, OutgoingServerMessage } from "@jarvis/contracts";
+import type { BuildChatMessage, BuildChatState, Card, ClientMessage, HistoryItem, OutgoingServerMessage } from "@jarvis/contracts";
 import { activityScenario, type ActivityScenario, type ScriptedChange } from "./activity-scenarios.js";
 import type { Transport, TransportFactory, TransportHandlers } from "../protocol/client.js";
 
@@ -99,28 +99,25 @@ const DEMO_TASK_CARDS: Card[] = [
   },
 ];
 
-function buildTasks(now: Date): Extract<Card, { kind: "task" }>[] {
-  const base = { status: "ready" as const, phase: null, paused: false, iteration: 1, costUsd: 0.18, budgetUsd: 5, build: true, updatedAt: now.toISOString() };
-  return [
-    {
-      ...base,
-      kind: "task",
-      taskId: uuid(900),
-      ref: 14,
-      title: "Botón para repetir la última respuesta (ficticio)",
-      summary: "Agregué un botón «Repetir» en cada respuesta que vuelve a reproducir el audio, con tests.",
-      review: { verdict: "approve", passed: 4, total: 4 },
+function buildChat(now: Date): { messages: BuildChatMessage[]; state: BuildChatState } {
+  const at = now.toISOString();
+  return {
+    messages: [
+      { id: 1, role: "owner", text: "Agregá un botón para repetir la última respuesta", at },
+      { id: 2, role: "assistant", text: "Listo: ahora cada respuesta tiene un botón para escucharla de nuevo. Ya está publicado.", at },
+      { id: 3, role: "owner", text: "Que las tarjetas del clima muestren la sensación térmica", at },
+    ],
+    state: {
+      status: "working",
+      activity: "Corriendo los chequeos…",
+      steps: [
+        { text: "Leer cómo se arma la tarjeta del clima", status: "completed" },
+        { text: "Corriendo los chequeos", status: "in_progress" },
+        { text: "Revisar con el revisor", status: "pending" },
+        { text: "Publicar", status: "pending" },
+      ],
     },
-    {
-      ...base,
-      kind: "task",
-      taskId: uuid(901),
-      ref: 12,
-      status: "accepted",
-      title: "Modo oscuro más contrastado (ficticio)",
-      publication: { status: "published", step: "deploy", commit: "a1b2c3d4e5f6" },
-    },
-  ];
+  };
 }
 
 function confirmCard(now: Date, status: "pending" | "confirmed" | "rejected"): Card {
@@ -264,10 +261,10 @@ export class DemoServer {
         this.emit({ type: "card", card: confirmCard(this.now(), message.decision === "confirm" ? "confirmed" : "rejected") });
         break;
       case "build.list":
-        this.emit({ type: "build.tasks", tasks: buildTasks(this.now()) });
+        this.emit({ type: "build.chat", ...buildChat(this.now()) });
         break;
       case "build.request":
-      case "build.feedback":
+      case "build.stop":
         this.emit({ type: "notice", level: "info", code: "build_updated", message: "Modo demo: el pedido no se envía a ningún agente." });
         break;
       case "ping":

@@ -7,6 +7,8 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { registerEnrollmentRoutes } from "./voice/enrollment-routes.js";
 import { PlanUsageReader, registerUsageRoutes } from "./runtime/plan-usage.js";
+import { BuildChatService } from "./build-chat/build-chat-service.js";
+import { BuildChatStore } from "./build-chat/build-chat-store.js";
 import { SpeakerCheck, sherpaEmbedder } from "./voice/speaker-check.js";
 import { ImageService } from "./images/image-service.js";
 import { WhatsAppOutbox } from "./integrations/whatsapp/outbox.js";
@@ -187,6 +189,7 @@ const tasks =
 if (tasks && config.tasks?.publish) setInterval(() => tasks.syncPublications(new Date()), PUBLICATION_SYNC_MS).unref();
 if (tasks) setInterval(() => tasks.autoPublish(new Date(), connections.accounts?.get("github")?.account), PUBLICATION_SYNC_MS).unref();
 services.tasks = tasks;
+const buildChat = workDb ? new BuildChatService(new BuildChatStore(workDb), new TaskStore(workDb)) : undefined;
 if (workLayout && connections.github && connections.accounts) {
   services.repoProjects = new RepoProjects({ github: connections.github, accounts: connections.accounts, projectsDir: workLayout.projectsDir });
 }
@@ -394,11 +397,11 @@ const app = await buildApp({
     return card;
   },
   speaker,
-  build: tasks
+  build: buildChat
     ? {
-        list: () => tasks.buildCards(),
-        request: (text) => cardOutcome(tasks, tasks.createBuild(text, new Date())),
-        feedback: (taskId, text) => cardOutcome(tasks, tasks.buildFeedback(taskId, text, new Date())),
+        view: () => buildChat.view(),
+        request: (text) => buildChat.request(text),
+        stop: () => buildChat.stop(),
       }
     : undefined,
   stt: voice.stt,

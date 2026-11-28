@@ -35,9 +35,9 @@ function setup(options: { project?: boolean; spool?: boolean } = {}) {
   const service = new TaskService(store, layout, { defaultBudgetUsd: 5, maxAttachmentBytes: 1024 }, spool);
   const now = new Date("2026-11-22T12:00:00Z");
 
-  const readyBuild = (text = "Agregá un saludo en el README") => {
-    const outcome = service.createBuild(text, now);
-    if (!outcome.ok) throw new Error(outcome.message);
+  const readyBuild = (text = "Agregá un saludo en el README", source = "build-chat") => {
+    const task = store.create({ title: text, request: text, project: BUILD_PROJECT, source, budgetUsd: 0 }, now);
+    const outcome = { task };
     const runnerDir = layout.paths(outcome.task.id).runner;
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(join(runnerDir, "iteration-1.diff"), PATCH);
@@ -51,30 +51,11 @@ function setup(options: { project?: boolean; spool?: boolean } = {}) {
 }
 
 describe("build mode", () => {
-  it("turns a request into a task on the jarvis project without the model", () => {
-    const { service } = setup();
-    const outcome = service.createBuild("Agregá un botón para repetir la última respuesta\ncon detalles", new Date());
-    expect(outcome).toMatchObject({ ok: true, task: { project: BUILD_PROJECT, source: "build", title: "Agregá un botón para repetir la última respuesta", status: "queued" } });
-    expect(service.buildCards()).toMatchObject([{ build: true, status: "queued" }]);
-  });
-
-  it("lets the owner remove tasks from build mode, cancelling the ones still waiting and keeping their history", () => {
+  it("lets the owner archive a published build task, keeping its history", () => {
     const { service, store, now, readyBuild } = setup();
     const ready = readyBuild();
-    const queued = service.createBuild("Otro cambio que nunca voy a hacer", now);
-    if (!queued.ok) throw new Error(queued.message);
-    store.update(queued.task.id, { status: "running", phase: "execute" }, now);
-    expect(service.decide(queued.task.id, "archive", undefined, now)).toMatchObject({ ok: false, message: expect.stringContaining("cancelala primero") });
-
     expect(service.decide(ready.id, "archive", undefined, now)).toMatchObject({ ok: true, task: { status: "cancelled", archivedAt: now.toISOString() } });
-    expect(service.buildCards().map((card) => card.taskId)).toEqual([queued.task.id]);
-    expect(service.cardFor(ready.id)).toMatchObject({ archived: true, status: "cancelled" });
     expect(store.get(ready.id)?.title).toBe("Agregá un saludo en el README");
-  });
-
-  it("refuses build requests while the jarvis project is not installed", () => {
-    const { service } = setup({ project: false });
-    expect(service.createBuild("algo", new Date())).toMatchObject({ ok: false });
   });
 
   it("publishes a reviewed build task on its own, once", () => {
@@ -130,7 +111,7 @@ describe("build mode", () => {
 
   it("follows the publisher's results and tells the owner once when it ends", () => {
     const { service, now, readyBuild, store, writeResult } = setup();
-    const task = readyBuild();
+    const task = readyBuild("Agregá un saludo en el README", "manual");
     service.publish(task.id, now);
     const publication = store.publication(task.id)!;
 
@@ -145,6 +126,16 @@ describe("build mode", () => {
     const notified = store.notifiableEvents(0).filter((event) => event.kind === "published");
     expect(notified).toHaveLength(1);
     expect(notified[0]?.message).toContain("commit abc1234");
+  });
+
+  it("keeps what Construir publishes out of the main chat, which Construir reports itself", () => {
+    const { service, now, readyBuild, store, writeResult } = setup();
+    const task = readyBuild();
+    service.publish(task.id, now);
+    writeResult(store.publication(task.id)!.id, { status: "published", step: "deploy", commit: "abc1234" });
+    service.syncPublications(now);
+    expect(store.publication(task.id)).toMatchObject({ status: "published" });
+    expect(store.notifiableEvents(0)).toEqual([]);
   });
 
   it("lets the owner publish again after a failed publication, and only then", () => {
@@ -166,14 +157,5 @@ describe("build mode", () => {
     service.publish(task.id, now);
     service.syncPublications(new Date(now.getTime() + 3 * 3_600_000));
     expect(store.publication(task.id)).toMatchObject({ status: "failed", step: "publisher" });
-  });
-
-  it("starts a new build when the owner writes about one already published", () => {
-    const { service, now, readyBuild } = setup();
-    const task = readyBuild();
-    service.publish(task.id, now);
-    const outcome = service.buildFeedback(task.id, "ahora cambiá el color", now);
-    expect(outcome).toMatchObject({ ok: true, task: { status: "queued" } });
-    expect(outcome.ok && outcome.task.id).not.toBe(task.id);
   });
 });

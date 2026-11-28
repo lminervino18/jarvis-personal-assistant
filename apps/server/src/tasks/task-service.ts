@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { finalTaskStatuses, type Card, type TaskCardAction, type TaskPhase, type TaskTarget } from "@jarvis/contracts";
-import { BUILD_PROJECT, isCommitTitle, MAX_PATCH_BYTES, type PublicationSpool } from "../publisher/spool.js";
+import { BUILD_CHAT_SOURCE, BUILD_PROJECT, isCommitTitle, MAX_PATCH_BYTES, type PublicationSpool } from "../publisher/spool.js";
 import { ShipError, type ProjectShipper, type ShipKind } from "../projects/project-shipper.js";
 import type { Attachment, Publication, Task, TaskPatch, TaskStore } from "./task-store.js";
 import type { ProjectInfo, WorkLayout } from "./workspace.js";
@@ -19,15 +19,6 @@ export type TaskOutcome = { ok: true; task: Task; message: string } | { ok: fals
 
 const RUNNER_STALE_MS = 2 * 60_000;
 const PUBLISH_STALE_MS = 2 * 60 * 60_000;
-const BUILD_TITLE_CHARS = 80;
-const BUILD_LIST_LIMIT = 20;
-
-function buildTitle(text: string): string {
-  const line = text.split("\n").find((candidate) => candidate.trim()) ?? text;
-  const title = line.trim().replace(/\s+/g, " ");
-  return title.length > BUILD_TITLE_CHARS ? `${title.slice(0, BUILD_TITLE_CHARS - 1).trimEnd()}…` : title;
-}
-
 const SHIP_KINDS = { ship_pr: "pr", ship_main: "main", ship_new: "new" } as const;
 
 const OPEN_FOR_FEEDBACK = new Set(["awaiting_owner", "ready", "accepted", "failed"]);
@@ -201,25 +192,6 @@ export class TaskService {
     return taskCard(task, this.store.publication(task.id));
   }
 
-  /** A change to JARVIS itself, asked from build mode: a task on the jarvis project, without the model. */
-  createBuild(text: string, now: Date): TaskOutcome {
-    if (!this.layout.hasProject(BUILD_PROJECT)) return this.invalid("El modo construir todavía no está instalado en el servidor.");
-    const task = this.store.create({ title: buildTitle(text), request: text, project: BUILD_PROJECT, source: "build", budgetUsd: this.options.defaultBudgetUsd }, now);
-    return this.done(task.id, `Tarea #${task.ref} en cola.`);
-  }
-
-  /** An answer or change request from build mode. A task already published starts a new one instead of reopening. */
-  buildFeedback(taskId: string, text: string, now: Date): TaskOutcome {
-    const task = this.store.get(taskId);
-    if (!task || task.project !== BUILD_PROJECT) return { ok: false, code: "not_found", message: "La tarea no existe." };
-    if (task.status === "accepted" || task.status === "cancelled") return this.createBuild(text, now);
-    return this.feedback(task.ref, text, now);
-  }
-
-  buildCards(): TaskCard[] {
-    return this.store.listByProject(BUILD_PROJECT, BUILD_LIST_LIMIT).map((task) => this.card(task));
-  }
-
   /**
    * The owner's tap on Publish: queues a signed request with the reviewed change for the host
    * publisher, which checks, pushes and deploys it. Only one publication runs at a time.
@@ -342,7 +314,7 @@ export class TaskService {
           ? `${patch.message ?? `La tarea #${task.ref} está publicada.`}${patch.url ? ` ${patch.url}` : ""}`
           : `La tarea #${task.ref} está publicada en producción${patch.commitSha ? ` (commit ${patch.commitSha})` : ""}.`
         : `No se pudo publicar la tarea #${task.ref}${patch.message ? `: ${patch.message}` : "."}`;
-    this.store.addEvent(task.id, patch.status === "published" ? "published" : "publish_failed", message, true, now);
+    this.store.addEvent(task.id, patch.status === "published" ? "published" : "publish_failed", message, task.source !== BUILD_CHAT_SOURCE, now);
     this.store.update(task.id, {}, now);
   }
 

@@ -6,6 +6,9 @@ import { z } from "zod";
 /** The project whose tasks change JARVIS itself and can be published. */
 export const BUILD_PROJECT = "jarvis";
 
+/** Tasks Construir creates only to publish a change; it reports on them in its own chat, never in the main one. */
+export const BUILD_CHAT_SOURCE = "build-chat";
+
 export const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 
 const COMMIT_TITLE = /^(feat|fix|refactor|perf|test|docs|build|ci|chore)(\([a-z0-9-]+\))?: [^\s].{2,90}$/;

@@ -8,6 +8,8 @@ import {
   encodeAudioFrame,
   finalActivityPhases,
   type AudioFormat,
+  type BuildChatMessage,
+  type BuildChatState,
   type Card,
   type ClientKind,
   type HistoryItem,
@@ -45,10 +47,11 @@ export type TaskAction = Extract<ClientMessage, { type: "task.action" }>;
 export type TaskActionOutcome = { ok: true; card: Card; message: string } | { ok: false; message: string };
 
 /** Build mode: requests and answers become tasks on the jarvis project without going through the model. */
+/** Construir, as a conversation with the agent that changes JARVIS. */
 export interface BuildHandlers {
-  list(): Extract<Card, { kind: "task" }>[];
-  request(text: string): TaskActionOutcome;
-  feedback(taskId: string, text: string): TaskActionOutcome;
+  view(): { messages: BuildChatMessage[]; state: BuildChatState };
+  request(text: string): void;
+  stop(): void;
 }
 
 export interface ConnectionDeps {
@@ -277,11 +280,13 @@ export class ClientConnection implements Subscriber {
         return;
       }
       case "build.list":
-        return this.sendBuildTasks();
+        return this.sendBuildChat();
       case "build.request":
-        return this.onBuildOutcome(this.deps.build?.request(message.text));
-      case "build.feedback":
-        return this.onBuildOutcome(this.deps.build?.feedback(message.taskId, message.text));
+        this.deps.build?.request(message.text);
+        return this.sendBuildChat();
+      case "build.stop":
+        this.deps.build?.stop();
+        return this.sendBuildChat();
       case "ping":
         this.send({ type: "pong", t: message.t });
         return;
@@ -323,18 +328,12 @@ export class ClientConnection implements Subscriber {
     speaker.finish().catch((error: unknown) => this.deps.log.warn({ err: error instanceof Error ? error.message : "unknown" }, "announcement failed"));
   }
 
-  private sendBuildTasks(): void {
+  private sendBuildChat(): void {
     if (!this.deps.build) {
       this.send({ type: "notice", level: "warning", code: "build_unavailable", message: "El modo construir no está configurado." });
       return;
     }
-    this.send({ type: "build.tasks", tasks: this.deps.build.list() });
-  }
-
-  private onBuildOutcome(outcome: TaskActionOutcome | undefined): void {
-    if (!outcome) return this.sendBuildTasks();
-    this.send({ type: "notice", level: outcome.ok ? "info" : "warning", code: outcome.ok ? "build_updated" : "build_rejected", message: outcome.message });
-    this.sendBuildTasks();
+    this.send({ type: "build.chat", ...this.deps.build.view() });
   }
 
   private onHello(message: Extract<ClientMessage, { type: "hello" }>): void {

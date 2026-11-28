@@ -37,6 +37,7 @@ Run `pnpm check` (lint, typecheck, test, build) before every commit.
   - Agents never get personal data, personal tokens or credentials for external systems.
   - Agents only run on Sonnet or Haiku with explicit models.
   - By the owner's decision (2026-11-25), build tasks and development tasks publish on their own once the independent reviewer approves: JARVIS to production through the signed publisher, the owner's repositories onto their base branch, other repositories as a pull request, new projects as a private repository plus a Vercel site. Any other external action an agent needs is still an owner approval by tap.
+  - Construir (2026-11-28) is a Claude Code session with full permissions in the runner that talks with the owner, builds, has a reviewer subagent check the change and publishes through the same publisher, with no approvals or spending caps (`docs/build-mode.md`).
 
 ## Git
 

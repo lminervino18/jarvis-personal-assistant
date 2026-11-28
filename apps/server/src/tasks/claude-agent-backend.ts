@@ -73,6 +73,24 @@ const STOP_ERRORS: Record<StopReason, { code: AgentErrorCode; message: string }>
   cancelled: { code: "cancelled", message: "Sesión cancelada" },
 };
 
+/** The environment a Claude Code process gets: a few inherited variables, no autoupdates, and the subscription token. */
+export function agentEnvironment(config: Pick<ClaudeAgentConfig, "baseEnv" | "subagentModel" | "configDir" | "oauthToken">): Record<string, string> {
+  const base = config.baseEnv ?? process.env;
+  const env: Record<string, string> = {};
+  for (const key of INHERITED_ENV) {
+    const value = base[key];
+    if (value) env[key] = value;
+  }
+  env.DISABLE_AUTOUPDATER = "1";
+  env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+  env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
+  env.CLAUDE_CODE_SUBAGENT_MODEL = config.subagentModel;
+  env.CLAUDE_AGENT_SDK_CLIENT_APP = "jarvis-agent-runner/0.1.0";
+  if (config.configDir) env.CLAUDE_CONFIG_DIR = config.configDir;
+  if (config.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = config.oauthToken;
+  return env;
+}
+
 const EXPLORER_PROMPT =
   "Explorás código y archivos en modo solo lectura y devolvés un resumen preciso con rutas y líneas. No modificás nada y no inventás contenido.";
 
@@ -192,21 +210,7 @@ export class ClaudeAgentBackend implements AgentBackend {
   }
 
   private env(): Record<string, string> {
-    const { config } = this;
-    const base = config.baseEnv ?? process.env;
-    const env: Record<string, string> = {};
-    for (const key of INHERITED_ENV) {
-      const value = base[key];
-      if (value) env[key] = value;
-    }
-    env.DISABLE_AUTOUPDATER = "1";
-    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
-    env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB = "1";
-    env.CLAUDE_CODE_SUBAGENT_MODEL = config.subagentModel;
-    env.CLAUDE_AGENT_SDK_CLIENT_APP = "jarvis-agent-runner/0.1.0";
-    if (config.configDir) env.CLAUDE_CONFIG_DIR = config.configDir;
-    if (config.oauthToken) env.CLAUDE_CODE_OAUTH_TOKEN = config.oauthToken;
-    return env;
+    return agentEnvironment(this.config);
   }
 
   private absorb(message: SDKMessage, result: AgentRunResult): void {

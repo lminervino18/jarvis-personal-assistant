@@ -1,40 +1,45 @@
-# Build mode
+# Build mode (Construir)
 
-Build mode lets the owner change JARVIS itself from the app. It reuses the delegated-task pipeline ([agents.md](agents.md)) on a project called `jarvis`. A deterministic publisher, with no model involved, ships a change as soon as the independent reviewer approves it. The owner decided on 2026-11-25 not to approve each one, and gets a notification when it is published or when it fails.
+Construir is a conversation with a Claude Code session that changes JARVIS itself. The owner writes or dictates as in a chat. The session answers questions about the project, and builds, reviews and publishes what he asks without asking him anything. By the owner's decision (2026-11-28) there are no approvals, no spending caps and no plan reserve. When the plan runs out, the session waits for the reset and goes on by itself.
 
-Status: *implemented* and *tested with fixtures*. The first real publication is still pending.
+Status: *implemented* and *tested with fixtures*. The first real conversation is still pending.
 
 ## Flow
 
 ```
-Construir (web) ──build.request──► server: task on project "jarvis" (no model, no chat tokens)
+Construir (web) ──build.request──► server: message in build_messages (work.db), never through the chat model
                                      │
-agent runner (host): plan → execute → review, in a copy of the deployed commit with dependencies installed
-                                     │ ready: card with summary, review score and "ver cambios"
-reviewer approves ──TaskService.autoPublish──► server: signed request + exact patch in /srv/jarvis-publish/requests
-                                     │ systemd path unit
-publisher (host, user deploy): verify → prepare → apply → checks → commit → push → deploy
-                                     │ result file
-server: card status and one chat message plus push when it ends
+agent runner (host): BuildSession reads it and resumes its Claude Code session over its own checkout
+   steps (TodoWrite) ─► progress bar · tool use ─► activity line · text ─► answers in the chat
+   pnpm check ─► subagent «revisor» ─► fixes ─► tool `publicar`
+                                     │ a task on project "jarvis", source "build-chat", status ready, with the patch
+server: autoPublish signs it ─► publisher (host, user deploy): verify → prepare → apply → checks → commit → push → deploy
+                                     │ result
+BuildSession: a system note to the session ─► it explains the change to the owner in plain words, or fixes a failure and publishes again
 ```
 
 ## Pieces
 
 | Piece | Code | Notes |
 | --- | --- | --- |
-| Build screen | `apps/web/src/ui/BuildScreen.tsx` | Topbar hammer button. Lists build tasks, refreshes every 4 s while open. A new request, an answer or a change request is sent from the bottom field. |
-| Protocol | `build.list`, `build.request`, `build.feedback`, `build.tasks`; task action `publish` | Requests go straight to `TaskService`, never through the chat model. |
-| Server | `TaskService.createBuild`, `buildFeedback`, `buildCards`, `publish`, `syncPublications` | One publication at a time (`task_publications` in `work.db`). A message about a published task starts a new task instead of reopening it. |
-| Spool | `apps/server/src/publisher/spool.ts` | Requests are HMAC-signed with `PUBLISH_SIGNING_KEY`. The patch is written first and the request last, by rename. |
-| Publisher | `apps/server/src/publisher/publisher.ts`, entry `publisher-main.ts` | Runs as `deploy` from `/opt/jarvis-agents`, the root-owned copy of the deployed build. |
-| Project | `infra/agents/projects/jarvis/` | The installer copies `CONTEXT.md` and `setup.sh` and clones the deployed commit into `/srv/jarvis/work/projects/jarvis/repo` on every deploy. |
+| Screen | `apps/web/src/ui/BuildScreen.tsx` | Chat bubbles, a progress panel with the bar (finished steps out of all), the current activity, the steps and «Frenar». Refreshes every 2.5 s while open. |
+| Protocol | `build.list`, `build.request`, `build.stop` → `build.chat` | `build.chat` carries the conversation and the state; nothing of Construir ever reaches the main chat. |
+| Storage | `build_messages`, `build_state` (work migration 006), `apps/server/src/build-chat/build-chat-store.ts` | `system` messages are notes for the session (a publication result, a reset) and are never shown. |
+| Server | `apps/server/src/build-chat/build-chat-service.ts` | Stores the owner's messages, shows the state, marks the runner offline when its heartbeat is older than 2 minutes. |
+| Session | `apps/server/src/build-chat/build-session.ts`, prompt in `build-prompt.ts` | Runs in the agent runner. |
+| Publisher | `apps/server/src/publisher/publisher.ts` | Unchanged flow; since 2026-11-28 it accepts changes anywhere except itself and `infra/scripts/deploy.sh`. |
 
-## Agent workspace
+## The session
 
-- The runner clones the project repository and then runs the project's `setup.sh` (`pnpm install --frozen-lockfile`) itself, before any agent touches the copy. Install scripts therefore only come from the deployed commit.
-- The reviewer's disposable clone gets the same `node_modules` as hard links (`cp -al`), so it can run the tests too.
-- Agents can reach package registries, but `CONTEXT.md` tells them not to add dependencies unless the request asks. The publisher installs from the lockfile, so a new dependency must come with its lockfile change.
-- The executor reports `commitTitle`, a Conventional Commit title in English. The server checks it and falls back to `feat(build): apply build task N`.
+- **Claude Code, full permissions.** `permissionMode: bypassPermissions`, the Claude Code preset prompt plus the Construir instructions, and the repository's own `CLAUDE.md` (`settingSources: ["project"]`). There is no Bash sandbox; the boundary is the runner's systemd unit: user `jarvis-agents`, only `/srv/jarvis/work` writable, no Docker and no secrets outside its own token.
+- **One conversation.** The session id is kept in `build_state` and resumed on every message, also after a restart. A turn cut by a deploy or a crash is picked up with a note to the session.
+- **Its checkout.** `/srv/jarvis/work/build/repo`, cloned from the deployed commit with dependencies installed. After each successful publication it moves onto the new deployed commit.
+- **Review.** The subagent «revisor» (read-only tools plus Bash) checks the whole change and runs `pnpm check` before publishing.
+- **Publishing.** The `publicar` tool takes a Conventional Commit title and a summary, writes the patch against the base commit and leaves a ready task on the `jarvis` project. The server publishes it like any reviewed task. One publication at a time; the result comes back as a note to the session. A failure goes back to the session to fix, up to three in a row; then it tells the owner and waits.
+- **Explanations.** The prompt tells it to explain changes in plain words: no code, paths or commands.
+- **Usage limit.** When Claude refuses, the state turns «waiting» until the reported reset (30 minutes if unknown), then the session continues on its own.
+- **Stop.** «Frenar» interrupts the current turn. Messages written while it works are read when the turn ends.
+- **Main chat.** Publications made by Construir add no notice to the main chat; the session reports them in Construir.
 
 ## Publisher steps
 
@@ -48,11 +53,10 @@ server: card status and one chat message plus push when it ends
 
 ## Trust boundaries
 
-- **The independent review is the gate.** The server signs a request only for a task the reviewer approved (status `ready`), or when the owner retries a failed publication. The publisher refuses unsigned requests and patches that changed after signing. It still runs every check and rolls back a failed deploy.
-- **Same UID.** The server container and the agent runner both run as UID 10001. The spool folder therefore cannot tell them apart, and the signature exists for that reason.
-- **Signing key.** It lives in `jarvis.env` and `/etc/jarvis/publisher.env`, where agents cannot read it.
-- **Residual risk.** An agent that escaped the bubblewrap sandbox could read the server process environment under the same UID. Since 2026-11-25 agents have network by the owner's decision, which widens this risk. Setting `AGENT_ALLOWED_DOMAINS` empty narrows it again.
-- **App code.** A published change runs with the app's own privileges, which include the owner's personal data. Reading the diff before publishing is the owner's control. Tests and review catch mistakes, not malice.
+- **The owner chose speed over gates (2026-11-28).** The Construir session has full permissions in its checkout and publishes without approvals. What it publishes runs with the app's privileges, which include the owner's personal data, and a change to the Dockerfile or compose runs with Docker's on the next deploy.
+- **What still holds.** The publisher refuses unsigned requests, patches that changed after signing and any change to itself or to `infra/scripts/deploy.sh`. It runs every check and rolls back a failed deploy, and GitHub always matches production.
+- **Same UID.** The server container and the agent runner both run as UID 10001, so the spool cannot tell them apart; the signature exists for that reason. The signing key lives in `jarvis.env` and `/etc/jarvis/publisher.env`, which the runner cannot read.
+- **Residual risk.** Without a Bash sandbox, the session can read anything the runner's user can: `work.db` and its own token. Third-party content it reads on the web is data, never instructions, but a prompt injection there would act with these permissions. Review and tests catch mistakes, not malice.
 
 ## Setup (once, as an admin)
 
