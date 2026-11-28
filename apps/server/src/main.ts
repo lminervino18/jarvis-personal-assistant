@@ -278,11 +278,11 @@ if (media && runtime.complete) {
 }
 const planUsage = config.claude.oauthToken ? new PlanUsageReader(config.claude.oauthToken) : undefined;
 /** Set once the orchestrator exists: the owner's @jarvis in WhatsApp runs as a turn of the main chat. */
-let ownerMentionTurn: ((request: MentionRequest) => Promise<string | undefined>) | undefined;
+const ownerMention: { turn?: (request: MentionRequest) => Promise<string | undefined> } = {};
 const watcher = new WhatsAppWatcher({
   db,
   ownerName: config.ownerDisplayName,
-  ownerTurn: (request) => ownerMentionTurn?.(request) ?? Promise.resolve(undefined),
+  ownerTurn: (request) => ownerMention.turn?.(request) ?? Promise.resolve(undefined),
   outOfQuota: async () => (await planUsage?.read())?.allowed === false,
   replyLimit: { replies: Number(process.env.WHATSAPP_REPLY_LIMIT ?? 5), minutes: Number(process.env.WHATSAPP_REPLY_WINDOW_MINUTES ?? 30) },
   attachments,
@@ -337,7 +337,7 @@ const orchestrator = new ConversationOrchestrator({
   textOnlySources,
   log: logger,
 });
-ownerMentionTurn = async (request) => {
+ownerMention.turn = async (request) => {
   const conversation = store.resolveOrCreate();
   const turnId = randomUUID();
   await orchestrator.startTurn({ conversationId: conversation.id, turnId, text: ownerMentionPrompt(request), inputMode: "text", replyMode: "text", inputEndedAt: performance.now() });
