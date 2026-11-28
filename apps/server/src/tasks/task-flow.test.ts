@@ -190,35 +190,14 @@ describe("continuity and limits", () => {
     expect(env.backend.calls.filter((call) => call.role === "executor")[1]?.resumeSessionId).toBe("timed-out-session");
   });
 
-  it("stops a run that crosses the plan reserve, keeps its cost and waits without using an attempt", async () => {
+  it("keeps going whatever the plan usage and the task's cost, by the owner's decision", async () => {
     const base = controlledAgents();
-    const plan = { utilization: 0.75, resetsAt: Date.parse("2026-11-20T17:00:00Z") };
-    const env = setup({
-      ...base,
-      executor: (request, call) => (call === 1 ? { costUsd: 0.3, sessionId: "partial", plan, error: { code: "plan_reserve", message: "reserva" } } : base.executor!(request, call - 1)),
-    });
+    const plan = { utilization: 0.95, resetsAt: Date.parse("2026-11-20T17:00:00Z") };
+    const env = setup({ ...base, planner: async (request, call) => ({ ...(await base.planner!(request, call)), plan, costUsd: 50 }) }, {}, 0.04);
     await env.tool("task_create", CONTROLLED_TASK);
-    const runner = env.makeRunner();
-    await runner.runUntilIdle();
-    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 0, executorSessionId: "partial" });
-    expect(env.service.byRef(1)!.costUsd).toBeCloseTo(0.31);
-    expect(env.service.agentsHeldUntil(env.clock.now)?.toISOString()).toBe("2026-11-20T17:00:00.000Z");
-    expect(env.backend.calls.every((call) => call.planLimit === 0.7)).toBe(true);
-
-    env.clock.now = new Date("2026-11-20T17:00:01Z");
-    await runner.runUntilIdle();
+    await env.makeRunner().runUntilIdle();
     expect(env.service.byRef(1)?.status).toBe("ready");
-  });
-
-  it("does not start an agent while the reserve hold is active", async () => {
-    const env = setup();
-    await env.tool("task_create", CONTROLLED_TASK);
-    env.store.holdAgents(new Date("2026-11-20T17:00:00Z"), env.clock.now);
-    const claimed = env.store.claimNext(env.clock.now, 120_000)!;
-    const runner = env.makeRunner() as unknown as { execute(task: unknown, run: unknown, controller: AbortController): Promise<void> };
-    await runner.execute(claimed.task, claimed.run, new AbortController());
-    expect(env.backend.calls).toHaveLength(0);
-    expect(env.service.byRef(1)).toMatchObject({ status: "queued", attempts: 0 });
+    expect(env.store.notifiableEvents(0).map((event) => event.kind)).not.toContain("plan_reserve");
   });
 
   it("resumes the executor only for the first fix rounds, then starts fresh with the plan and findings", async () => {
@@ -257,18 +236,6 @@ describe("continuity and limits", () => {
     expect(executors[3]?.resumeSessionId).toBe("round-two");
   });
 
-  it("stops at the task budget and resumes only when the owner adds budget", async () => {
-    const env = setup(controlledAgents(), {}, 0.04);
-    await env.tool("task_create", CONTROLLED_TASK);
-    await env.makeRunner().runUntilIdle();
-    const blocked = env.service.byRef(1)!;
-    expect(blocked).toMatchObject({ status: "awaiting_owner", blocker: { kind: "budget" } });
-    expect(env.service.control(1, "resume", undefined, env.clock.now).ok).toBe(false);
-    expect(env.service.control(1, "resume", 1, env.clock.now).ok).toBe(true);
-    await env.makeRunner().runUntilIdle();
-    expect(env.service.byRef(1)?.status).toBe("ready");
-  });
-
   it("waits out a usage limit without retrying early, then continues", async () => {
     const base = controlledAgents();
     const env = setup({
@@ -278,40 +245,12 @@ describe("continuity and limits", () => {
     await env.tool("task_create", CONTROLLED_TASK);
     await env.makeRunner().runUntilIdle();
     const waiting = env.service.byRef(1)!;
-    expect(waiting).toMatchObject({ status: "queued", phase: "execute", attempts: 1, notBefore: "2026-11-20T16:00:00.000Z" });
-    expect(env.store.notifiableEvents(0).map((event) => event.kind)).toEqual(["usage_limit"]);
-    expect(env.service.agentsHeldUntil(env.clock.now)?.toISOString()).toBe("2026-11-20T16:00:00.000Z");
+    expect(waiting).toMatchObject({ status: "queued", phase: "execute", attempts: 0, notBefore: "2026-11-20T16:00:00.000Z" });
+    expect(env.store.notifiableEvents(0)).toEqual([]);
 
     env.clock.now = new Date("2026-11-20T16:00:01Z");
     await env.makeRunner().runUntilIdle();
     expect(env.service.byRef(1)?.status).toBe("ready");
-  });
-
-  it("pauses every agent at the plan reserve, tells the owner once and resumes when the window resets", async () => {
-    const base = controlledAgents();
-    const plan = { utilization: 0.72, resetsAt: Date.parse("2026-11-20T17:00:00Z") };
-    const env = setup({ ...base, planner: async (request, call) => ({ ...(await base.planner!(request, call)), plan }) });
-    await env.tool("task_create", CONTROLLED_TASK);
-    await env.makeRunner().runUntilIdle();
-
-    expect(env.backend.calls.map((call) => call.role)).toEqual(["planner"]);
-    expect(env.service.byRef(1)).toMatchObject({ status: "queued", phase: "execute" });
-    expect(env.service.agentsHeldUntil(env.clock.now)?.toISOString()).toBe("2026-11-20T17:00:00.000Z");
-    const notices = env.store.notifiableEvents(0);
-    expect(notices.map((event) => event.kind)).toEqual(["plan_reserve"]);
-    expect(notices[0]?.message).toBe("Pausé los agentes hasta las 14:00 del viernes: el plan va por el 72 % y el resto queda para vos.");
-    expect(env.workDb.prepare("SELECT plan_utilization FROM task_runs").pluck().get()).toBe(0.72);
-
-    const second = env.service.create({ ...CONTROLLED_TASK, title: "Segunda tarea" }, env.clock.now);
-    expect(second.ok && second.message).toContain("en pausa");
-    await env.makeRunner().runUntilIdle();
-    expect(env.backend.calls).toHaveLength(1);
-
-    env.clock.now = new Date("2026-11-20T17:00:01Z");
-    await env.makeRunner().runUntilIdle();
-    expect(env.service.byRef(1)?.status).toBe("ready");
-    expect(env.backend.calls.some((call) => second.ok && call.taskId === second.task.id && call.role === "planner")).toBe(true);
-    expect(env.store.notifiableEvents(0).filter((event) => event.kind === "plan_reserve")).toHaveLength(1);
   });
 
   it("retries transient failures with backoff and fails after the last attempt", async () => {

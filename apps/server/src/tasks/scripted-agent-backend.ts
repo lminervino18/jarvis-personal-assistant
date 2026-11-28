@@ -9,7 +9,7 @@ export type ScriptedHandler = (request: AgentRunRequest, call: number) => Promis
 export class ScriptedAgentBackend implements AgentBackend {
   readonly name = "scripted";
   readonly runsCommands = true;
-  readonly calls: { role: AgentRole; taskId: string; resumeSessionId?: string; maxBudgetUsd: number; planLimit: number; prompt: string }[] = [];
+  readonly calls: { role: AgentRole; taskId: string; resumeSessionId?: string; prompt: string }[] = [];
   private readonly counts = new Map<AgentRole, number>();
 
   constructor(private readonly handlers: Partial<Record<AgentRole, ScriptedHandler>>) {}
@@ -17,7 +17,7 @@ export class ScriptedAgentBackend implements AgentBackend {
   async run(request: AgentRunRequest): Promise<AgentRunResult> {
     const call = (this.counts.get(request.role) ?? 0) + 1;
     this.counts.set(request.role, call);
-    this.calls.push({ role: request.role, taskId: request.taskId, resumeSessionId: request.resumeSessionId, maxBudgetUsd: request.maxBudgetUsd, planLimit: request.planLimit, prompt: request.prompt });
+    this.calls.push({ role: request.role, taskId: request.taskId, resumeSessionId: request.resumeSessionId, prompt: request.prompt });
     const handler = this.handlers[request.role];
     if (!handler) return { costUsd: 0, turns: 0, models: [], error: { code: "internal", message: `no script for ${request.role}` } };
     if (request.signal.aborted) return { costUsd: 0, turns: 0, models: [], error: { code: "cancelled", message: "Sesión cancelada" } };

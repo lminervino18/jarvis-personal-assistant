@@ -7,7 +7,7 @@ This file guides coding agents that build J.A.R.V.IS. It is not the assistant's 
 Single-owner, voice-first personal assistant that is also the owner's control point for work tasks done by background agents. Claude (via the official Agent SDK) is the brain:
 
 - the chat runs on the owner's subscription;
-- delegated work runs in the `agent-runner` container, also on the subscription (separate token, no API key), behind a plan reserve that keeps quota for the chat.
+- delegated work runs in the `agent-runner` container, also on the subscription (separate token, no API key), with no spending cap or plan reserve (owner's decision, 2026-11-28).
 
 The backend runs on one server; the web PWA and a future ESP32 voice terminal are thin clients. Read `docs/architecture.md` and `docs/agents.md` before changing anything.
 

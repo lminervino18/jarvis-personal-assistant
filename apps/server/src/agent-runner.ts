@@ -50,7 +50,6 @@ logger.info(
     models: config.agent.models,
     subagentModel: config.agent.subagentModel,
     auth: config.agent.oauthToken ? "subscription_token" : "local_login",
-    planMaxUtilization: config.limits.planMaxUtilization,
     sandboxRequired: config.agent.sandboxRequired,
   },
   "agent runner started",

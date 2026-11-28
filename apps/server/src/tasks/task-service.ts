@@ -90,11 +90,6 @@ export class TaskService {
     return at !== undefined && now.getTime() - Date.parse(at) < RUNNER_STALE_MS;
   }
 
-  /** Until when the runner paused agents to keep plan headroom for the chat, if it did. */
-  agentsHeldUntil(now: Date): Date | undefined {
-    return this.store.agentsHeldUntil(now);
-  }
-
   projects(): ProjectInfo[] {
     return this.layout.projects();
   }
@@ -123,12 +118,7 @@ export class TaskService {
     const unbound = this.store.unboundAttachments(ids);
     if (unbound.length !== ids.length) return { ok: false, code: "invalid_input", message: "Algún adjunto no existe o ya pertenece a otra tarea." };
     const task = this.store.create({ ...input, budgetUsd: this.options.defaultBudgetUsd }, now);
-    const held = this.agentsHeldUntil(now);
-    const note = !this.runnerAlive(now)
-      ? " El ejecutor de agentes no está activo: va a empezar cuando arranque."
-      : held
-        ? ` Los agentes están en pausa para cuidar el uso del plan hasta ${held.toISOString()}.`
-        : "";
+    const note = this.runnerAlive(now) ? "" : " El ejecutor de agentes no está activo: va a empezar cuando arranque.";
     return { ok: true, task, message: `Tarea #${task.ref} en cola.${note}` };
   }
 

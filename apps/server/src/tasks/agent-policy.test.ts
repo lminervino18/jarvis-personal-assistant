@@ -120,7 +120,8 @@ describe("agent model guard", () => {
     const config = loadRunnerConfig({ WORK_DIR: "/tmp/w", NODE_ENV: "production", AGENT_CLAUDE_CODE_OAUTH_TOKEN: "token-test" });
     expect(config.agent).toMatchObject({ sandboxRequired: true, configDir: "/tmp/w/claude", subagentModel: "claude-haiku-5-5", oauthToken: "token-test" });
     expect(config.agent.models).toEqual({ planner: "claude-sonnet-5-5", executor: "claude-sonnet-5-5", reviewer: "claude-sonnet-5-5" });
-    expect(config.limits).toMatchObject({ concurrency: 1, planMaxUtilization: 0.7 });
+    expect(config.limits).toMatchObject({ concurrency: 1 });
+    expect(config.limits).not.toHaveProperty("planMaxUtilization");
   });
 
   it("lets agent commands reach package registries and GitHub unless the network is set empty", () => {

@@ -32,13 +32,13 @@ Re-checked on 2026-11-20 on [claude.com/pricing](https://claude.com/pricing) and
 
 - The chat and the background agents both run on the plan, with separate tokens. No API key is used, so the included $100 of API credits stays unused.
 - Nothing is billed per query or per task beyond the plan. Extra usage must stay disabled on the account. On 2026-11-21 the account reported overage as rejected.
-- Agents share the 5-hour and weekly limits with the chat and with the owner's own Claude Code. The runner stops starting phases once any window passes 70 % and waits for the reset (`AGENT_PLAN_MAX_UTILIZATION`), so the chat keeps the rest.
+- Agents share the 5-hour and weekly limits with the chat and with the owner's own Claude Code. Since 2026-11-28 there is no reserve: agents use the plan until Claude refuses, then wait for the reset.
 
 How much of the plan a task uses (measured and estimated, not promised):
 
 - **Measured** (2026-11-21, `pnpm demo:tasks --claude`, file tools only, shipped defaults: Haiku planner, Sonnet executor and reviewer): a small synthetic coding task used about **$0.11** of estimated usage in 45 s, and the plan's weekly window stayed at 22 % at that resolution. With a Sonnet planner (2026-11-20) the same task was about $0.19.
 - **Estimated**: a real task with command execution, a larger repository and one fix round, about **$0.5 to $3** of estimated usage. The plan's limits are not published in dollars, so how many tasks fit per week is only known by measuring `task_runs.plan_utilization` over the first real tasks.
-- Each task has its own budget (default $5 of estimated usage) and each run its own cap (default $2). The runner stops at either one and asks the owner.
+- Tasks have no spending cap; their estimated cost is only recorded.
 
 Pro also works to start, because the reserve keeps agents from using up the chat's quota. Agents will pause much more often, since Pro has a fifth of Max's usage. Measure on the plan you have before buying Max.
 

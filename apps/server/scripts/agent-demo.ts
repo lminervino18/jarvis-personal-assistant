@@ -33,7 +33,7 @@ const log = {
   warn: (data: object, message?: string) => console.warn(message, JSON.stringify(data)),
   error: (data: object, message?: string) => console.error(message, JSON.stringify(data)),
 };
-const runner = new TaskRunner({ store, layout, backend, limits: { ...defaultRunnerLimits, runBudgetUsd: 1 }, log, timezone: "America/Argentina/Buenos_Aires" });
+const runner = new TaskRunner({ store, layout, backend, limits: defaultRunnerLimits, log, timezone: "America/Argentina/Buenos_Aires" });
 
 const created = service.create(CONTROLLED_TASK, new Date());
 if (!created.ok) throw new Error(created.message);

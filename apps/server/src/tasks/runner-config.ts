@@ -50,10 +50,8 @@ const RunnerEnv = z.object({
   AGENT_MAX_TURNS_REVIEWER: z.coerce.number().int().min(1).max(200).default(40),
   AGENT_RUN_TIMEOUT_MINUTES: z.coerce.number().int().min(1).max(240).default(30),
   AGENT_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
-  AGENT_RUN_BUDGET_USD: z.coerce.number().positive().max(50).default(defaultRunnerLimits.runBudgetUsd),
   AGENT_MAX_FIX_ROUNDS: z.coerce.number().int().min(0).max(5).default(defaultRunnerLimits.maxFixRounds),
   AGENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(defaultRunnerLimits.maxAttempts),
-  AGENT_PLAN_MAX_UTILIZATION: z.coerce.number().min(0.1).max(1).default(defaultRunnerLimits.planMaxUtilization),
   AGENT_ALLOWED_DOMAINS: z.string().default(DEFAULT_AGENT_DOMAINS.join(",")),
   AGENT_BASH: flag("true"),
   AGENT_SANDBOX_REQUIRED: z.string().optional(),
@@ -88,10 +86,8 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv = process.env): RunnerCo
     limits: {
       ...defaultRunnerLimits,
       concurrency: parsed.AGENT_CONCURRENCY,
-      runBudgetUsd: parsed.AGENT_RUN_BUDGET_USD,
       maxFixRounds: parsed.AGENT_MAX_FIX_ROUNDS,
       maxAttempts: parsed.AGENT_MAX_ATTEMPTS,
-      planMaxUtilization: parsed.AGENT_PLAN_MAX_UTILIZATION,
       pollMs: parsed.AGENT_POLL_SECONDS * 1000,
     },
     agent: {

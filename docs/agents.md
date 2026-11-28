@@ -108,27 +108,17 @@ All limits are enforced by the runner, not by prompts.
 | Limit | Default | Variable |
 | --- | --- | --- |
 | Concurrent runs | 1 | `AGENT_CONCURRENCY` (max 4) |
-| Budget per task (estimate) | USD 5 | `TASK_DEFAULT_BUDGET_USD` on the server |
-| Budget per run | USD 2, or what is left of the task budget | `AGENT_RUN_BUDGET_USD` (SDK `maxBudgetUsd`) |
 | Turns per run | 20 planner, 80 executor, 40 reviewer | `AGENT_MAX_TURNS_*` |
 | Wall-clock per run | 30 min | `AGENT_RUN_TIMEOUT_MINUTES` |
 | Automatic fix rounds | 2 | `AGENT_MAX_FIX_ROUNDS` |
 | Attempts after transient failures | 3, with backoff of 30 s, 60 s and 120 s | `AGENT_MAX_ATTEMPTS` |
-| Plan reserve | no new phase once any plan window passes 70 %, until it resets | `AGENT_PLAN_MAX_UTILIZATION` (0.1 to 1) |
-| Usage limit | the session stops; every agent waits until the reported reset (30 min if unknown); after 3 attempts the task asks the owner | — |
+| Usage limit | the session stops; the task waits until the reported reset (30 min if unknown) and goes on, as many times as needed | — |
 
-The cost figures are the SDK's `total_cost_usd`, an estimate at API list prices. On the subscription nothing is charged per task: budgets cap how much of the plan a task may use.
+The cost figures are the SDK's `total_cost_usd`, an estimate at API list prices, recorded for reference. On the subscription nothing is charged per task.
 
-### Plan reserve
+### No spending caps and no plan reserve
 
-Agents share the owner's subscription limits with the chat, so the runner keeps headroom for the chat:
-
-- Each session records the most used plan window it saw (`task_runs.plan_utilization`, a fraction). It is read from the documented rate-limit fields and, when the CLI sends it, from the per-window detail. On 2026-11-21 that detail reported the 5-hour and weekly windows.
-- When that value reaches `AGENT_PLAN_MAX_UTILIZATION`, the runner stores a hold in `work.db` until that window resets. No phase starts until then, for any task, and the hold survives restarts. The owner gets one chat message and push, for example "Pausé los agentes hasta las 14:00 del viernes".
-- A refused request or the start of paid overage ends the session at once. It also sets the hold until the reported reset.
-- No session starts while the hold is active, and a running session is interrupted as soon as a rate-limit event shows the reserve was crossed. The task waits for the reset without using an attempt and keeps its session. A session that is interrupted, times out or is cancelled still records the cost the SDK reports at that point.
-- `task_create` and the integrations status tell JARVIS when agents are on hold.
-- Because a weekly window can take days to reset, raise the threshold (or set it to 1) if the hold blocks work you need. To release an active hold right away, see the runbook.
+By the owner's decision (2026-11-28) agents have no brakes of their own: no budget per task or per run, and no reserve of the plan for the chat. If the plan runs out, the session ends when Claude refuses, the task waits until the reported reset (30 minutes if unknown) without using an attempt, and goes on by itself. The chat and the agents share whatever quota is left.
 
 ## Continuity and recovery
 
@@ -200,7 +190,7 @@ If the company systems need a VPN, another operating system or a different netwo
 See [`claude-runtime.md`](claude-runtime.md#plans-and-authentication-checked-2026-11-20).
 
 - Chat and agents both run on the owner's subscription, with separate tokens. No API key is used.
-- Agents share the plan limits with the chat. The plan reserve, concurrency 1 and the budgets keep them from using up the chat's quota.
+- Agents share the plan limits with the chat and nothing keeps quota for the chat (owner's decision, 2026-11-28). Concurrency 1 is the only brake.
 - Subscription sessions follow the Consumer Terms: turn off model training in claude.ai privacy settings before sending company material.
 - Paid overage cannot start silently: the session stops at the first sign of it.
 

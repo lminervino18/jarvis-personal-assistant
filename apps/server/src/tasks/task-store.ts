@@ -466,19 +466,6 @@ export class TaskStore {
     return (this.db.prepare("SELECT at FROM runner_heartbeat WHERE id = 1").get() as { at: string } | undefined)?.at;
   }
 
-  /** Stops the runner from starting new phases until `until`, for example to keep plan headroom for the chat. */
-  holdAgents(until: Date, now: Date): void {
-    this.db
-      .prepare("INSERT INTO runner_heartbeat (id, at, info_json, hold_until) VALUES (1, ?, '{}', ?) ON CONFLICT(id) DO UPDATE SET hold_until = excluded.hold_until")
-      .run(now.toISOString(), until.toISOString());
-  }
-
-  /** The end of the current hold, or undefined when agents may run. */
-  agentsHeldUntil(now: Date): Date | undefined {
-    const row = this.db.prepare("SELECT hold_until FROM runner_heartbeat WHERE id = 1").get() as { hold_until: string | null } | undefined;
-    return row?.hold_until && Date.parse(row.hold_until) > now.getTime() ? new Date(row.hold_until) : undefined;
-  }
-
   createApproval(taskId: string, kind: string, description: string, now: Date): string {
     const id = randomUUID();
     this.db

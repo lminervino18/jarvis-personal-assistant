@@ -66,12 +66,11 @@ export function planUsage(info: SDKRateLimitInfo): PlanUsage | undefined {
 
 const INTERRUPT_GRACE_MS = 10_000;
 
-type StopReason = "timeout" | "cancelled" | "plan_reserve";
+type StopReason = "timeout" | "cancelled";
 
 const STOP_ERRORS: Record<StopReason, { code: AgentErrorCode; message: string }> = {
   timeout: { code: "timeout", message: "La sesión superó el tiempo máximo" },
   cancelled: { code: "cancelled", message: "Sesión cancelada" },
-  plan_reserve: { code: "plan_reserve", message: "El plan llegó a la reserva para el chat" },
 };
 
 const EXPLORER_PROMPT =
@@ -119,7 +118,6 @@ export class ClaudeAgentBackend implements AgentBackend {
       for await (const message of stream) {
         this.absorb(message, result);
         if (result.error?.code === "usage_limit") break;
-        if (result.plan && result.plan.utilization >= request.planLimit) stop("plan_reserve");
       }
     } catch (error) {
       if (!result.error && !stopReason) {
@@ -164,7 +162,6 @@ export class ClaudeAgentBackend implements AgentBackend {
       model: config.models[role],
       effort: config.effort[role],
       maxTurns: config.maxTurns[role],
-      maxBudgetUsd: request.maxBudgetUsd,
       resume: request.resumeSessionId,
       persistSession: role !== "reviewer",
       systemPrompt: { type: "preset", preset: "claude_code" },

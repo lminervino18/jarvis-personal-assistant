@@ -8,13 +8,10 @@ import type { TaskPaths, WorkLayout } from "./workspace.js";
 
 export interface TaskRunnerLimits {
   concurrency: number;
-  runBudgetUsd: number;
   maxFixRounds: number;
   /** Fix rounds up to which the executor resumes its session; later rounds start fresh from the plan and the reviewer's findings. */
   maxResumedFixRounds: number;
   maxAttempts: number;
-  /** Fraction of the subscription window agents may use before they pause until it resets; the rest stays for the chat. */
-  planMaxUtilization: number;
   leaseMs: number;
   heartbeatMs: number;
   pollMs: number;
@@ -23,11 +20,9 @@ export interface TaskRunnerLimits {
 
 export const defaultRunnerLimits: TaskRunnerLimits = {
   concurrency: 1,
-  runBudgetUsd: 2,
   maxFixRounds: 2,
   maxResumedFixRounds: 1,
   maxAttempts: 3,
-  planMaxUtilization: 0.7,
   leaseMs: 120_000,
   heartbeatMs: 15_000,
   pollMs: 3_000,
@@ -55,7 +50,6 @@ export interface TaskRunnerDeps {
   now?: () => Date;
 }
 
-const MIN_RUN_BUDGET_USD = 0.05;
 const RETRY_BASE_MS = 30_000;
 const USAGE_LIMIT_WAIT_MS = 30 * 60_000;
 
@@ -98,13 +92,12 @@ export class TaskRunner {
     this.recover(new Date(this.now().getTime() + this.deps.limits.leaseMs + 1));
   }
 
-  /** Expires dead leases and starts as many claimable tasks as the concurrency allows, unless agents are on hold. */
+  /** Expires dead leases and starts as many claimable tasks as the concurrency allows. */
   tick(): void {
     const { store, limits } = this.deps;
     store.beat(this.now(), { backend: this.deps.backend.name, active: this.active.size });
     this.recover(this.now());
     this.trimFinished();
-    if (store.agentsHeldUntil(this.now())) return;
     while (!this.stopping && this.active.size < limits.concurrency) {
       const claimed = store.claimNext(this.now(), limits.leaseMs);
       if (!claimed) return;
@@ -195,22 +188,13 @@ export class TaskRunner {
     }
   }
 
-  private remainingBudget(task: Task): number {
-    const current = this.deps.store.get(task.id) ?? task;
-    return current.budgetUsd - current.costUsd;
-  }
-
-  private async startAgent(task: Task, request: Omit<AgentRunRequest, "maxBudgetUsd" | "planLimit">): Promise<AgentRunResult> {
-    const { store, backend, limits } = this.deps;
-    const remaining = this.remainingBudget(task);
-    if (remaining < MIN_RUN_BUDGET_USD) return { costUsd: 0, turns: 0, models: [], error: { code: "budget", message: "La tarea no tiene presupuesto disponible" } };
-    if (store.agentsHeldUntil(this.now())) return { costUsd: 0, turns: 0, models: [], error: { code: "plan_reserve", message: "Los agentes están en pausa por la reserva del plan" } };
-    return backend.run({ ...request, maxBudgetUsd: Math.min(limits.runBudgetUsd, remaining), planLimit: limits.planMaxUtilization });
-  }
-
-  /** Runs one agent session unless the budget or the plan reserve forbids it. Always closes the run with whatever cost is known. */
-  private async runAgent(task: Task, run: TaskRun, request: Omit<AgentRunRequest, "maxBudgetUsd" | "planLimit">): Promise<AgentRunResult> {
-    const result = await this.startAgent(task, request);
+  /**
+   * Runs one agent session, with no spending cap and no plan reserve: by the owner's decision
+   * (2026-11-28) agents only stop when Claude itself has no quota left. Always closes the run
+   * with whatever cost is known.
+   */
+  private async runAgent(task: Task, run: TaskRun, request: AgentRunRequest): Promise<AgentRunResult> {
+    const result = await this.deps.backend.run(request);
     this.deps.store.finishRun(
       run,
       {
@@ -225,30 +209,7 @@ export class TaskRunner {
       },
       this.now(),
     );
-    this.reservePlan(task, result);
     return result;
-  }
-
-  /**
-   * Holds every agent until the subscription window resets when a session crossed the plan
-   * reserve or hit the usage limit, so the remaining quota stays for the owner's chat.
-   */
-  private reservePlan(task: Task, result: AgentRunResult): void {
-    const { store, limits } = this.deps;
-    const now = this.now();
-    const limited = result.error?.code === "usage_limit";
-    const plan = result.plan;
-    if (!limited && (!plan || plan.utilization < limits.planMaxUtilization)) return;
-    const fallback = now.getTime() + USAGE_LIMIT_WAIT_MS;
-    const until = new Date(limited ? now.getTime() + (result.error?.retryAfterMs ?? USAGE_LIMIT_WAIT_MS) : (plan?.resetsAt ?? fallback));
-    const held = store.agentsHeldUntil(now);
-    if (until <= now || (held && held >= until)) return;
-    store.holdAgents(until, now);
-    this.deps.log.info({ taskId: task.id, until: until.toISOString(), utilization: plan?.utilization }, "agents on hold for plan reserve");
-    if (!limited && plan) {
-      const percent = Math.round(plan.utilization * 100);
-      store.addEvent(task.id, "plan_reserve", `Pausé los agentes hasta las ${this.clock(until)}: el plan va por el ${percent} % y el resto queda para vos.`, true, now);
-    }
   }
 
   private clock(date: Date): string {
@@ -418,26 +379,13 @@ export class TaskRunner {
       store.addEvent(task.id, "paused", `La fase ${run.phase} se detuvo.`, false, this.now());
       return;
     }
-    if (error.code === "plan_reserve") {
-      store.update(task.id, { status: "queued", ...session }, this.now(), ["running"]);
-      store.addEvent(task.id, "plan_reserve_wait", `La fase ${run.phase} espera: los agentes están en pausa por la reserva del plan.`, false, this.now());
-      return;
-    }
-    if (error.code === "budget") {
-      this.block(task, {}, { kind: "budget", message: `Llegó al presupuesto de USD ${current.budgetUsd.toFixed(2)}.` }, "llegó a su presupuesto");
+    if (error.code === "usage_limit") {
+      const notBefore = new Date(this.now().getTime() + (error.retryAfterMs ?? USAGE_LIMIT_WAIT_MS));
+      store.update(task.id, { status: "queued", notBefore: notBefore.toISOString(), ...session }, this.now(), ["running"]);
+      store.addEvent(task.id, "usage_limit", `Se agotó el uso del plan; la tarea sigue sola a las ${this.clock(notBefore)}.`, false, this.now());
       return;
     }
     const attempts = current.attempts + 1;
-    if (error.code === "usage_limit") {
-      if (attempts >= limits.maxAttempts) {
-        this.block(task, {}, { kind: "usage_limit", message: "Claude sigue sin cuota disponible." }, "está frenada por el límite de uso");
-        return;
-      }
-      const notBefore = new Date(this.now().getTime() + (error.retryAfterMs ?? USAGE_LIMIT_WAIT_MS));
-      store.update(task.id, { status: "queued", attempts, notBefore: notBefore.toISOString() }, this.now(), ["running"]);
-      store.addEvent(task.id, "usage_limit", `Se agotó el uso del plan; la tarea sigue a las ${this.clock(notBefore)}.`, attempts === 1, this.now());
-      return;
-    }
     if (retryableAgentErrors.has(error.code) || error.code === "invalid_output") {
       if (attempts >= limits.maxAttempts) return this.fail(current, `${error.code}: ${error.message}`);
       const notBefore = new Date(this.now().getTime() + RETRY_BASE_MS * 2 ** (attempts - 1)).toISOString();
