@@ -37,19 +37,19 @@ export type SendFileTo = z.infer<typeof SendFileTo>;
 export const PdfBlock = z.discriminatedUnion("type", [
   z.object({ type: z.literal("heading"), text: z.string().trim().min(1).max(160) }),
   z.object({ type: z.literal("text"), text: z.string().trim().min(1).max(4000) }),
-  z.object({ type: z.literal("list"), items: z.array(z.string().trim().min(1).max(500)).min(1).max(40), ordered: z.boolean().optional() }),
+  z.object({ type: z.literal("list"), items: z.array(z.string().trim().min(1).max(500)).min(1).max(200), ordered: z.boolean().optional() }),
   z.object({
     type: z.literal("table"),
-    columns: z.array(z.string().trim().max(60)).min(1).max(8),
-    rows: z.array(z.array(z.string().trim().max(300)).min(1).max(8)).min(1).max(100),
+    columns: z.array(z.string().trim().max(60)).min(1).max(16),
+    rows: z.array(z.array(z.string().trim().max(300)).min(1).max(16)).min(1).max(1000),
     caption: z.string().trim().max(200).optional(),
   }),
   z.object({
     type: z.literal("chart"),
     kind: z.enum(["bar", "line", "pie"]),
     title: z.string().trim().max(120).optional(),
-    labels: z.array(z.string().trim().min(1).max(40)).min(1).max(24),
-    series: z.array(z.object({ name: z.string().trim().min(1).max(40), values: z.array(z.number().finite()).min(1).max(24) })).min(1).max(5),
+    labels: z.array(z.string().trim().min(1).max(40)).min(1).max(100),
+    series: z.array(z.object({ name: z.string().trim().min(1).max(40), values: z.array(z.number().finite()).min(1).max(100) })).min(1).max(10),
     /** Shown next to the values («US$», «%», «km»). */
     unit: z.string().trim().max(12).optional(),
   }),
@@ -94,7 +94,7 @@ export const toolInputs = {
   gmail_get_thread: {
     account: GmailAccountLabel,
     threadId: z.string().min(1).max(64),
-    lastMessages: z.number().int().min(1).max(15).optional(),
+    lastMessages: z.number().int().min(1).max(30).optional(),
     bodyChars: z.number().int().min(200).max(4000).optional(),
   },
   whatsapp_search: {
@@ -235,7 +235,7 @@ export const toolInputs = {
     cc: z.array(z.email().max(254)).max(10).optional(),
     subject: z.string().trim().min(1).max(200),
     body: z.string().trim().min(1).max(20000),
-    attachmentIds: z.array(z.uuid()).max(5).optional(),
+    attachmentIds: z.array(z.uuid()).max(20).optional(),
   },
   whatsapp_voice_note: {
     chatId: z.string().min(1).max(128).describe("Id, número o nombre del chat; «me» para el propio dueño"),
@@ -285,12 +285,12 @@ export const toolInputs = {
   page_create: {
     title: z.string().trim().min(1).max(80),
     brief: z.string().trim().min(1).max(4000),
-    attachmentIds: z.array(z.uuid()).max(6).optional(),
+    attachmentIds: z.array(z.uuid()).max(20).optional(),
   },
   page_update: {
     slug: PageSlug,
     change: z.string().trim().min(1).max(4000),
-    attachmentIds: z.array(z.uuid()).max(6).optional(),
+    attachmentIds: z.array(z.uuid()).max(20).optional(),
   },
   drive_search: {
     /** Words in the file name; without it, the folder's contents (the Jarvis folder by default). */
@@ -365,7 +365,7 @@ export const toolInputs = {
   pdf_create: {
     title: z.string().trim().min(1).max(120),
     subtitle: z.string().trim().max(200).optional(),
-    blocks: z.array(PdfBlock).min(1).max(80),
+    blocks: z.array(PdfBlock).min(1).max(400),
     /** The file name without extension; the title by default. */
     fileName: z.string().trim().min(1).max(80).optional(),
   },
@@ -388,7 +388,7 @@ export const toolInputs = {
     segments: z
       .array(z.object({ start: z.number().min(0), end: z.number().positive() }))
       .min(1)
-      .max(10)
+      .max(50)
       .optional(),
     /** Seconds kept before and after each moment found; 2 by default. */
     padding: z.number().min(0).max(30).optional(),

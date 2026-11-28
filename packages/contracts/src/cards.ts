@@ -160,11 +160,11 @@ export type ChartKind = z.infer<typeof ChartKind>;
 export const ChartShape = {
   title: z.string().min(1).max(80),
   chart: ChartKind,
-  labels: z.array(z.string().min(1).max(40)).min(1).max(60),
+  labels: z.array(z.string().min(1).max(40)).min(1).max(120),
   series: z
-    .array(z.object({ name: z.string().min(1).max(40), values: z.array(z.number().finite()).min(1).max(60) }))
+    .array(z.object({ name: z.string().min(1).max(40), values: z.array(z.number().finite()).min(1).max(120) }))
     .min(1)
-    .max(6),
+    .max(10),
   unit: z.string().max(12).optional(),
   note: z.string().max(200).optional(),
 };
@@ -174,8 +174,8 @@ export const ChartCard = z.object({ kind: z.literal("chart"), ...ChartShape });
 /** A small table the assistant shows in the chat; cells are plain text. */
 export const TableShape = {
   title: z.string().min(1).max(80),
-  columns: z.array(z.string().min(1).max(40)).min(1).max(8),
-  rows: z.array(z.array(z.string().max(120)).max(8)).max(50),
+  columns: z.array(z.string().min(1).max(40)).min(1).max(16),
+  rows: z.array(z.array(z.string().max(200)).max(16)).max(300),
   note: z.string().max(200).optional(),
 };
 
