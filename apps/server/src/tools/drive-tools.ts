@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { rmSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { GmailAccountLabel } from "@jarvis/contracts";
 import { DriveError, parseDriveLink, type DriveClient, type DriveFile } from "../integrations/drive/drive-client.js";
 import type { DriveUploads } from "../integrations/drive/drive-uploads.js";
@@ -5,7 +8,9 @@ import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
 const SOURCE = { provider: "drive" };
-const MAX_FOLDER_FILES = 30;
+const MAX_FOLDER_FILES = 100;
+/** A file that goes to Transferencias instead of the chat may be this big. */
+const MAX_TRANSFER_BYTES = 8 * 1024 ** 3;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
@@ -172,7 +177,7 @@ export const driveShare = defineTool({
 export const driveDownload = defineTool({
   name: "drive_download",
   description:
-    "Baja de Drive un archivo o una carpeta entera a partir de su link (por ejemplo uno que le mandaron al dueño) y los deja como adjuntos del chat. Devuelve un attachmentId por archivo: para mandarlos por WhatsApp usá whatsapp_send con cada attachmentId. Los Docs y Slides llegan en PDF y las planillas en Excel.",
+    "Baja de Drive un archivo o una carpeta entera a partir de su link (por ejemplo uno que le mandaron al dueño). Lo chico queda como adjunto del chat (attachmentId: para mandarlo por WhatsApp usá whatsapp_send); lo grande (más de 50 MB, videos, carpetas pesadas) va a Transferencias en calidad original (transferId: para mandarlo usá transfer_send). Los Docs y Slides llegan en PDF y las planillas en Excel.",
   async execute(ctx, input) {
     const { drive, label, error } = setup(ctx, input.account);
     if (error) return error;
@@ -185,15 +190,32 @@ export const driveDownload = defineTool({
       const files = drive.isFolder(file)
         ? (await drive.list(label, `'${file.id}' in parents and trashed = false`, MAX_FOLDER_FILES + 1)).filter((child) => !drive.isFolder(child))
         : [file];
-      const saved = [];
+      const saved: Record<string, unknown>[] = [];
       const skipped = [];
       let total = 0;
+      const transfers = ctx.services.transfers;
       for (const item of files.slice(0, MAX_FOLDER_FILES)) {
-        if (Number(item.size ?? 0) > MAX_FILE_BYTES || total + Number(item.size ?? 0) > MAX_TOTAL_BYTES) {
+        const size = Number(item.size ?? 0);
+        const resourceKey = item.id === file.id ? parsed.resourceKey : undefined;
+        const big = size > MAX_FILE_BYTES || total + size > MAX_TOTAL_BYTES;
+        if (big && transfers?.dir && size <= MAX_TRANSFER_BYTES && !item.mimeType.startsWith("application/vnd.google-apps.")) {
+          const uploadId = randomUUID();
+          const path = join(transfers.dir, uploadId);
+          try {
+            await drive.downloadTo(label, item, path, resourceKey);
+          } catch (error) {
+            rmSync(path, { force: true });
+            throw error;
+          }
+          const kept = transfers.store.add({ origin: "download", sender: "Google Drive", name: item.name, mediaType: item.mimeType || "application/octet-stream", size: statSync(path).size, uploadId }, ctx.now());
+          saved.push({ transferId: kept.id, name: kept.name, mediaType: kept.mediaType, size: kept.size, where: "Transferencias" });
+          continue;
+        }
+        if (big) {
           skipped.push(item.name);
           continue;
         }
-        const content = await drive.download(label, item, item.id === file.id ? parsed.resourceKey : undefined);
+        const content = await drive.download(label, item, resourceKey);
         const stored = attachments.save({ name: content.name, mediaType: content.mimeType, data: content.data }, ctx.now(), MAX_FILE_BYTES);
         if (!stored) {
           skipped.push(item.name);

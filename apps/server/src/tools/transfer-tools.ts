@@ -18,6 +18,8 @@ const SOURCE = { provider: "transfers" };
 
 export interface TransferServices {
   store: TransferStore;
+  /** Where Transferencias keeps its files. */
+  dir?: string;
   publicOrigin: string;
   /** Downloads from YouTube, X and Instagram, and conversions; undefined when yt-dlp is not installed. */
   media?: MediaQueue;

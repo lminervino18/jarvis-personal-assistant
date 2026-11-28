@@ -27,7 +27,7 @@ Status: *implemented* and *tested with fixtures*; connection *pending owner conn
 | `drive_upload_status` | third-party content | State, progress and link of the latest Transferencias uploads, or of one. |
 | `drive_update` | state change | Rename and/or move. |
 | `drive_share` | state change | Anyone with the link can view, or one email as viewer or editor. |
-| `drive_download` | third-party content | A file or a folder link into chat attachments: up to 30 files, 50 MB each and 200 MB in total. Docs and Slides are exported as PDF, Sheets as Excel. |
+| `drive_download` | third-party content | A file or a folder link (up to 100 files). Small ones become chat attachments (50 MB each, 200 MB in total); bigger ones are streamed to Transferencias in original quality, up to 8 GB each. Docs and Slides are exported as PDF, Sheets as Excel. |
 | `drive_trash` | state change | Moves a file to the trash, where it stays recoverable for 30 days. |
 
 - Links are accepted as the owner pastes them: files, folders, Docs, `open?id=`, and `resourcekey` for old shared links.

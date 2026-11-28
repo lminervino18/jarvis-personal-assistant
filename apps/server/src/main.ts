@@ -170,7 +170,7 @@ const services: ToolServices = {
   drive: gmail.drive ? { ...gmail.drive, ...(driveUploads ? { uploads: driveUploads } : {}) } : undefined,
   gmail: gmail.service,
   youtube,
-  transfers: { store: transfers, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media, choices: mediaChoices } : {}) },
+  transfers: { store: transfers, dir: transfersDir, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media, choices: mediaChoices } : {}) },
 };
 
 const workDb = config.tasks ? openMigratedDatabase(join(config.tasks.workDir, "work.db"), workMigrations) : undefined;

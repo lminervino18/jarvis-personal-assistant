@@ -1,3 +1,7 @@
+import { createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebStream } from "node:stream/web";
 import type { GmailAccountLabel } from "@jarvis/contracts";
 import type { GoogleAccessTokens } from "../google/access-tokens.js";
 
@@ -6,6 +10,7 @@ const UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
 const FIELDS = "id,name,mimeType,size,modifiedTime,webViewLink,parents,owners(displayName)";
 const FOLDER = "application/vnd.google-apps.folder";
 const TIMEOUT_MS = 60_000;
+const STREAM_TIMEOUT_MS = 2 * 3_600_000;
 /** Marks the folder JARVIS works in, so it is found again even if the owner renames it. */
 const ROOT_PROPERTY = "jarvisRoot";
 
@@ -207,14 +212,23 @@ export class DriveClient {
     return exported ? { name: `${file.name}.${exported.extension}`, mimeType: exported.mimeType, data } : { name: file.name, mimeType: file.mimeType, data };
   }
 
+  /** Streams a file's bytes to `path` without holding them in memory, for files too big for the chat. */
+  async downloadTo(label: GmailAccountLabel, file: DriveFile, path: string, resourceKey?: string): Promise<void> {
+    if (file.mimeType.startsWith("application/vnd.google-apps.")) throw new DriveError("rejected", `«${file.name}» es un archivo de Google: se baja exportado, no tal cual.`);
+    const url = `${API}/${encodeURIComponent(file.id)}?alt=media&supportsAllDrives=true`;
+    const response = await this.send(label, url, "GET", undefined, resourceKey ? { "X-Goog-Drive-Resource-Keys": `${file.id}/${resourceKey}` } : {}, STREAM_TIMEOUT_MS);
+    if (!response.body) throw new DriveError("unavailable", "Drive no mandó el archivo.");
+    await pipeline(Readable.fromWeb(response.body as unknown as WebStream<Uint8Array>), createWriteStream(path));
+  }
+
   private async json<T = DriveFile>(label: GmailAccountLabel, url: string, method = "GET", body?: unknown, headers: Record<string, string> = {}): Promise<T> {
     const response = await this.send(label, url, method, body, headers);
     return (await response.json()) as T;
   }
 
-  private async send(label: GmailAccountLabel, url: string, method: string, body: unknown, headers: Record<string, string>): Promise<Response> {
+  private async send(label: GmailAccountLabel, url: string, method: string, body: unknown, headers: Record<string, string>, timeoutMs = TIMEOUT_MS): Promise<Response> {
     const attempt = async () => {
-      const init: RequestInit = { method, headers: { authorization: `Bearer ${await this.tokens.get(label)}`, ...headers }, signal: AbortSignal.timeout(TIMEOUT_MS) };
+      const init: RequestInit = { method, headers: { authorization: `Bearer ${await this.tokens.get(label)}`, ...headers }, signal: AbortSignal.timeout(timeoutMs) };
       if (body !== undefined) {
         init.body = Buffer.isBuffer(body) ? new Uint8Array(body) : JSON.stringify(body);
         if (!Buffer.isBuffer(body)) init.headers = { ...init.headers, "content-type": "application/json" };

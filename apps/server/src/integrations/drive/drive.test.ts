@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,6 +7,7 @@ import { openMigratedDatabase } from "../../db/database.js";
 import { toolsByName } from "../../tools/index.js";
 import { runTool } from "../../tools/runner.js";
 import type { AnyToolDefinition, ToolContext } from "../../tools/types.js";
+import { TransferStore } from "../../transfers/transfer-store.js";
 import { DriveClient, parseDriveLink, type DriveFile } from "./drive-client.js";
 
 const dirs: string[] = [];
@@ -61,9 +62,20 @@ function setup(ready = true) {
   const db = openMigratedDatabase(":memory:");
   const attachments = new AttachmentStore(db, dir);
   const drive = fakeDrive();
+  const transfersDir = join(dir, "transfers");
+  mkdirSync(transfersDir);
+  const transfers = new TransferStore(db);
   const client = new DriveClient({ get: async () => "token", invalidate: () => {} }, drive.fetchFn);
   const ctx: ToolContext = {
-    services: { db, timezone: "America/Argentina/Buenos_Aires", backupRetentionDays: 30, statusSources: [], attachments, drive: { client, ready: () => ready } },
+    services: {
+      db,
+      timezone: "America/Argentina/Buenos_Aires",
+      backupRetentionDays: 30,
+      statusSources: [],
+      attachments,
+      drive: { client, ready: () => ready },
+      transfers: { store: transfers, dir: transfersDir, publicOrigin: "https://jarvis.example" },
+    },
     conversationId: "c1",
     turnId: "t1",
     now: () => new Date(),
@@ -72,7 +84,7 @@ function setup(ready = true) {
     emitPlayerCommand: () => {},
   };
   const call = (name: string, input: object) => runTool(ctx, toolsByName.get(name as never) as AnyToolDefinition, input);
-  return { ...drive, attachments, call };
+  return { ...drive, attachments, transfers, transfersDir, call };
 }
 
 describe("Drive links", () => {
@@ -113,6 +125,16 @@ describe("Drive tools", () => {
     expect(result.items.map((item) => item.name).sort()).toEqual(["Itinerario.pdf", "playa.jpg"]);
     const doc = result.items.find((item) => item.name === "Itinerario.pdf");
     expect(attachments.read(doc!.attachmentId)?.data.toString()).toBe("PDF-BYTES");
+  });
+
+  it("sends a file too big for the chat to Transferencias, in original quality", async () => {
+    const { call, files, transfers, transfersDir } = setup();
+    files.set("VIDEObig0001", { id: "VIDEObig0001", name: "partido.mp4", mimeType: "video/mp4", size: String(80 * 1024 * 1024), data: Buffer.from("match bytes") });
+    const result = (await call("drive_download", { link: "https://drive.google.com/file/d/VIDEObig0001/view" })) as { ok: true; items: { transferId?: string; attachmentId?: string; where?: string }[] };
+    expect(result.items).toMatchObject([{ where: "Transferencias", name: "partido.mp4" }]);
+    const kept = transfers.get(result.items[0]!.transferId!, new Date());
+    expect(kept).toMatchObject({ sender: "Google Drive", size: 11 });
+    expect(readFileSync(join(transfersDir, kept!.uploadId), "utf8")).toBe("match bytes");
   });
 
   it("asks to reconnect Google when the account never granted Drive access", async () => {
