@@ -31,6 +31,14 @@ Uploads are resumable (tus, 4 MB chunks, so a slow mobile connection fits Caddy'
 - A share link (`/bajar/<token>`) lets anyone download one file while it exists.
 - An upload from a computer or through a link notifies the phone: a push and a chat line, at most one per sender every two minutes. The notification opens `/transferencias`.
 
+### Several at once
+
+«Seleccionar» lets the owner pick files, or all of them, and download them in one ZIP (`POST /api/transfers/zip`). The answer is a one-hour link (`/api/public/zips/:token`), kept in the server's memory, that also works from Safari outside the app: a computer downloads it right away, a phone opens it in Safari so the download never goes through the app's memory. The ZIP is written as it is sent (`zip-stream.ts`): files are stored without compression, since photos and videos already are compressed, under their original names, with « (2)» before the extension when two repeat. The size is known beforehand, so the download shows its progress. Up to 4 GB per ZIP (no ZIP64).
+
+### Big files on a phone
+
+Above 150 MB, the phone does not bring the file into the page to share it: a 575 MB match made iOS restart the app for memory. «Bajar con Safari» opens a one-day direct link, made as the file opens, and Safari downloads it to Archivos by itself.
+
 ## Limits and security
 
 - **Files and space:**

@@ -67,6 +67,10 @@ export async function deleteTransfer(id: string): Promise<boolean> {
   return (await json<{ ok: boolean }>(`/api/transfers/${id}`, { method: "DELETE" })) !== null;
 }
 
+/** A one-hour link to a ZIP of these files, which also works from Safari outside the app. */
+export const zipTransfers = (ids: readonly string[]) =>
+  json<{ url: string; files: number }>("/api/transfers/zip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+
 export const shareTransfer = (id: string) => json<{ url: string; download: string; expiresAt: string }>(`/api/transfers/${id}/share`, { method: "POST" });
 
 export const createUploadLink = (label: string | undefined) =>

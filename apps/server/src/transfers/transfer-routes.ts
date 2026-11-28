@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 import type { IncomingMessage } from "node:http";
 import { join } from "node:path";
@@ -15,6 +16,7 @@ import type { MediaChoices } from "../downloads/media-choices.js";
 import type { MediaJob, MediaQueue } from "../downloads/media-queue.js";
 import { previewKind, type PreviewSize, type TransferPreviews } from "./transfer-previews.js";
 import { UPLOAD_LINK_MAX_BYTES, type Transfer, type TransferStore, type UploadLink } from "./transfer-store.js";
+import { MAX_ZIP_BYTES, uniqueNames, zipSize, zipStream } from "./zip-stream.js";
 
 export const UPLOADS_PATH = "/api/transfers/uploads";
 export const TRANSFERS_PAGE = "/transferencias";
@@ -31,6 +33,9 @@ const PREVIEWABLE = /^(image|video|audio)\/[\w.+-]+$|^application\/pdf$/;
 const IdParams = z.object({ id: z.uuid() });
 const PreviewQuery = z.object({ size: z.enum(["thumb", "large"]).default("thumb") });
 const TokenParams = z.object({ token: z.string().regex(/^[\w-]{20,40}$/) });
+const ZipBody = z.object({ ids: z.array(z.uuid()).min(1).max(200) });
+/** A ZIP link works for an hour and only on this server process: long enough to start the download. */
+const ZIP_LINK_MS = 3_600_000;
 const LinkBody = z.object({ label: z.string().trim().min(1).max(60).optional() }).optional();
 const DownloadBody = z
   .object({ url: z.string().trim().min(8).max(500).optional(), search: z.string().trim().min(2).max(200).optional(), format: MediaFormat.optional() })
@@ -78,6 +83,7 @@ export function transferUrls(publicOrigin: string) {
     share: (token: string) => `${publicOrigin}/bajar/${token}`,
     /** The file itself, as a download, for a browser that saves it on its own. */
     content: (token: string) => `${publicOrigin}/api/public/files/${token}/content`,
+    zip: (token: string) => `${publicOrigin}/api/public/zips/${token}`,
   };
 }
 
@@ -266,6 +272,39 @@ export function registerTransferRoutes(app: FastifyInstance, helpers: RouteHelpe
     if (!transfer) return reply.code(404).send({ error: "not_found" });
     await remove(transfer);
     return { ok: true };
+  });
+
+  const zips = new Map<string, { ids: string[]; expiresAt: number }>();
+
+  /** Several files in one ZIP, by a one-hour link that also works from Safari outside the app. */
+  app.post("/api/transfers/zip", async (request, reply) => {
+    if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
+    const body = ZipBody.safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid" });
+    const files = body.data.ids.map((id) => store.get(id, now())).filter((transfer) => transfer !== undefined);
+    if (files.length === 0) return reply.code(404).send({ error: "not_found" });
+    if (files.some((file) => file.size > MAX_ZIP_BYTES) || zipSize(files.map((file) => ({ name: file.name, path: "", size: file.size }))) > MAX_ZIP_BYTES) {
+      return reply.code(413).send({ error: "too_big" });
+    }
+    for (const [token, link] of zips) if (link.expiresAt < now().getTime()) zips.delete(token);
+    const token = randomBytes(18).toString("base64url");
+    zips.set(token, { ids: files.map((file) => file.id), expiresAt: now().getTime() + ZIP_LINK_MS });
+    return { url: urls.zip(token), files: files.length };
+  });
+
+  app.get("/api/public/zips/:token", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+    const params = TokenParams.safeParse(request.params);
+    const link = params.success ? zips.get(params.data.token) : undefined;
+    if (!link || link.expiresAt < now().getTime()) return reply.code(404).send({ error: "not_found" });
+    const files = link.ids.map((id) => store.get(id, now())).filter((transfer) => transfer !== undefined);
+    const names = uniqueNames(files.map((file) => file.name));
+    const entries = files.map((file, index) => ({ name: names[index] ?? file.name, path: join(deps.dir, file.uploadId), size: statSync(join(deps.dir, file.uploadId)).size }));
+    return reply
+      .header("Content-Type", "application/zip")
+      .header("Content-Disposition", contentDisposition("Transferencias.zip"))
+      .header("Content-Length", zipSize(entries))
+      .header("Cache-Control", "private, no-store")
+      .send(zipStream(entries, now()));
   });
 
   app.post("/api/transfers/:id/share", async (request, reply) => {

@@ -144,6 +144,26 @@ describe("upload links", () => {
   });
 });
 
+describe("several files at once", () => {
+  it("gives the owner a one-hour link to a ZIP of the files picked, which works without a session", async () => {
+    const env = await setup();
+    await env.upload(OWNER, "cumple.mov", video);
+    await env.upload(OWNER, "cumple.mov", video.subarray(0, 100));
+    const ids = (await env.list()).items.map((item: { id: string }) => item.id);
+    expect((await env.call("/api/transfers/zip", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) })).status).toBe(401);
+    const response = await env.call("/api/transfers/zip", { method: "POST", headers: { ...OWNER, "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+    const { url, files } = (await response.json()) as { url: string; files: number };
+    expect(files).toBe(2);
+    const zip = await env.call(new URL(url).pathname);
+    expect(zip.status).toBe(200);
+    expect(zip.headers.get("content-type")).toBe("application/zip");
+    const body = Buffer.from(await zip.arrayBuffer());
+    expect(body.length).toBe(Number(zip.headers.get("content-length")));
+    expect(body.includes(Buffer.from("cumple (2).mov"))).toBe(true);
+    expect((await env.call("/api/public/zips/AAAAAAAAAAAAAAAAAAAAAAAA")).status).toBe(404);
+  });
+});
+
 describe("share links", () => {
   it("let anyone download the original, resuming by ranges, until the file is gone", async () => {
     const env = await setup();

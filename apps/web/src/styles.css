@@ -2473,6 +2473,41 @@ button {
   }
 }
 
+.transfer-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin: 4px 0 10px;
+}
+
+.transfer-item[data-selected="true"] .transfer-tile {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.transfer-check {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.transfer-item[data-selected="true"] .transfer-check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .transfer-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

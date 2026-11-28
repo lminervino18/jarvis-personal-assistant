@@ -11,6 +11,7 @@ import {
   previewUrl,
   revokeUploadLink,
   shareTransfer,
+  zipTransfers,
   startDownload,
   timeLeft,
   type MediaFormat,
@@ -196,7 +197,17 @@ function TileSave({ item }: { item: TransferFile }) {
   );
 }
 
-function Tile({ item, now, sharing, onOpen, onDelete }: { item: TransferFile; now: Date; sharing: boolean; onOpen(): void; onDelete(item: TransferFile): Promise<boolean> }) {
+interface TileProps {
+  item: TransferFile;
+  now: Date;
+  sharing: boolean;
+  /** Set while picking several files: a tap toggles this one instead of opening it. */
+  selected?: boolean;
+  onOpen(): void;
+  onDelete(item: TransferFile): Promise<boolean>;
+}
+
+function Tile({ item, now, sharing, selected, onOpen, onDelete }: TileProps) {
   const [broken, setBroken] = useState(false);
   const [armed, setArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -214,8 +225,14 @@ function Tile({ item, now, sharing, onOpen, onDelete }: { item: TransferFile; no
     if (!(await onDelete(item))) setDeleting(false);
   };
   return (
-    <li className="transfer-item">
-      <button type="button" className="transfer-tile" onClick={onOpen} aria-label={`Ver ${item.name}, ${formatSize(item.size)}, ${from(item).toLowerCase()}`}>
+    <li className="transfer-item" data-selected={selected}>
+      <button
+        type="button"
+        className="transfer-tile"
+        onClick={onOpen}
+        aria-pressed={selected}
+        aria-label={selected === undefined ? `Ver ${item.name}, ${formatSize(item.size)}, ${from(item).toLowerCase()}` : `${selected ? "Quitar" : "Elegir"} ${item.name}`}
+      >
         <span className="transfer-thumb" data-kind={item.preview ?? "file"}>
           {item.preview === "audio" ? (
             <MusicIcon />
@@ -230,28 +247,35 @@ function Tile({ item, now, sharing, onOpen, onDelete }: { item: TransferFile; no
             </svg>
           )}
         </span>
+        {selected !== undefined && (
+          <span className="transfer-check" aria-hidden="true">
+            {selected ? "✓" : ""}
+          </span>
+        )}
         <span className="transfer-name">{item.name}</span>
         <span className="transfer-meta">
           {formatSize(item.size)} · {from(item)} · se borra en {timeLeft(item.expiresAt, now)}
         </span>
       </button>
-      <button
-        type="button"
-        className="transfer-tile-delete glass"
-        data-armed={armed}
-        disabled={deleting}
-        aria-label={armed ? `Confirmar: borrar ${item.name}` : `Borrar ${item.name}`}
-        onClick={() => void remove()}
-      >
-        {armed ? (
-          "¿Borrar?"
-        ) : (
-          <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
-            <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
-          </svg>
-        )}
-      </button>
-      {sharing ? (
+      {selected === undefined && (
+        <button
+          type="button"
+          className="transfer-tile-delete glass"
+          data-armed={armed}
+          disabled={deleting}
+          aria-label={armed ? `Confirmar: borrar ${item.name}` : `Borrar ${item.name}`}
+          onClick={() => void remove()}
+        >
+          {armed ? (
+            "¿Borrar?"
+          ) : (
+            <svg viewBox="0 0 24 24" aria-hidden="true" width="18" height="18">
+              <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-3 6h12l-1 12H7L6 9Zm4 2v8h2v-8h-2Zm4 0v8h2v-8h-2Z" />
+            </svg>
+          )}
+        </button>
+      )}
+      {selected !== undefined ? null : sharing ? (
         <TileSave item={item} />
       ) : (
         <a className="transfer-tile-download glass" href={contentUrl(item.id)} download={item.name} aria-label={`Bajar ${item.name}`}>
@@ -360,6 +384,8 @@ export function TransfersScreen({ onClose, embedded }: Props) {
   }, [refresh]);
 
   const sharing = useState(savesBySharing)[0];
+  const [picked, setPicked] = useState<Set<string> | null>(null);
+  const [zipMessage, setZipMessage] = useState<string | null>(null);
   const downloading = typeof state === "object" && (state.jobs ?? []).some((job) => job.status === "queued" || job.status === "running");
 
   useEffect(() => {
@@ -403,6 +429,36 @@ export function TransfersScreen({ onClose, embedded }: Props) {
     return done;
   };
   const now = new Date();
+
+  const toggle = (id: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /** The picked files in one ZIP: a download on a computer, Safari's own download on a phone (never the app's memory). */
+  const downloadPicked = async () => {
+    if (!picked?.size) return;
+    const tab = sharing ? window.open("", "_blank") : null;
+    const zip = await zipTransfers([...picked]);
+    if (!zip) {
+      tab?.close();
+      setZipMessage("No pude armar el ZIP: es más grande que 4 GB o los archivos ya no están. Bajalos de a uno.");
+      return;
+    }
+    if (tab) tab.location.href = zip.url;
+    else {
+      const link = document.createElement("a");
+      link.href = zip.url;
+      link.download = "Transferencias.zip";
+      link.click();
+    }
+    setZipMessage(null);
+    setPicked(null);
+  };
+  const pickedBytes = items.filter((item) => picked?.has(item.id)).reduce((total, item) => total + item.size, 0);
 
   return (
     <section
@@ -456,10 +512,44 @@ export function TransfersScreen({ onClose, embedded }: Props) {
           </div>
         )}
         {typeof state === "object" && items.length === 0 && <p className="build-empty">Todavía no hay nada. Subí algo desde acá o desde el «+» del chat.</p>}
+        {items.length > 1 && (
+          <div className="transfer-pick">
+            {picked ? (
+              <>
+                <button type="button" className="row-link" onClick={() => setPicked(picked.size === items.length ? new Set() : new Set(items.map((item) => item.id)))}>
+                  {picked.size === items.length ? "Ninguno" : "Todos"}
+                </button>
+                <button type="button" className="button primary" disabled={picked.size === 0} onClick={() => void downloadPicked()}>
+                  {picked.size === 0 ? "Elegí archivos" : `Bajar ${picked.size} en un ZIP (${formatSize(pickedBytes)})`}
+                </button>
+                <button type="button" className="row-link" onClick={() => setPicked(null)}>
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button type="button" className="row-link" onClick={() => setPicked(new Set())}>
+                Seleccionar
+              </button>
+            )}
+          </div>
+        )}
+        {zipMessage && (
+          <p className="transfer-message" role="alert">
+            {zipMessage}
+          </p>
+        )}
         {items.length > 0 && (
           <ul className="transfer-grid" aria-label="Archivos">
             {items.map((item, index) => (
-              <Tile key={item.id} item={item} now={now} sharing={sharing} onOpen={() => setOpen(index)} onDelete={removeFile} />
+              <Tile
+                key={item.id}
+                item={item}
+                now={now}
+                sharing={sharing}
+                {...(picked ? { selected: picked.has(item.id) } : {})}
+                onOpen={() => (picked ? toggle(item.id) : setOpen(index))}
+                onDelete={removeFile}
+              />
             ))}
           </ul>
         )}
