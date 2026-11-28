@@ -45,9 +45,13 @@ export interface WarpSupervisorOptions {
   log?: (event: string) => void;
 }
 
-/** Whether a Cloudflare trace says the request went out through WARP. */
-export function warpOn(trace: string): boolean {
-  return /^warp=(on|plus)$/m.test(trace);
+/**
+ * Whether a remote web server answered through the tunnel. Everything the SOCKS port carries goes
+ * through WireGuard, so any HTTP status line proves the tunnel works; 1.1.1.1 answers plain HTTP
+ * with a redirect to HTTPS, never with its trace.
+ */
+export function answered(response: string): boolean {
+  return /^HTTP\/1\.[01] \d{3} /.test(response);
 }
 
 /** Length of a SOCKS5 CONNECT reply, or undefined until enough bytes arrived to know it. */
@@ -60,7 +64,7 @@ function replyLength(reply: Buffer): number | undefined {
   return 0;
 }
 
-/** Asks Cloudflare's trace page, through the SOCKS proxy on `port`, whether traffic leaves through WARP. */
+/** Asks 1.1.1.1 for a page through the SOCKS proxy on `port`; true when an HTTP answer comes back. */
 export function probeThroughSocks(port: number, timeoutMs = 10_000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = connect(port, "127.0.0.1");
@@ -74,7 +78,7 @@ export function probeThroughSocks(port: number, timeoutMs = 10_000): Promise<boo
     const timer = setTimeout(() => finish(false), timeoutMs);
     socket.on("error", () => finish(false));
     socket.on("connect", () => socket.write(Buffer.from([5, 1, 0])));
-    socket.on("end", () => finish(stage === "http" && warpOn(data.toString("utf8"))));
+    socket.on("end", () => finish(stage === "http" && answered(data.toString("utf8"))));
     socket.on("data", (chunk: Buffer) => {
       data = Buffer.concat([data, chunk]);
       if (stage === "greeting") {
@@ -92,7 +96,7 @@ export function probeThroughSocks(port: number, timeoutMs = 10_000): Promise<boo
         stage = "http";
         socket.write("GET /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nConnection: close\r\n\r\n");
       }
-      if (stage === "http" && warpOn(data.toString("utf8"))) finish(true);
+      if (stage === "http" && answered(data.toString("utf8"))) finish(true);
     });
   });
 }

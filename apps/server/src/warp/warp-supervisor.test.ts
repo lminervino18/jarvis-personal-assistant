@@ -3,7 +3,7 @@ import { createServer, type AddressInfo, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ENDPOINTS, probeThroughSocks, WarpSupervisor, warpOn, withEndpoint, withProfile } from "./warp-supervisor.js";
+import { answered, ENDPOINTS, probeThroughSocks, WarpSupervisor, withEndpoint, withProfile } from "./warp-supervisor.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
@@ -21,13 +21,13 @@ function script(dir: string, name: string, body: string): string {
   return path;
 }
 
-function fakeSocks(trace: string): Promise<number> {
+function fakeSocks(answer: string): Promise<number> {
   const server: Server = createServer((socket) => {
     let stage = 0;
     socket.on("data", () => {
       if (stage === 0) socket.write(Buffer.from([5, 0]));
       else if (stage === 1) socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]));
-      else socket.end(`HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\nfl=1\nip=104.28.0.1\n${trace}\n`);
+      else socket.end(answer);
       stage++;
     });
   });
@@ -36,11 +36,11 @@ function fakeSocks(trace: string): Promise<number> {
 }
 
 describe("the WARP tunnel check", () => {
-  it("reads Cloudflare's trace", () => {
-    expect(warpOn("fl=1\nwarp=on\ngateway=off")).toBe(true);
-    expect(warpOn("warp=plus")).toBe(true);
-    expect(warpOn("warp=off")).toBe(false);
-    expect(warpOn("<html>warp=on</html>")).toBe(false);
+  it("takes any HTTP answer through the tunnel as a live tunnel", () => {
+    expect(answered("HTTP/1.1 301 Moved Permanently\r\nServer: cloudflare\r\n")).toBe(true);
+    expect(answered("HTTP/1.1 200 OK\r\n\r\nwarp=on")).toBe(true);
+    expect(answered("")).toBe(false);
+    expect(answered("SSH-2.0-OpenSSH")).toBe(false);
   });
 
   it("aims the profile at an IPv4 endpoint, since the server has no IPv6 route", () => {
@@ -55,8 +55,8 @@ describe("the WARP tunnel check", () => {
   });
 
   it("asks the trace through the SOCKS proxy", async () => {
-    expect(await probeThroughSocks(await fakeSocks("warp=on"))).toBe(true);
-    expect(await probeThroughSocks(await fakeSocks("warp=off"))).toBe(false);
+    expect(await probeThroughSocks(await fakeSocks("HTTP/1.1 301 Moved Permanently\r\nLocation: https://1.1.1.1/cdn-cgi/trace\r\n\r\n"))).toBe(true);
+    expect(await probeThroughSocks(await fakeSocks("garbage"))).toBe(false);
     expect(await probeThroughSocks(1, 500)).toBe(false);
   });
 });
