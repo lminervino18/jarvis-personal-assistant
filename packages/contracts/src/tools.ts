@@ -18,6 +18,9 @@ export type MemoryCategory = z.infer<typeof MemoryCategory>;
 
 export const GmailAccountLabel = z.enum(["personal", "work"]);
 
+const SplitPerson = z.string().trim().min(1).max(40);
+const SplitAmount = z.number().positive().max(1_000_000_000);
+
 /** Who gets a file once it is ready: a WhatsApp chat or an email address. */
 export const SendFileTo = z.object({
   channel: z.enum(["whatsapp", "email"]),
@@ -414,6 +417,26 @@ export const toolInputs = {
     format: z.enum(["square", "portrait", "landscape"]).optional(),
     /** A WhatsApp chat (id, number or name, or "me") that gets the image as soon as it is ready. */
     sendTo: z.object({ to: z.string().trim().min(1).max(120), text: z.string().trim().max(1000).optional() }).optional(),
+  },
+  tricount: {
+    name: z.string().trim().min(1).max(80).describe("Nombre del reparto, para retomarlo después: «Asado del sábado», «Viaje a Bariloche»"),
+    people: z.array(SplitPerson).max(40).optional().describe("Todos los que entran en el reparto; si lo pasás, reemplaza la lista guardada"),
+    expenses: z
+      .array(
+        z.object({
+          concept: z.string().trim().min(1).max(80),
+          amount: SplitAmount.describe("En pesos"),
+          paidBy: SplitPerson,
+          participants: z.array(SplitPerson).max(40).optional().describe("Quiénes lo consumieron; todos si se omite"),
+          shares: z.record(z.string().max(40), z.number().positive().max(100)).optional().describe("Partes desiguales: nombre → peso (2 = el doble)"),
+        }),
+      )
+      .max(100)
+      .optional()
+      .describe("Gastos nuevos; se suman a los guardados"),
+    removeExpenses: z.array(z.string().trim().min(1).max(80)).max(50).optional().describe("Conceptos de gastos guardados a sacar"),
+    payments: z.array(z.object({ from: SplitPerson, to: SplitPerson, amount: SplitAmount })).max(100).optional().describe("Transferencias que ya se hicieron para saldar"),
+    aliases: z.record(z.string().max(40), z.string().trim().min(1).max(60)).optional().describe("Alias bancarios: nombre → alias; quedan guardados para los próximos repartos"),
   },
   page_list: {},
   page_responses: {

@@ -13,6 +13,7 @@ import { taskTools } from "./task-tools.js";
 import { videoTools } from "./video-tools.js";
 import { imageTools } from "./image-tools.js";
 import { driveTools } from "./drive-tools.js";
+import { tricountTools } from "./tricount-tools.js";
 import { transferTools } from "./transfer-tools.js";
 import { pdfTools } from "./pdf-tools.js";
 import { chatStudyTools } from "./chat-study-tools.js";
@@ -38,6 +39,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...videoTools,
   ...imageTools,
   ...driveTools,
+  ...tricountTools,
   ...transferTools,
   ...pdfTools,
   ...chatStudyTools,

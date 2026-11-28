@@ -107,6 +107,7 @@ export const toolPresentations: Record<ToolName, ToolPresentation> = {
   page_create: t("pages", "Creando la página…", "Página creada"),
   page_update: t("pages", "Actualizando la página…", "Página actualizada"),
   page_list: t("pages", "Listando tus páginas…", "Páginas consultadas"),
+  tricount: t("display", "Haciendo las cuentas…", "Cuentas hechas"),
   page_responses: t("pages", "Leyendo las respuestas de la página…", "Respuestas leídas"),
   drive_search: t("drive", "Buscando en Google Drive…", "Google Drive consultado"),
   drive_create_folder: t("drive", "Creando una carpeta en Drive…", "Carpeta creada"),
