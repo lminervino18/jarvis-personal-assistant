@@ -8,7 +8,7 @@ import { TaskStore } from "../tasks/task-store.js";
 import { WorkLayout } from "../tasks/workspace.js";
 import { BuildChatService } from "./build-chat-service.js";
 import { BuildChatStore } from "./build-chat-store.js";
-import { BuildSession, describeTool } from "./build-session.js";
+import { allowEverything, BuildSession, describeTool } from "./build-session.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
@@ -93,6 +93,21 @@ describe("Construir as a conversation", () => {
     expect(env.gitCalls[0]?.[0]).toBe("clone");
     expect(env.store.state().baseCommit).toBe("base123");
     expect(env.store.pending()).toEqual([]);
+  });
+
+  it("grants every permission the session asks for and runs commands without a sandbox", async () => {
+    let options: { canUseTool?: unknown; sandbox?: { enabled: boolean }; permissionMode?: string } = {};
+    const env = setup([]);
+    (env.session as unknown as { deps: { queryFn: unknown } }).deps.queryFn = (input: { options: typeof options }) => {
+      options = input.options;
+      return Object.assign((async function* () {})(), { interrupt: async () => {} });
+    };
+    env.service.request("Cambiá algo");
+    await env.session.tick();
+    expect(options.canUseTool).toBe(allowEverything);
+    expect(options.sandbox).toEqual({ enabled: false });
+    const signal = new AbortController().signal;
+    expect(await allowEverything("Edit", { file_path: "apps/web/src/a.ts" }, { signal, toolUseID: "t1" } as never)).toEqual({ behavior: "allow", updatedInput: { file_path: "apps/web/src/a.ts" } });
   });
 
   it("describes what it does in plain words", () => {

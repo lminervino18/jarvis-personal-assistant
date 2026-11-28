@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { createSdkMcpServer, query, tool, type Options, type Query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type CanUseTool, type Options, type Query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { BUILD_CHAT_SOURCE, BUILD_PROJECT, isCommitTitle, MAX_PATCH_BYTES } from "../publisher/spool.js";
 import type { ExecutionReport } from "../tasks/schemas.js";
@@ -60,6 +60,13 @@ export function describeTool(name: string, input: Record<string, unknown>): stri
 }
 
 const text = (value: string) => ({ content: [{ type: "text" as const, text: value }] });
+
+/**
+ * Says yes to every permission the session asks for. Claude Code ignored `bypassPermissions` in
+ * the runner (the session started in «default» and every edit waited for an approval nobody could
+ * give, 2026-11-28), so permissions are granted here instead of relying on that mode.
+ */
+export const allowEverything: CanUseTool = async (_tool, input) => ({ behavior: "allow", updatedInput: input });
 
 /**
  * Construir as a conversation: one long-lived Claude Code session over its own checkout of
@@ -214,6 +221,8 @@ export class BuildSession {
       ...(sessionId ? { resume: sessionId } : {}),
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      canUseTool: allowEverything,
+      sandbox: { enabled: false },
       systemPrompt: { type: "preset", preset: "claude_code", append: buildPrompt(base) },
       settingSources: ["project"],
       settings: { disableClaudeAiConnectors: true },
