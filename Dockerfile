@@ -97,6 +97,7 @@ CMD ["node", "dist/agent-runner.js"]
 
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS warp
 COPY --from=media-tools /opt/wireproxy/wireproxy /wireproxy
+COPY --from=runtime /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ADD --checksum=sha256:4fb7a136aa470ece11d17949c7db07b040ec9c604742dc8680bcf1889f85d0c8 --chmod=755 \
   https://github.com/ViRb3/wgcf/releases/download/v2.3.1/wgcf_2.3.1_linux_amd64 /wgcf
 COPY --from=build /src/apps/server/dist/warp-main.js /warp/warp-main.mjs

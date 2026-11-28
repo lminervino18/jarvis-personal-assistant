@@ -16,7 +16,7 @@ const RENEW_GAP_MS = 5 * 60_000;
  * resolves to IPv6; the server has no IPv6 route, and when wireproxy picked that address the
  * handshake never completed (9 hours on 2026-11-27). Each restart moves to the next one.
  */
-export const ENDPOINTS = ["162.159.192.1:2408", "162.159.193.1:2408", "162.159.192.1:500", "162.159.192.1:1701", "162.159.192.1:4500"];
+export const ENDPOINTS = ["162.159.192.1:500", "162.159.193.1:500", "162.159.192.1:4500", "162.159.192.1:1701", "162.159.192.1:2408"];
 
 /** The WireGuard profile with its peer endpoint replaced. */
 export function withEndpoint(profile: string, endpoint: string): string {
@@ -161,8 +161,9 @@ export class WarpSupervisor {
     this.log("warp: registering a new identity");
     try {
       await this.renew();
-    } catch {
-      this.log("warp: could not register a new identity");
+    } catch (error) {
+      const reason = (error instanceof Error ? error.message : String(error)).split("\n").find((line) => /error|x509|tls|refused|timeout/i.test(line)) ?? "unknown";
+      this.log(`warp: could not register a new identity (${reason.trim().slice(0, 160)})`);
       return this.restart(READY_AFTER_RESTART_MS);
     }
     this.lastRenew = this.now();
