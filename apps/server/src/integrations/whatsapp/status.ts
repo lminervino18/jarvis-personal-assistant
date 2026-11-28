@@ -73,7 +73,7 @@ export class WhatsAppStatusSource implements IntegrationStatusSource {
       case "connected":
         return this.isStale(row) ? { ...base, status: "disconnected", detail: "El puente no da señales de vida." } : { ...base, status: "connected", detail: "Sincronizando en vivo (solo lectura)." };
       case "pairing":
-        return { ...base, status: "needs_action", detail: "Esperando que escanees el código QR desde WhatsApp > Dispositivos vinculados." };
+        return { ...base, status: "needs_action", detail: row.detail ?? "Esperando que vincules desde WhatsApp > Dispositivos vinculados." };
       case "logged_out":
         return { ...base, status: "needs_action", detail: row.detail ?? "La sesión se cerró; hay que volver a vincular." };
       case "error":

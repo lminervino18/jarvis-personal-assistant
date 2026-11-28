@@ -197,6 +197,7 @@ export const toolInputs = {
   },
   youtube_pause: {},
   integrations_status: {},
+  whatsapp_link_qr: {},
   show_chart: ChartShape,
   show_table: TableShape,
   task_create: {
@@ -478,6 +479,7 @@ export type BuiltinTool = (typeof builtinTools)[number];
  * require an explicit owner confirmation in the UI instead of executing directly.
  */
 export const stateChangingTools: ReadonlySet<ToolName> = new Set<ToolName>([
+  "whatsapp_link_qr",
   "memory_update",
   "memory_forget",
   "calendar_create",

@@ -1,4 +1,5 @@
 import type { Db } from "../../db/database.js";
+import { UNLINKED } from "./reconnect-policy.js";
 import { Outbox } from "../../worker/outbox.js";
 import { NOTIFICATION_TITLE } from "../../push/notification.js";
 
@@ -31,7 +32,7 @@ export class BridgeMonitor {
   check(): void {
     const row = this.db.prepare("SELECT status, last_event_at, detail FROM wa_sync_state WHERE source = 'baileys'").get() as BridgeRow | undefined;
     const now = this.now().getTime();
-    if (!row || row.status === "disabled" || row.status === "pairing" || this.alive(row, now)) {
+    if (!row || row.status === "disabled" || row.status === "pairing" || row.detail?.startsWith(UNLINKED) || this.alive(row, now)) {
       this.downSince = undefined;
       this.told = false;
       return;
@@ -49,7 +50,7 @@ export class BridgeMonitor {
   }
 
   private ownerNotice(row: BridgeRow): string {
-    if (row.status === "logged_out") return "Se desvinculó WhatsApp. Abrí Configuración: ahí te dejo el QR para escanearlo de nuevo.";
+    if (row.status === "logged_out") return "Se desvinculó WhatsApp. Abrí Configuración y tocá «Vincular»: te mando el código a tu número.";
     return `Se cayó WhatsApp: ${row.detail ?? "el puente se detuvo."}`;
   }
 

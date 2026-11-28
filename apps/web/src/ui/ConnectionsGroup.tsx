@@ -23,6 +23,8 @@ type Status = "connected" | "warning" | "off";
 
 const ARMED_MS = 4000;
 const WHATSAPP_POLL_MS = 3000;
+const ASKED_MS = 10_000;
+const CONNECTING_DETAIL = "Conectando…";
 
 const STATUS_TEXT: Record<Status, string> = { connected: "Conectado", warning: "Con problemas", off: "Sin conectar" };
 
@@ -43,6 +45,15 @@ const ARMED_HELP: Record<Provider, string> = {
   whatsapp:
     "WhatsApp se desvincula desde el celu: WhatsApp › Dispositivos vinculados › Jarvis › Cerrar sesión. Vincular y desvincular seguido puede hacer que WhatsApp restrinja la cuenta.",
 };
+
+/** What the WhatsApp line says: waiting for the code or the QR, connecting while the code is asked for, or the plain status. */
+function whatsappText(whatsapp: NonNullable<ConnectionsState["whatsapp"]>, asked: boolean): string {
+  const card = whatsapp.pairing?.kind === "pairing" ? whatsapp.pairing : null;
+  if (card?.code) return "Esperando el código";
+  if (card?.qr) return "Esperando el QR";
+  if (whatsapp.status === "needs_action" && (asked || whatsapp.detail === CONNECTING_DETAIL)) return CONNECTING_DETAIL;
+  return whatsappStatus[whatsapp.status]?.text ?? whatsapp.status;
+}
 
 /** One account, laid out the same for every service: logo, account, status underneath, and one small button. */
 function ConnectionRow({ logo, app, account, status, statusText, action }: { logo: string; app: string; account?: string | null; status: Status; statusText?: string; action?: ReactNode }) {
@@ -83,28 +94,25 @@ export function ConnectionsGroup() {
   const [busy, setBusy] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [woken, setWoken] = useState(false);
-  const [phone, setPhone] = useState<string | null>(null);
-  const onPhone = useState(() => window.matchMedia?.("(pointer: coarse)").matches === true)[0];
+  const [asked, setAsked] = useState(false);
 
   const refresh = () => void fetchConnections().then((next) => setState(next ?? "failed"));
   useEffect(refresh, []);
 
   const whatsappDown = typeof state === "object" && state.whatsapp !== null && !["connected", "disabled"].includes(state.whatsapp.status);
-  const qrShown = typeof state === "object" && Boolean(state.whatsapp?.pairing);
-  const wake = (number?: string) => {
-    setWoken(true);
-    void wakeWhatsApp(number).then(refresh);
+  const link = () => {
+    setAsked(true);
+    void wakeWhatsApp().then(refresh);
   };
+  const picked = typeof state === "object" && Boolean(state.whatsapp?.pairing);
   useEffect(() => {
-    if (whatsappDown && !qrShown && !woken && !onPhone) wake();
-  }, [whatsappDown, qrShown, woken, onPhone]);
-  const linkByNumber = () => {
-    const digits = phone?.replace(/\D/g, "") ?? "";
-    if (digits.length < 8) return;
-    setPhone(null);
-    wake(digits);
-  };
+    if (!asked) return;
+    const timer = setTimeout(() => setAsked(false), ASKED_MS);
+    return () => clearTimeout(timer);
+  }, [asked]);
+  useEffect(() => {
+    if (picked) setAsked(false);
+  }, [picked]);
   useEffect(() => {
     if (!whatsappDown) return;
     const timer = setInterval(refresh, WHATSAPP_POLL_MS);
@@ -150,7 +158,7 @@ export function ConnectionsGroup() {
     );
   }
   const { whatsapp, gmail, github } = state;
-  const whatsappShown = whatsapp ? (whatsappStatus[whatsapp.status] ?? { status: "warning" as const, text: whatsapp.status }) : undefined;
+  const whatsappShown = whatsapp ? { ...(whatsappStatus[whatsapp.status] ?? { status: "warning" as const, text: whatsapp.status }), text: whatsappText(whatsapp, asked) } : undefined;
   const whatsappAccount = whatsapp?.account ? (whatsapp.account.name ? `${whatsapp.account.name} · +${whatsapp.account.number}` : `+${whatsapp.account.number}`) : null;
   const personal = gmail.accounts.find((item) => item.label === "personal");
   const driveConnected = personal?.status === "connected" && personal.drive;
@@ -170,8 +178,8 @@ export function ConnectionsGroup() {
             ) : (
               whatsappDown &&
               !whatsapp.pairing && (
-                <button type="button" className="connection-button" onClick={() => wake()}>
-                  {whatsapp.status === "needs_action" ? "Generar QR" : "Reintentar"}
+                <button type="button" className="connection-button" disabled={asked} onClick={link}>
+                  {whatsapp.status === "needs_action" ? "Vincular" : "Reintentar"}
                 </button>
               )
             )
@@ -179,36 +187,6 @@ export function ConnectionsGroup() {
         />
       )}
       {whatsapp?.pairing && <CardView card={whatsapp.pairing} actions={NO_ACTIONS} />}
-      {whatsappDown && !(whatsapp?.pairing?.kind === "pairing" && whatsapp.pairing.code) && (
-        <div className="row whatsapp-number">
-          {phone === null ? (
-            <button type="button" className="row-link" onClick={() => setPhone("")}>
-              Vincular con número de teléfono
-            </button>
-          ) : (
-            <form
-              className="whatsapp-number-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                linkByNumber();
-              }}
-            >
-              <input
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+54 9 11 1234 5678"
-                aria-label="Tu número de WhatsApp, con código de país"
-                value={phone}
-                onChange={(event) => setPhone(event.target.value)}
-              />
-              <button type="submit" className="connection-button" disabled={(phone.replace(/\D/g, "").length ?? 0) < 8}>
-                Pedir código
-              </button>
-            </form>
-          )}
-        </div>
-      )}
 
       {gmail.available &&
         GMAIL_LABELS.map(({ label, name }) => {

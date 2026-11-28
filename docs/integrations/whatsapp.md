@@ -7,7 +7,7 @@ Two sources feed the same tables (`wa_chats`, `wa_messages` with FTS, `wa_sync_s
 | Source | What it is | State |
 | --- | --- | --- |
 | `import` | "Export chat" text files imported with a CLI. No account access. | Works offline, safe, recommended baseline. |
-| `baileys` | Experimental linked-device bridge (separate process). | Disabled unless `WHATSAPP_ENABLED=true`. Owner pairs later by QR. |
+| `baileys` | Experimental linked-device bridge (separate process). | Disabled unless `WHATSAPP_ENABLED=true`. Owner links with a code (see Linking by code). |
 
 ## Tools
 
@@ -54,10 +54,9 @@ The bridge is its own process (`dist/whatsapp-bridge.js`, built by `pnpm build`;
 
 Pairing happens from Configuración, and the bridge never offers a QR nobody asked for:
 - **Without a session** the bridge waits, with status `logged_out`.
-- **Asking:** opening Configuración asks it to connect (`POST /api/connections/whatsapp/wake`, which sets `wa_sync_state.wake_requested_at`). The bridge checks every 5 seconds and honors a request for 2 minutes.
-- **The QR:** while status is `pairing`, the encrypted QR is available through `WhatsAppStatusSource.pairingCard()` (a `pairing` card). Configuración refreshes every 3 seconds while WhatsApp is down, so it shows each new code as WhatsApp rotates them. Scan it from WhatsApp, Linked devices.
-- **Expiry:** one QR session per request. If it expires unscanned, the bridge waits again and Configuración offers «Generar QR».
-- Pairing by phone-number code is not implemented.
+- **Asking:** tapping «Vincular» in Configuración asks it to connect (`POST /api/connections/whatsapp/wake`, which sets `wa_sync_state.wake_requested_at`). The bridge checks every 5 seconds and honors a request for 2 minutes.
+- **The code or QR:** while status is `pairing`, the encrypted code (or the QR, if the owner asked for one in the chat) is available through `WhatsAppStatusSource.pairingCard()` (a `pairing` card). Configuración refreshes every 3 seconds while WhatsApp is down, so it shows each new code as WhatsApp rotates them. A QR is scanned from WhatsApp, Linked devices.
+- **Expiry:** one QR session per request. If it expires, the bridge waits again and Configuración offers «Vincular».
 
 Falls: the server checks the bridge every minute (`BridgeMonitor`) and tells the owner by push and in the chat.
 - When only the owner can bring it back (logged out, invalid session, refused connection), at once.
@@ -112,9 +111,15 @@ Details:
 - Cost: about 11k input tokens per block plus one merge per chat. All synced text, about 2.7 million characters, is roughly 70 blocks.
 - Delegated agents never get chats; this stays on the personal side.
 
-## Linking by phone number
+## Linking by code
 
-The QR cannot be scanned from the same phone that shows it, so Configuración also offers «Vincular con número de teléfono». The owner types the number with country code; the server keeps it encrypted (`wa_auth_state`, key `pairing_phone`) and wakes the bridge. On the next QR event the bridge calls Baileys `requestPairingCode` once and publishes the 8-character code (valid about three minutes) instead of a QR. The owner types it in WhatsApp under Dispositivos vinculados › Vincular un dispositivo › Vincular con número de teléfono. On a phone, Configuración no longer generates a QR by itself.
+The QR cannot be scanned from the same phone that shows it, so the default way to link is a pairing code to the owner's own number. In Configuración, «Vincular» (`POST /api/connections/whatsapp/wake`) asks the bridge to connect: the line says «Conectando…», then «Esperando el código» once the code exists. The bridge calls Baileys `requestPairingCode` once per socket for the saved number, publishes the 8-character code (valid about three minutes) as a `pairing` card, and sends it as a push notification of JARVIS. WhatsApp also shows its own notification on the phone; the owner types the code there (Dispositivos vinculados › Vincular un dispositivo › Vincular con número de teléfono). If it expires or fails, the status goes back to «Hay que vincularlo».
+
+The number is never typed or kept in Git: the bridge saves the linked account's number encrypted (`wa_auth_state`, key `owner_number`) every time it starts or opens, and a logout keeps it. Without a saved number the bridge says so and the owner asks for a QR in the chat.
+
+Nothing generates a QR or a code by itself, not even opening Configuración. A QR is made only when the owner asks for it in the chat: the assistant calls `whatsapp_link_qr` (a state-changing tool, so the runner's policy applies) and shows the card with `integrations_status` a few seconds later. Both ways are the same wake request: `wa_sync_state.wake_requested_at` holds the time, plus `|qr` for a QR; a plain time means a code.
+
+A stopped link attempt (expired code, no saved number, WhatsApp gave no code) is a status `logged_out` whose detail starts with «Sin vincular:»; `BridgeMonitor` does not warn about it, since nothing fell.
 
 ## Quoting a message
 

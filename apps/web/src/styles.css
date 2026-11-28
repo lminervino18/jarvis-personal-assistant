@@ -1161,24 +1161,6 @@ button {
   background: var(--red);
 }
 
-.whatsapp-number-form {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 0;
-}
-
-.whatsapp-number-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  border: 0.5px solid var(--separator);
-  border-radius: 10px;
-  background: var(--fill);
-  color: var(--label);
-  font: inherit;
-}
-
 .group-footer {
   margin: 6px 16px 0;
   color: var(--secondary);

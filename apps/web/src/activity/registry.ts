@@ -88,6 +88,7 @@ export const toolPresentations: Record<ToolName, ToolPresentation> = {
   youtube_open: t("youtube", "Abriendo YouTube…", "YouTube abierto"),
   youtube_play: t("youtube", "Reproduciendo el video…", "Reproducción iniciada"),
   youtube_pause: t("youtube", "Pausando el video…", "Video pausado"),
+  whatsapp_link_qr: t("whatsapp", "Pidiendo el QR de WhatsApp…", "QR pedido"),
   integrations_status: t("system", "Revisando las conexiones…", "Conexiones revisadas"),
   show_chart: t("display", "Armando el gráfico…", "Gráfico listo"),
   show_table: t("display", "Armando la tabla…", "Tabla lista"),

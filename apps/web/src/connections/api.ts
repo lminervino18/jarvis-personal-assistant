@@ -21,12 +21,9 @@ export async function fetchConnections(): Promise<ConnectionsState | null> {
   }
 }
 
-/** Asks the stopped WhatsApp bridge to connect again: a fresh QR when it has to be linked. Answers whether it was asked. */
-export async function wakeWhatsApp(phone?: string): Promise<boolean> {
-  const init: RequestInit = phone
-    ? { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone }) }
-    : { method: "POST", credentials: "same-origin" };
-  const response = await fetch("/api/connections/whatsapp/wake", init).catch(() => null);
+/** Asks the stopped WhatsApp bridge to connect again: a pairing code to the owner's number when it has to be linked. Answers whether it was asked. */
+export async function wakeWhatsApp(): Promise<boolean> {
+  const response = await fetch("/api/connections/whatsapp/wake", { method: "POST", credentials: "same-origin" }).catch(() => null);
   return response?.ok === true;
 }
 

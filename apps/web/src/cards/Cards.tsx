@@ -154,7 +154,7 @@ function PairingCard({ card }: { card: Of<"pairing"> }) {
       <p className="card-kicker">WhatsApp</p>
       <p>
         {card.code
-          ? "En WhatsApp: Dispositivos vinculados › Vincular un dispositivo › Vincular con número de teléfono, y escribí este código."
+          ? "Te llegó una notificación de WhatsApp: abrila y escribí este código."
           : "Vinculá tu cuenta desde WhatsApp, en Dispositivos vinculados."}
       </p>
       {!expired && image && <img className="card-qr" src={image} alt={label} />}

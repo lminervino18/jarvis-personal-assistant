@@ -7,6 +7,8 @@ const WAKE_VALID_MS = 2 * 60_000;
 export const MEDIA_LOCATOR_CONTEXT = "wa-media-locator";
 
 export type WaSource = "baileys" | "import";
+/** How a new device is linked: a code sent to the owner's number, or a QR scanned from the phone. */
+export type LinkMode = "code" | "qr";
 export type WaSyncStatus = "disabled" | "pairing" | "connected" | "disconnected" | "logged_out" | "error" | "imported";
 
 export interface NewWaMessage {
@@ -138,17 +140,20 @@ export class WhatsAppStore {
       .run(source, status, totals.earliest, totals.latest, totals.total, now.toISOString(), detail);
   }
 
-  /** Asks the stopped bridge to connect again, with a fresh QR when it has no session. It is honored for two minutes. */
-  requestWake(now: Date): void {
-    this.db.prepare("UPDATE wa_sync_state SET wake_requested_at = ? WHERE source = 'baileys'").run(now.toISOString());
+  /** Asks the stopped bridge to connect again: with a pairing code sent to the owner's number, or with a QR when the owner asked for one in the chat. Honored for two minutes. */
+  requestWake(now: Date, mode: LinkMode = "code"): void {
+    const value = mode === "qr" ? now.toISOString() + "|qr" : now.toISOString();
+    this.db.prepare("UPDATE wa_sync_state SET wake_requested_at = ? WHERE source = 'baileys'").run(value);
   }
 
-  /** Whether the owner asked the bridge to connect in the last two minutes. The request is used up. */
-  takeWake(now: Date): boolean {
+  /** How the owner asked the bridge to connect in the last two minutes, if they did. The request is used up. */
+  takeWake(now: Date): LinkMode | undefined {
     const row = this.db.prepare("SELECT wake_requested_at AS at FROM wa_sync_state WHERE source = 'baileys'").get() as { at: string | null } | undefined;
-    if (!row?.at) return false;
+    if (!row?.at) return undefined;
     this.db.prepare("UPDATE wa_sync_state SET wake_requested_at = NULL WHERE source = 'baileys'").run();
-    return now.getTime() - Date.parse(row.at) <= WAKE_VALID_MS;
+    const [at = "", mode] = row.at.split("|");
+    if (now.getTime() - Date.parse(at) > WAKE_VALID_MS) return undefined;
+    return mode === "qr" ? "qr" : "code";
   }
 
   /** Records a status change without touching coverage columns (used by the bridge on every connection event). */

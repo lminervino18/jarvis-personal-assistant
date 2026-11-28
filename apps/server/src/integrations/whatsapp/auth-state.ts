@@ -7,7 +7,7 @@ const CREDS_KEY = "creds";
 export interface DbAuthState {
   state: AuthenticationState;
   saveCreds(): Promise<void>;
-  /** Forgets the whole session, so the next start begins a fresh pairing. */
+  /** Forgets the whole session (not the owner's number, kept to link again by code), so the next start begins a fresh pairing. */
   clear(): void;
   /** Re-encrypts rows still sealed with the previous key. */
   rewrap(): number;
@@ -59,7 +59,7 @@ export function useDbAuthState(db: Db, cipher: TokenCipher): DbAuthState {
   return {
     state: { creds, keys },
     saveCreds: async () => write(CREDS_KEY, creds),
-    clear: () => void db.prepare("DELETE FROM wa_auth_state WHERE key != 'pairing'").run(),
+    clear: () => void db.prepare("DELETE FROM wa_auth_state WHERE key NOT IN ('pairing', 'owner_number')").run(),
     rewrap: () => {
       const rows = db.prepare("SELECT key, value_ciphertext FROM wa_auth_state").all() as { key: string; value_ciphertext: string }[];
       const stale = rows.filter((row) => !cipher.isCurrent(row.value_ciphertext));

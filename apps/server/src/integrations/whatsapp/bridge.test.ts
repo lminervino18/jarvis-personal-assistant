@@ -72,7 +72,7 @@ function setupOptions(db: ReturnType<typeof openMigratedDatabase>, log: { info: 
   };
 }
 
-function setup(options: { paired?: boolean; random?: number; maxAttempts?: number; files?: Map<string, { attachment: { name: string; mediaType: string }; data: Buffer }> } = {}) {
+function setup(options: { notifyCode?: (code: string) => void; paired?: boolean; random?: number; maxAttempts?: number; files?: Map<string, { attachment: { name: string; mediaType: string }; data: Buffer }> } = {}) {
   const db = openMigratedDatabase(":memory:");
   const cipher = new TokenCipher(randomBytes(32));
   const store = new WhatsAppStore(db);
@@ -87,6 +87,7 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
     store,
     auth,
     pairing,
+    ...(options.notifyCode ? { notifyCode: options.notifyCode } : {}),
     outbox,
     ...(options.files ? { files: { read: (id: string) => options.files?.get(id) } } : {}),
     policy,
@@ -100,8 +101,8 @@ function setup(options: { paired?: boolean; random?: number; maxAttempts?: numbe
   });
   const status = () => db.prepare("SELECT status, detail FROM wa_sync_state WHERE source = 'baileys'").get() as { status: string; detail: string | null } | undefined;
   const count = () => (db.prepare("SELECT count(*) AS n FROM wa_messages").get() as { n: number }).n;
-  const askToConnect = () => {
-    store.requestWake(new Date());
+  const askToConnect = (mode: "code" | "qr" = "qr") => {
+    store.requestWake(new Date(), mode);
     vi.advanceTimersByTime(5_000);
   };
   return { db, cipher, store, auth, pairing, outbox, bridge, sockets, status, count, log, askToConnect };
@@ -128,21 +129,96 @@ describe("bridge lifecycle", () => {
     expect(db.prepare("SELECT last_event_at FROM wa_sync_state WHERE source = 'baileys'").get()).toEqual({ last_event_at: "2026-10-26T12:01:00.000Z" });
   });
 
-  it("links by phone number with a code when the owner asks, without showing a QR", async () => {
+  it("links with a code to the saved number when the owner taps Vincular, without a QR", async () => {
     const { bridge, sockets, status, pairing, db, askToConnect } = setup({ paired: false });
+    pairing.rememberNumber("5491100000000", new Date());
     bridge.start();
-    pairing.requestCode("5491100000000", new Date());
-    askToConnect();
+    askToConnect("code");
+    expect(status()).toEqual({ status: "pairing", detail: "Conectando…" });
     sockets[0]?.emit("connection.update", { qr: "qr-ignored" });
     sockets[0]?.emit("connection.update", { qr: "qr-ignored-2" });
     await vi.advanceTimersByTimeAsync(0);
     expect(sockets[0]?.codesAsked).toEqual(["5491100000000"]);
     expect(pairing.card(new Date())).toMatchObject({ kind: "pairing", code: "ABCD-2345" });
     expect(pairing.card(new Date())?.qr).toBeUndefined();
-    expect(status()?.detail).toContain("Vincular con número de teléfono");
+    expect(status()).toEqual({ status: "pairing", detail: "Esperando el código." });
     const stored = (db.prepare("SELECT value_ciphertext FROM wa_auth_state WHERE key = 'pairing'").get() as { value_ciphertext: string }).value_ciphertext;
     expect(stored).not.toContain("ABCD");
-    expect(pairing.takeCodeRequest()).toBeUndefined();
+  });
+
+  it("tells the owner the code by notification", async () => {
+    const notified: string[] = [];
+    const { bridge, sockets, pairing, askToConnect } = setup({ paired: false, notifyCode: (code) => notified.push(code) });
+    pairing.rememberNumber("5491100000000", new Date());
+    bridge.start();
+    askToConnect("code");
+    sockets[0]?.emit("connection.update", { qr: "qr" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(notified).toEqual(["ABCD-2345"]);
+  });
+
+  it("keeps linking when the notification of the code fails", async () => {
+    const { bridge, sockets, pairing, status, askToConnect } = setup({
+      paired: false,
+      notifyCode: () => {
+        throw new Error("database is locked");
+      },
+    });
+    pairing.rememberNumber("5491100000000", new Date());
+    bridge.start();
+    askToConnect("code");
+    sockets[0]?.emit("connection.update", { qr: "qr" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pairing.card(new Date())).toMatchObject({ code: "ABCD-2345" });
+    expect(status()).toEqual({ status: "pairing", detail: "Esperando el código." });
+    expect(sockets[0]?.ended).toBe(0);
+  });
+
+  it("shows a QR only when the owner asked for one", () => {
+    const { bridge, sockets, pairing, store } = setup({ paired: false });
+    bridge.start();
+    store.requestWake(new Date(), "qr");
+    vi.advanceTimersByTime(5_000);
+    sockets[0]?.emit("connection.update", { qr: "qr-asked" });
+    expect(pairing.card(new Date())).toMatchObject({ qr: "qr-asked" });
+  });
+
+  it("never offers a QR or a code by itself, and says so when there is no saved number", async () => {
+    const { bridge, sockets, status, askToConnect } = setup({ paired: false });
+    bridge.start();
+    expect(sockets).toHaveLength(0);
+    expect(status()?.status).toBe("logged_out");
+    askToConnect("code");
+    sockets[0]?.emit("connection.update", { qr: "qr" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[0]?.codesAsked).toEqual([]);
+    expect(status()).toEqual({ status: "logged_out", detail: expect.stringContaining("número") });
+  });
+
+  it("takes a wake request once, by mode, and lets an old one lapse", () => {
+    const { store } = setup();
+    store.setStatus("baileys", "logged_out", new Date());
+    store.requestWake(new Date(), "code");
+    expect(store.takeWake(new Date())).toBe("code");
+    expect(store.takeWake(new Date())).toBeUndefined();
+    store.requestWake(new Date(), "qr");
+    expect(store.takeWake(new Date(Date.now() + 3 * 60_000))).toBeUndefined();
+  });
+
+  it("rewraps the saved number with the others", () => {
+    const { auth, pairing } = setup();
+    pairing.rememberNumber("5491100000000", new Date());
+    auth.rewrap();
+    expect(pairing.number()).toBe("5491100000000");
+  });
+
+  it("remembers the owner's number from the linked session, and keeps it after the session closes", () => {
+    const { bridge, sockets, pairing } = setup();
+    bridge.start();
+    expect(pairing.number()).toBe("5490000000099");
+    sockets[0]?.open();
+    sockets[0]?.close(401);
+    expect(pairing.number()).toBe("5490000000099");
   });
 
   it("publishes the pairing QR privately and clears it once linked", () => {
@@ -295,7 +371,7 @@ describe("terminal states", () => {
     sockets[0]?.open();
     sockets[0]?.close(401);
     expect(status()).toMatchObject({ status: "logged_out" });
-    expect(db.prepare("SELECT count(*) AS n FROM wa_auth_state").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT key FROM wa_auth_state").all()).toEqual([{ key: "owner_number" }]);
     vi.advanceTimersByTime(24 * 60 * 60_000);
     expect(sockets).toHaveLength(1);
     expect(bridge.phase).toBe("stopped");
@@ -317,13 +393,13 @@ describe("terminal states", () => {
     replaced.auth.state.keys.set({ "pre-key": { "1": { private: Buffer.from("k"), public: Buffer.from("p") } } });
     replaced.bridge.start();
     replaced.sockets[0]?.close(440);
-    expect(replaced.db.prepare("SELECT count(*) AS n FROM wa_auth_state").get()).toEqual({ n: 1 });
+    expect(replaced.db.prepare("SELECT count(*) AS n FROM wa_auth_state WHERE key != 'owner_number'").get()).toEqual({ n: 1 });
 
     const bad = setup();
     bad.auth.state.keys.set({ "pre-key": { "1": { private: Buffer.from("k"), public: Buffer.from("p") } } });
     bad.bridge.start();
     bad.sockets[0]?.close(500);
-    expect(bad.db.prepare("SELECT count(*) AS n FROM wa_auth_state").get()).toEqual({ n: 0 });
+    expect(bad.db.prepare("SELECT count(*) AS n FROM wa_auth_state WHERE key != 'owner_number'").get()).toEqual({ n: 0 });
   });
 
   it("does not loop on QR codes when pairing is never completed", () => {
@@ -334,7 +410,7 @@ describe("terminal states", () => {
     sockets[0]?.close(408);
     vi.advanceTimersByTime(60 * 60_000);
     expect(sockets).toHaveLength(1);
-    expect(status()).toMatchObject({ status: "disconnected" });
+    expect(status()).toMatchObject({ status: "logged_out" });
     expect(status()?.detail).toContain("venció sin vincularse");
   });
 
@@ -343,7 +419,7 @@ describe("terminal states", () => {
     bridge.start();
     vi.advanceTimersByTime(60 * 60_000);
     expect(sockets).toHaveLength(0);
-    expect(status()).toEqual({ status: "logged_out", detail: "Hay que vincular WhatsApp: abrí Configuración y escaneá el QR." });
+    expect(status()).toEqual({ status: "logged_out", detail: "Hay que vincular WhatsApp: tocá «Vincular» en Configuración." });
     askToConnect();
     expect(sockets).toHaveLength(1);
   });
@@ -637,7 +713,7 @@ describe("authenticated state type", () => {
     const spy = new WhatsAppBridge({
       store: new WhatsAppStore(openMigratedDatabase(":memory:")),
       auth,
-      pairing: { publish() {}, publishCode() {}, takeCodeRequest: () => undefined, clear() {}, publishAccount() {}, forgetAccount() {} },
+      pairing: { publish() {}, publishCode() {}, rememberNumber() {}, number: () => undefined, clear() {}, publishAccount() {}, forgetAccount() {} },
       policy: new ReconnectPolicy(),
       log: { info() {}, warn() {}, error() {} },
       connect: (state) => {

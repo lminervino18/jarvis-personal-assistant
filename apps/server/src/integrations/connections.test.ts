@@ -110,6 +110,6 @@ describe("Vercel connection", () => {
     await app.ready();
     new WhatsAppStore(db).setStatus("baileys", "logged_out", new Date());
     expect((await app.inject({ method: "POST", url: "/api/connections/whatsapp/wake" })).json()).toEqual({ ok: true });
-    expect(new WhatsAppStore(db).takeWake(new Date())).toBe(true);
+    expect(new WhatsAppStore(db).takeWake(new Date())).toBe("code");
   });
 });

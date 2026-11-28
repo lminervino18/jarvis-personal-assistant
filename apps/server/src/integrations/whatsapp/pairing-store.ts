@@ -6,7 +6,7 @@ const KEY = "pairing";
 const CONTEXT = `wa_auth_state:${KEY}`;
 const ACCOUNT_KEY = "account";
 const ACCOUNT_CONTEXT = `wa_auth_state:${ACCOUNT_KEY}`;
-const PHONE_KEY = "pairing_phone";
+const PHONE_KEY = "owner_number";
 const PHONE_CONTEXT = `wa_auth_state:${PHONE_KEY}`;
 
 type PairingCardValue = Extract<Card, { kind: "pairing" }>;
@@ -42,17 +42,14 @@ export class PairingStore {
     this.store({ code, expiresAt: expiresAt.toISOString() }, now);
   }
 
-  /** The owner asked to link by code instead of a QR, for this number (digits with country code). */
-  requestCode(phone: string, now: Date): void {
-    this.put(PHONE_KEY, this.cipher.encrypt(phone, PHONE_CONTEXT), now);
+  /** The owner's own number (digits with country code), kept after the session closes so the next link asks for a code to it. */
+  rememberNumber(number: string, now: Date): void {
+    this.put(PHONE_KEY, this.cipher.encrypt(number, PHONE_CONTEXT), now);
   }
 
-  /** The number to link by code, once: the request is consumed when the bridge reads it. */
-  takeCodeRequest(): string | undefined {
+  number(): string | undefined {
     const row = this.db.prepare("SELECT value_ciphertext FROM wa_auth_state WHERE key = ?").get(PHONE_KEY) as { value_ciphertext: string } | undefined;
-    if (!row) return undefined;
-    this.db.prepare("DELETE FROM wa_auth_state WHERE key = ?").run(PHONE_KEY);
-    return this.cipher.decrypt(row.value_ciphertext, PHONE_CONTEXT);
+    return row ? this.cipher.decrypt(row.value_ciphertext, PHONE_CONTEXT) : undefined;
   }
 
   private store(pairing: StoredPairing, now: Date): void {

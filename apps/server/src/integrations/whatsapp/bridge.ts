@@ -1,11 +1,11 @@
 import type { AuthenticationState, BaileysEventMap } from "baileys";
 import type { Logger } from "pino";
 import { WhatsAppEventHandlers } from "./event-handlers.js";
-import type { WaSyncStatus, WhatsAppStore } from "./message-store.js";
+import type { LinkMode, WaSyncStatus, WhatsAppStore } from "./message-store.js";
 import type { DbAuthState } from "./auth-state.js";
 import { OWN_CHAT, type WhatsAppOutbox } from "./outbox.js";
 import type { PairingStore } from "./pairing-store.js";
-import type { CloseDecision, ReconnectPolicy } from "./reconnect-policy.js";
+import { UNLINKED, type CloseDecision, type ReconnectPolicy } from "./reconnect-policy.js";
 
 /** What the bridge sends: plain text, or a file as a photo, video, audio or document (with a caption where WhatsApp allows one). */
 export type OutgoingContent =
@@ -35,7 +35,12 @@ const CODE_VALID_MS = 3 * 60_000;
 const OUTBOX_POLL_MS = 3_000;
 const WAKE_POLL_MS = 5_000;
 const SLOW_RETRY_FROM_MS = 10 * 60_000;
-const NEEDS_PAIRING = "Hay que vincular WhatsApp: abrí Configuración y escaneá el QR.";
+const NEEDS_PAIRING = "Hay que vincular WhatsApp: tocá «Vincular» en Configuración.";
+/** The detail Configuración reads to show «Conectando…» while the code is being asked for. */
+export const CONNECTING = "Conectando…";
+const WAITING_CODE = "Esperando el código.";
+const NO_NUMBER = UNLINKED + "no tengo guardado tu número. Pedime el QR por el chat para vincular.";
+const CODE_FAILED = UNLINKED + "WhatsApp no dio el código. Tocá «Vincular» para probar de nuevo.";
 
 /** The slice of a Baileys socket the bridge uses: events, plus sending a text the owner confirmed. */
 export interface BridgeSocket {
@@ -49,7 +54,9 @@ export interface BridgeSocket {
 export interface BridgeOptions {
   store: WhatsAppStore;
   auth: Pick<DbAuthState, "state" | "saveCreds" | "clear">;
-  pairing: Pick<PairingStore, "publish" | "publishCode" | "takeCodeRequest" | "clear" | "publishAccount" | "forgetAccount">;
+  pairing: Pick<PairingStore, "publish" | "publishCode" | "rememberNumber" | "number" | "clear" | "publishAccount" | "forgetAccount">;
+  /** Tells the owner the pairing code, outside Configuración (a push notification). */
+  notifyCode?(code: string, now: Date): void;
   /** Messages the owner confirmed. Without it the bridge never sends anything. */
   outbox?: Pick<WhatsAppOutbox, "claimNext" | "markSent" | "markFailed" | "abandonInterrupted">;
   /** Reads chat attachments for outgoing photos and documents. */
@@ -70,7 +77,7 @@ const errorName = (error: unknown) => (error instanceof Error ? error.name : "un
  * confirmed through the outbox, one at a time. It never sends receipts or presence, and reconnects
  * with capped backoff, then once every half hour. When the session is signed out or invalid, or
  * WhatsApp refuses it, it waits for the owner: opening Configuración asks it to connect again, with
- * a fresh QR when there is no session. It never offers QR codes nobody asked for.
+ * a pairing code sent to the owner's saved number when there is no session, or a QR only when the owner asked for one in the chat. It never offers codes or QRs nobody asked for.
  */
 export class WhatsAppBridge {
   phase: BridgePhase = "idle";
@@ -81,8 +88,8 @@ export class WhatsAppBridge {
   private outboxTimer?: NodeJS.Timeout;
   private wakeTimer?: NodeJS.Timeout;
   private sending = false;
-  /** Set while linking by code: the number, and whether the code was already asked for on this socket. */
-  private codeFor?: { phone: string; asked: boolean };
+  /** How this socket links a new device, and whether the code was already asked for on it. */
+  private linking: { mode: LinkMode; asked: boolean } = { mode: "code", asked: false };
   private readonly handlers: WhatsAppEventHandlers;
   private readonly now: () => Date;
 
@@ -95,7 +102,9 @@ export class WhatsAppBridge {
 
   start(): void {
     if (this.phase !== "idle") return;
-    if (this.options.auth.state.creds.me) this.open();
+    const me = this.options.auth.state.creds.me;
+    this.rememberNumber(me?.id);
+    if (me) this.open();
     else this.waitForOwner("logged_out", NEEDS_PAIRING);
   }
 
@@ -109,12 +118,12 @@ export class WhatsAppBridge {
     this.phase = "stopped";
   }
 
-  private open(): void {
+  private open(mode: LinkMode = "code"): void {
     clearInterval(this.wakeTimer);
     this.wakeTimer = undefined;
     this.options.store.takeWake(this.now());
-    const phone = this.options.auth.state.creds.me ? undefined : this.options.pairing.takeCodeRequest();
-    this.codeFor = phone ? { phone, asked: false } : undefined;
+    this.linking = { mode, asked: false };
+    if (mode === "code" && !this.options.auth.state.creds.me) this.options.store.setStatus("baileys", "pairing", this.now(), CONNECTING);
     this.phase = "connecting";
     const socket = this.options.connect(this.options.auth.state);
     this.socket = socket;
@@ -135,12 +144,8 @@ export class WhatsAppBridge {
     on("creds.update", () => void this.persistCreds());
     on("connection.update", (update) => {
       if (update.qr) {
-        if (!this.codeFor) {
-          const phone = this.options.pairing.takeCodeRequest();
-          if (phone) this.codeFor = { phone, asked: false };
-        }
-        if (this.codeFor) void this.requestCode(socket, this.codeFor);
-        else this.publishQr(update.qr);
+        if (this.linking.mode === "qr") this.publishQr(update.qr);
+        else void this.requestCode(socket);
       }
       if (update.connection === "open") this.handleOpen();
       if (update.connection === "close") this.handleClose(socket, update.lastDisconnect?.error);
@@ -176,19 +181,43 @@ export class WhatsAppBridge {
     this.options.store.setStatus("baileys", "pairing", now, "Esperando que escanees el código QR.");
   }
 
-  /** Links by phone number: asks WhatsApp once per socket for the code the owner types in the app. */
-  private async requestCode(socket: BridgeSocket, request: { phone: string; asked: boolean }): Promise<void> {
-    if (request.asked || !socket.requestPairingCode) return;
-    request.asked = true;
+  /** Links by code: asks WhatsApp once per socket for the code, sent to the owner's saved number, and tells the owner. */
+  private async requestCode(socket: BridgeSocket): Promise<void> {
+    if (this.linking.asked || !socket.requestPairingCode) return;
+    this.linking.asked = true;
+    const number = this.options.pairing.number();
+    if (!number) return this.giveUpLinking(socket, NO_NUMBER);
     try {
-      const code = await socket.requestPairingCode(request.phone);
+      const raw = await socket.requestPairingCode(number);
+      if (this.socket !== socket) return;
+      const code = raw.length === 8 ? `${raw.slice(0, 4)}-${raw.slice(4)}` : raw;
       const now = this.now();
-      this.options.pairing.publishCode(code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code, new Date(now.getTime() + CODE_VALID_MS), now);
-      this.options.store.setStatus("baileys", "pairing", now, "Escribí el código en WhatsApp: Dispositivos vinculados › Vincular con número de teléfono.");
+      this.options.pairing.publishCode(code, new Date(now.getTime() + CODE_VALID_MS), now);
+      this.options.store.setStatus("baileys", "pairing", now, WAITING_CODE);
+      this.tellCode(code, now);
     } catch (error) {
       this.options.log.warn({ error: errorName(error) }, "whatsapp pairing code could not be requested");
-      this.options.store.setStatus("baileys", "logged_out", this.now(), "WhatsApp no dio el código de vinculación. Probá de nuevo o usá el QR.");
+      if (this.socket === socket) this.giveUpLinking(socket, CODE_FAILED);
     }
+  }
+
+  private tellCode(code: string, now: Date): void {
+    try {
+      this.options.notifyCode?.(code, now);
+    } catch (error) {
+      this.options.log.warn({ error: errorName(error) }, "whatsapp pairing code could not be notified");
+    }
+  }
+
+  private giveUpLinking(socket: BridgeSocket, detail: string): void {
+    this.socket = undefined;
+    socket.end(undefined);
+    this.waitForOwner("logged_out", detail);
+  }
+
+  private rememberNumber(deviceId: string | undefined): void {
+    const number = ownChat(deviceId)?.split("@")[0];
+    if (number) this.options.pairing.rememberNumber(number, this.now());
   }
 
   private handleOpen(): void {
@@ -200,6 +229,7 @@ export class WhatsAppBridge {
     if (this.options.outbox) this.outboxTimer = setInterval(() => void this.sendNextConfirmed(), OUTBOX_POLL_MS);
     const me = this.options.auth.state.creds.me;
     const number = me?.id ? ownChat(me.id)?.split("@")[0] : undefined;
+    this.rememberNumber(me?.id);
     if (number) this.options.pairing.publishAccount({ number, ...(me?.name ? { name: me.name } : {}) }, this.now());
     this.options.log.info("whatsapp connection open");
   }
@@ -283,11 +313,12 @@ export class WhatsAppBridge {
   /** While disconnected, the owner can ask from Configuración to connect right now. */
   private watchForWake(): void {
     this.wakeTimer = setInterval(() => {
-      if (!this.options.store.takeWake(this.now())) return;
+      const mode = this.options.store.takeWake(this.now());
+      if (!mode) return;
       this.options.log.info("whatsapp reconnection asked by the owner");
       clearTimeout(this.reconnectTimer);
       this.options.policy.reset();
-      this.open();
+      this.open(mode);
     }, WAKE_POLL_MS);
   }
 

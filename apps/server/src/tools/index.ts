@@ -5,7 +5,7 @@ import { calendarTools } from "./calendar-tools.js";
 import { contactsTools } from "./contacts-tools.js";
 import { displayTools } from "./display-tools.js";
 import { gmailTools } from "./gmail-tools.js";
-import { integrationsStatus } from "./integrations-tools.js";
+import { integrationsStatus, whatsappLinkQr } from "./integrations-tools.js";
 import { memoryTools } from "./memory-tools.js";
 import { pageTools } from "./page-tools.js";
 import { remindersTools } from "./reminders-tools.js";
@@ -32,6 +32,7 @@ export const allTools: readonly AnyToolDefinition[] = [
   ...youtubeTools,
   ...whatsappTools,
   integrationsStatus,
+  whatsappLinkQr,
   ...taskTools,
   ...displayTools,
   ...pageTools,

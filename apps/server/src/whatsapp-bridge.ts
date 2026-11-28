@@ -12,6 +12,8 @@ import { PairingStore } from "./integrations/whatsapp/pairing-store.js";
 import { DEFAULT_RECONNECT, ReconnectPolicy } from "./integrations/whatsapp/reconnect-policy.js";
 import { conservativeSocketConfig } from "./integrations/whatsapp/socket-config.js";
 import { createLogger } from "./logger.js";
+import { NOTIFICATION_TITLE } from "./push/notification.js";
+import { Outbox } from "./worker/outbox.js";
 
 const quiet = () => {};
 Object.assign(console, { log: quiet, info: quiet, warn: quiet, error: quiet, debug: quiet, trace: quiet });
@@ -52,6 +54,11 @@ async function run(): Promise<void> {
     auth,
     pairing: new PairingStore(db, cipher),
     outbox: new WhatsAppOutbox(db),
+    notifyCode: (code, now) =>
+      new Outbox(db).enqueue(
+        { kind: "push", dedupeKey: `whatsapp-code:${now.getTime()}`, payload: { title: NOTIFICATION_TITLE, body: `Código de WhatsApp: ${code}. Cargalo en WhatsApp, en Dispositivos vinculados.`, tag: "whatsapp-code", url: "/" } },
+        now,
+      ),
     files: new AttachmentStore(db, resolve(dataDir, "attachments")),
     policy: new ReconnectPolicy(DEFAULT_RECONNECT),
     log,

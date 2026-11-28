@@ -25,11 +25,18 @@ describe("WhatsApp bridge monitor", () => {
     store.setStatus("baileys", "logged_out", START, "WhatsApp invalidó la sesión.");
     monitor.check();
     monitor.check();
-    const text = "Se desvinculó WhatsApp. Abrí Configuración: ahí te dejo el QR para escanearlo de nuevo.";
+    const text = "Se desvinculó WhatsApp. Abrí Configuración y tocá «Vincular»: te mando el código a tu número.";
     expect(notices()).toEqual([
       { kind: "chat_message", text },
       { kind: "push", text },
     ]);
+  });
+
+  it("does not warn when a link the owner asked for just ended", () => {
+    const { monitor, store, notices } = setup();
+    store.setStatus("baileys", "logged_out", START, "Sin vincular: el código venció sin vincularse.");
+    monitor.check();
+    expect(notices()).toEqual([]);
   });
 
   it("gives a connection that keeps retrying a quarter of an hour, and forgets the fall once it is back", () => {

@@ -10,6 +10,9 @@ export const CloseCode = {
   restartRequired: 515,
 } as const;
 
+/** Starts the detail of a stopped bridge whose owner-asked linking just ended (an expired code, no saved number): nothing fell, so nobody is warned. */
+export const UNLINKED = "Sin vincular: ";
+
 export interface ReconnectOptions {
   baseDelayMs: number;
   maxDelayMs: number;
@@ -39,9 +42,9 @@ export class ReconnectPolicy {
   decide(statusCode: number | undefined, paired: boolean): CloseDecision {
     switch (statusCode) {
       case CloseCode.loggedOut:
-        return { action: "stop", status: "logged_out", detail: "La sesión se cerró desde el teléfono. Abrí Configuración y escaneá el QR para vincular de nuevo.", clearSession: true };
+        return { action: "stop", status: "logged_out", detail: "La sesión se cerró desde el teléfono. Abrí Configuración y tocá «Vincular».", clearSession: true };
       case CloseCode.badSession:
-        return { action: "stop", status: "error", detail: "WhatsApp invalidó la sesión. Abrí Configuración y escaneá el QR para vincular de nuevo.", clearSession: true };
+        return { action: "stop", status: "error", detail: "WhatsApp invalidó la sesión. Abrí Configuración y tocá «Vincular».", clearSession: true };
       case CloseCode.connectionReplaced:
         return { action: "stop", status: "error", detail: "Otra sesión reemplazó al puente. Verificá que haya una sola instancia y reintentá desde Configuración.", clearSession: false };
       case CloseCode.forbidden:
@@ -51,7 +54,7 @@ export class ReconnectPolicy {
         break;
     }
     if (!paired && statusCode !== CloseCode.restartRequired) {
-      return { action: "stop", status: "disconnected", detail: "El código QR venció sin vincularse. Abrí Configuración para generar otro.", clearSession: false };
+      return { action: "stop", status: "logged_out", detail: UNLINKED + "el código venció sin vincularse. Tocá «Vincular» en Configuración para pedir otro.", clearSession: false };
     }
     return this.nextAttempt(statusCode === CloseCode.restartRequired);
   }
