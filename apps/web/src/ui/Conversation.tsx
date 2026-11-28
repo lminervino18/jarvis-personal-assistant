@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Core } from "../core/Core.js";
 import { stateLabel } from "../conversation/assistant-state.js";
 import type { Session, SessionSnapshot } from "../conversation/session.js";
-import { voiceSubtitle } from "../conversation/subtitle.js";
 import { measureViewport, useAssistantAnnouncement, useElapsed, useElementHeight, useMediaQuery, useSnapshot, useViewportRecovery, useVisibleViewport } from "../hooks.js";
 import { BuildScreen } from "./BuildScreen.js";
 import { CallScreen } from "./CallScreen.js";
@@ -85,7 +84,6 @@ export function Conversation({ session, onLogout, demo }: Props) {
     setPanel("jarvis");
     if (window.location.pathname in PANEL_PATHS) window.history.replaceState(null, "", "/");
   }, []);
-  const subtitle = useMemo(() => voiceSubtitle(snapshot.thread), [snapshot.thread]);
   const label = stateLabel(snapshot.state);
   const online = snapshot.connection === "ready";
   const call = snapshot.capabilities?.stt === true && online ? () => void session.startCall() : undefined;
@@ -249,7 +247,6 @@ export function Conversation({ session, onLogout, demo }: Props) {
           state={snapshot.state}
           label={label}
           muted={snapshot.callMuted}
-          subtitle={subtitle}
           activity={session.activity}
           getLevels={session.getLevels}
           onMute={() => void session.toggleCallMute()}

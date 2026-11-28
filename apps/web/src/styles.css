@@ -2033,36 +2033,17 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.call-caption {
-  min-height: 5.4em;
-  max-width: 34ch;
-  margin: 0 0 28px;
-}
-
-.call-caption p {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  font-size: 19px;
-  line-height: 1.35;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-}
-
-.call-caption[data-speaker="owner"] p {
-  color: var(--secondary);
-}
-
 .call-controls {
   display: flex;
   gap: 64px;
+  margin-top: 56px;
 }
 
 @media (orientation: landscape) and (max-height: 520px) {
   .call {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr auto auto auto 1fr;
+    grid-template-rows: 1fr auto auto 1fr;
     justify-items: center;
     column-gap: 32px;
     padding: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
@@ -2083,16 +2064,10 @@ button {
     grid-row: 2;
   }
 
-  .call-caption {
-    grid-column: 2;
-    grid-row: 3;
-    min-height: 0;
-    margin-bottom: 20px;
-  }
-
   .call-controls {
     grid-column: 2;
-    grid-row: 4;
+    grid-row: 3;
+    margin-top: 24px;
   }
 }
 

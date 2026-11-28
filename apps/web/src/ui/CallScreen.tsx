@@ -2,7 +2,6 @@ import type { AssistantState } from "@jarvis/contracts";
 import type { ActivityStore } from "../activity/activity-store.js";
 import { Core } from "../core/Core.js";
 import type { LevelReading } from "../core/core-style.js";
-import type { Subtitle } from "../conversation/subtitle.js";
 import { useElapsed } from "../hooks.js";
 import { ActivityLive } from "./ActivityGroup.js";
 import { HangUpIcon, MicIcon } from "./icons.js";
@@ -11,15 +10,14 @@ interface Props {
   state: AssistantState;
   label: string;
   muted: boolean;
-  subtitle: Subtitle | null;
   activity: ActivityStore;
   getLevels(): LevelReading;
   onMute(): void;
   onHangUp(): void;
 }
 
-/** The call on a phone: the big core, a live caption of the conversation, mute and hang up. Everything said is saved in the chat. */
-export function CallScreen({ state, label, muted, subtitle, activity, getLevels, onMute, onHangUp }: Props) {
+/** The call on a phone: only the core moving with the voices, mute and hang up; no text. Everything said is saved in the chat. */
+export function CallScreen({ state, label, muted, activity, getLevels, onMute, onHangUp }: Props) {
   const elapsed = useElapsed();
   return (
     <div className="call" role="dialog" aria-modal="true" aria-label="Llamada con Jarvis" data-state={state}>
@@ -30,9 +28,6 @@ export function CallScreen({ state, label, muted, subtitle, activity, getLevels,
       <p className="call-status" role="status" data-state={state}>
         {muted ? "Micrófono silenciado" : label} · <span className="call-clock">{elapsed}</span>
       </p>
-      <div className="call-caption" data-speaker={subtitle?.speaker}>
-        {subtitle?.text && <p>{subtitle.text}</p>}
-      </div>
       <div className="call-controls">
         <button type="button" className="call-button glass" aria-pressed={muted} aria-label={muted ? "Activar micrófono" : "Silenciar micrófono"} onClick={onMute}>
           <MicIcon muted={muted} size={28} />
