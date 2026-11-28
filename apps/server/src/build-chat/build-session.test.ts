@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -230,5 +231,69 @@ describe("Construir as a conversation", () => {
     expect(existsSync(join(env.workspace, ".git"))).toBe(true);
     env.advance(5 * 60_000);
     expect(env.service.view().state.status).toBe("offline");
+  });
+});
+
+describe("Construir's checkout", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main", ...args], { cwd, encoding: "utf8" }).trim();
+
+  function production() {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-construir-git-"));
+    dirs.push(root);
+    const repo = join(root, "work", "projects", "jarvis", "repo");
+    mkdirSync(repo, { recursive: true });
+    git(repo, "init", "-q");
+    writeFileSync(join(repo, "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "b.ts"), "export const b = 1;\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "base");
+    const db = openMigratedDatabase(":memory:", workMigrations);
+    const store = new BuildChatStore(db);
+    const prompts: string[] = [];
+    const session = new BuildSession({
+      store,
+      tasks: new TaskStore(db),
+      layout: new WorkLayout(join(root, "work")),
+      workspace: join(root, "work", "build", "repo"),
+      projectDir: join(root, "work", "projects", "jarvis"),
+      model: "m",
+      reviewerModel: "m",
+      env: {},
+      log: { info: () => {}, warn: () => {} },
+      timezone: "America/Argentina/Buenos_Aires",
+      queryFn: ((input: { prompt: string }) => (prompts.push(input.prompt), Object.assign((async function* () {})(), { interrupt: async () => {} }))) as never,
+      setup: async () => {},
+    });
+    return { repo, store, session, prompts, workspace: join(root, "work", "build", "repo") };
+  }
+
+  it("carries unpublished work onto a commit someone else published meanwhile", async () => {
+    const env = production();
+    env.store.post("owner", "empezá", new Date());
+    await env.session.tick();
+    writeFileSync(join(env.workspace, "a.ts"), "export const a = 2;\n");
+    writeFileSync(join(env.repo, "b.ts"), "export const b = 2;\n");
+    git(env.repo, "commit", "-qam", "someone else");
+
+    env.store.post("owner", "seguí", new Date());
+    await env.session.tick();
+    expect(env.store.state().baseCommit).toBe(git(env.repo, "rev-parse", "HEAD"));
+    expect(readFileSync(join(env.workspace, "a.ts"), "utf8")).toBe("export const a = 2;\n");
+    expect(readFileSync(join(env.workspace, "b.ts"), "utf8")).toBe("export const b = 2;\n");
+    expect(env.prompts.at(-1)).toContain("puse tu trabajo sin publicar encima de la versión nueva");
+  });
+
+  it("leaves conflicts marked for the agent when both touched the same lines", async () => {
+    const env = production();
+    env.store.post("owner", "empezá", new Date());
+    await env.session.tick();
+    writeFileSync(join(env.workspace, "a.ts"), "export const a = 2;\n");
+    writeFileSync(join(env.repo, "a.ts"), "export const a = 3;\n");
+    git(env.repo, "commit", "-qam", "someone else");
+
+    env.store.post("owner", "seguí", new Date());
+    await env.session.tick();
+    expect(readFileSync(join(env.workspace, "a.ts"), "utf8")).toContain("<<<<<<<");
+    expect(env.prompts.at(-1)).toContain("Hay conflictos en a.ts");
   });
 });

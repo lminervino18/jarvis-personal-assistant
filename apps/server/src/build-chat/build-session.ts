@@ -134,10 +134,11 @@ export class BuildSession {
     const pending = store.pending();
     store.markHandled(pending.map((message) => message.id));
     store.update({ status: "working", activity: "Leyendo tu mensaje…", stopRequested: false }, this.now());
-    const prompt = pending.map((message) => (message.role === "system" ? `[Aviso del sistema] ${message.text}` : message.text)).join("\n\n");
+    const asked = pending.map((message) => (message.role === "system" ? `[Aviso del sistema] ${message.text}` : message.text)).join("\n\n");
     let limitedUntil: number | undefined;
     try {
-      const base = await this.prepareWorkspace();
+      const { base, note } = await this.prepareWorkspace();
+      const prompt = note ? `[Aviso del sistema] ${note}\n\n${asked}` : asked;
       const stream = (this.deps.queryFn ?? query)({ prompt, options: this.options(base, store.state().sessionId) });
       this.stream = stream;
       for await (const message of stream) limitedUntil = this.absorb(message) ?? limitedUntil;
@@ -309,23 +310,47 @@ export class BuildSession {
     store.post("system", `La publicación «${publication.commitTitle}» falló ${why || "sin detalle"}. Revisá el motivo, arreglalo y volvé a publicar.`, now);
   }
 
-  /** The checkout the agent works in: cloned once from the deployed commit, and moved onto the new one after each publication. */
-  private async prepareWorkspace(): Promise<string> {
+  /**
+   * The checkout the agent works in, always on the commit in production: cloned once, moved onto
+   * the new commit after its own publication, and, when someone else published meanwhile, its
+   * unpublished work is carried onto the new commit, with conflicts left marked for the agent.
+   */
+  private async prepareWorkspace(): Promise<{ base: string; note?: string }> {
     const { store, workspace, projectDir } = this.deps;
     const source = join(projectDir, "repo");
     const state = store.state();
     if (!existsSync(join(workspace, ".git"))) {
       mkdirSync(dirname(workspace), { recursive: true });
       await this.git(["clone", "--quiet", "--no-hardlinks", source, workspace], dirname(workspace));
-      return this.settle();
+      return { base: await this.settle() };
     }
+    const deployed = (await this.git(["rev-parse", "HEAD"], source)).trim();
     if (state.resetNeeded || !state.baseCommit) {
-      await this.git(["fetch", "--quiet", source, "HEAD"], workspace);
-      await this.git(["reset", "--quiet", "--hard", "FETCH_HEAD"], workspace);
-      await this.git(["clean", "-fdq", "-e", "node_modules"], workspace);
-      return this.settle();
+      await this.moveTo(source);
+      return { base: await this.settle() };
     }
-    return state.baseCommit;
+    if (deployed === state.baseCommit) return { base: state.baseCommit };
+    await this.git(["reset", "--quiet", "--soft", state.baseCommit], workspace);
+    const dirty = (await this.git(["status", "--porcelain"], workspace)).trim() !== "";
+    if (dirty) await this.git(["stash", "push", "--include-untracked", "--quiet"], workspace);
+    await this.moveTo(source);
+    const base = await this.settle();
+    if (!dirty) return { base };
+    const moved = "Mientras trabajabas se publicó otro cambio en producción: puse tu trabajo sin publicar encima de la versión nueva.";
+    try {
+      await this.git(["stash", "pop", "--quiet"], workspace);
+      return { base, note: `${moved} Corré pnpm check antes de publicar.` };
+    } catch {
+      const conflicts = (await this.git(["diff", "--name-only", "--diff-filter=U"], workspace).catch(() => "")).split("\n").filter(Boolean);
+      return { base, note: `${moved} Hay conflictos en ${conflicts.join(", ") || "algunos archivos"}: resolvelos (quedaron marcados), borrá el stash con git stash drop cuando termines, corré pnpm check y volvé a publicar.` };
+    }
+  }
+
+  private async moveTo(source: string): Promise<void> {
+    const { workspace } = this.deps;
+    await this.git(["fetch", "--quiet", source, "HEAD"], workspace);
+    await this.git(["reset", "--quiet", "--hard", "FETCH_HEAD"], workspace);
+    await this.git(["clean", "-fdq", "-e", "node_modules"], workspace);
   }
 
   private async settle(): Promise<string> {
