@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Card } from "@jarvis/contracts";
 import { MAX_TEXT_CHARS, WhatsAppQueryError, WhatsAppReader, type WaMessageView } from "../integrations/whatsapp/message-reader.js";
 import { describePerson, type PersonMatch } from "../integrations/whatsapp/people.js";
-import { OWN_CHAT, WhatsAppOutbox } from "../integrations/whatsapp/outbox.js";
+import { OWN_CHAT, WhatsAppOutbox, type QuotedMessage } from "../integrations/whatsapp/outbox.js";
 import { bridgeConnected } from "../integrations/whatsapp/status.js";
 import { clip, withinBudget } from "./digest.js";
 import { fail, ok } from "./envelope.js";
@@ -80,6 +80,19 @@ export const whatsappGetMessages = defineTool({
   },
 });
 
+const UNQUOTABLE = "No encontré ese mensaje en ese chat para citarlo: tiene que ser un mensaje real de ese mismo chat (de whatsapp_search o whatsapp_get_messages), no importado.";
+
+/** The message `replyTo` names, as WhatsApp needs it to show it quoted; only real messages of that same chat. */
+function quoteOf(ctx: ToolContext, chatJid: string, messageId: string): QuotedMessage | undefined {
+  const row = ctx.services.db
+    .prepare("SELECT id, sender_jid, from_me, text FROM wa_messages WHERE chat_jid = ? AND id = ? AND source = 'baileys' AND deleted = 0")
+    .get(chatJid, messageId) as { id: string; sender_jid: string | null; from_me: number; text: string } | undefined;
+  if (!row) return undefined;
+  return { id: row.id, fromMe: row.from_me === 1, text: row.text.slice(0, 1000), ...(chatJid.endsWith("@g.us") && row.sender_jid ? { participant: row.sender_jid } : {}) };
+}
+
+const quoteDetail = (quote: QuotedMessage | undefined) => (quote ? [{ label: "Responde a", value: quote.text.slice(0, 200) || "un mensaje sin texto" }] : []);
+
 export const whatsappSend = defineTool({
   name: "whatsapp_send",
   description:
@@ -93,6 +106,7 @@ export const whatsappSend = defineTool({
     }
     if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", NOT_CONNECTED) };
     if (input.attachmentId && !ctx.services.attachments?.get(input.attachmentId)) return { refused: fail("not_found", MISSING_ATTACHMENT) };
+    if (input.replyTo && !quoteOf(ctx, chat.jid, input.replyTo)) return { refused: fail("not_found", UNQUOTABLE) };
     return { input: { ...input, chatId: chat.jid } };
   },
   replaces: (pending, next) => pending.chatId === next.chatId,
@@ -102,7 +116,11 @@ export const whatsappSend = defineTool({
     return {
       title: "Enviar WhatsApp",
       summary: `Para ${chat.name}`,
-      details: [{ label: "Mensaje", value: input.text }, ...(attachment ? [{ label: "Adjunto", value: attachment.name }] : [])],
+      details: [
+        ...quoteDetail(input.replyTo ? quoteOf(ctx, chat.jid, input.replyTo) : undefined),
+        { label: "Mensaje", value: input.text },
+        ...(attachment ? [{ label: "Adjunto", value: attachment.name }] : []),
+      ],
     };
   },
   async execute(ctx, input) {
@@ -113,8 +131,10 @@ export const whatsappSend = defineTool({
       return queryFailure(error);
     }
     if (!bridgeConnected(ctx.services.db, ctx.now())) return fail("not_connected", NOT_CONNECTED);
+    const quote = input.replyTo ? quoteOf(ctx, chat.jid, input.replyTo) : undefined;
+    if (input.replyTo && !quote) return fail("not_found", UNQUOTABLE);
     const id = randomUUID();
-    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: input.text, ...(input.attachmentId ? { attachmentId: input.attachmentId } : {}) }, ctx.now());
+    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: input.text, ...(input.attachmentId ? { attachmentId: input.attachmentId } : {}), ...(quote ? { quote } : {}) }, ctx.now());
     return ok(SOURCE, [{ outboxId: id, chat: chat.name, status: "queued" }], {
       note: "El mensaje quedó en cola y el puente lo envía en unos segundos. No afirmes que llegó ni que lo leyeron.",
     });
@@ -199,6 +219,7 @@ export const whatsappVoiceNote = defineTool({
     const problem = introductionProblem(ctx, chat, input.text);
     if (problem) return { refused: fail("invalid_input", problem) };
     if (!bridgeConnected(ctx.services.db, ctx.now())) return { refused: fail("not_connected", NOT_CONNECTED) };
+    if (input.replyTo && !quoteOf(ctx, chat.jid, input.replyTo)) return { refused: fail("not_found", UNQUOTABLE) };
     return { input: { ...input, chatId: chat.jid } };
   },
   replaces: (pending, next) => pending.chatId === next.chatId,
@@ -208,6 +229,7 @@ export const whatsappVoiceNote = defineTool({
       title: "Enviar nota de voz",
       summary: `Para ${chat.name}`,
       details: [
+        ...quoteDetail(input.replyTo ? quoteOf(ctx, chat.jid, input.replyTo) : undefined),
         { label: "Dice", value: input.text },
         { label: "Duración", value: `unos ${Math.max(2, Math.round(input.text.length / VOICE_CHARS_PER_SECOND))} segundos, con la voz de Jarvis` },
       ],
@@ -229,10 +251,12 @@ export const whatsappVoiceNote = defineTool({
     } catch {
       return fail("upstream_error", "No pude grabar la nota de voz; probá de nuevo en un rato.", true);
     }
+    const quote = input.replyTo ? quoteOf(ctx, chat.jid, input.replyTo) : undefined;
+    if (input.replyTo && !quote) return fail("not_found", UNQUOTABLE);
     const saved = attachments.save({ name: VOICE_NOTE_NAME, mediaType: VOICE_NOTE_TYPE, data: note.data }, ctx.now());
     if (!saved) return fail("internal", "No pude guardar la nota de voz.");
     const id = randomUUID();
-    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: "", attachmentId: saved.id }, ctx.now());
+    new WhatsAppOutbox(ctx.services.db).enqueue({ id, chatJid: chat.jid, text: "", attachmentId: saved.id, ...(quote ? { quote } : {}) }, ctx.now());
     return ok(SOURCE, [{ outboxId: id, chat: chat.name, seconds: note.seconds, status: "queued" }], {
       note: "La nota de voz quedó en cola y sale en unos segundos. No afirmes que llegó ni que la escucharon.",
     });

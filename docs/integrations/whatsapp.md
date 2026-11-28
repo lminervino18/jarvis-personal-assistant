@@ -112,6 +112,10 @@ Details:
 - Cost: about 11k input tokens per block plus one merge per chat. All synced text, about 2.7 million characters, is roughly 70 blocks.
 - Delegated agents never get chats; this stays on the personal side.
 
+## Quoting a message
+
+`whatsapp_send` and `whatsapp_voice_note` take `replyTo`, a `messageId` from `whatsapp_search` or `whatsapp_get_messages`, to answer that message quoted, as in WhatsApp. It goes in the same Baileys `sendMessage` call (`wa_outbox.quote_json`, as @jarvis answers do). Only real messages of the destination chat qualify: one from another chat, an imported one or an unknown id is refused before any card. The confirmation card shows the quoted text.
+
 ## Voice notes
 
 Jarvis introduces itself only the first time it talks to a chat with its own voice, meaning no earlier voice note or video was sent there. `whatsapp_voice_note` refuses a first note without the introduction, and any later note with one. Its message says whether to greet: it greets after 4 hours of silence or on another day, and goes straight to the point otherwise.

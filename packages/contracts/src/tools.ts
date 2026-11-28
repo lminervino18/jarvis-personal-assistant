@@ -114,6 +114,7 @@ export const toolInputs = {
     chatId: z.string().min(1).max(128),
     text: z.string().trim().min(1).max(2000),
     attachmentId: z.uuid().optional(),
+    replyTo: z.string().min(1).max(128).optional().describe("messageId de un mensaje de ese mismo chat (de whatsapp_search o whatsapp_get_messages) para responderlo citado; solo si el dueño pide responder o citar un mensaje"),
   },
   calendar_list: {
     from: IsoWithOffset,
@@ -236,6 +237,7 @@ export const toolInputs = {
   whatsapp_voice_note: {
     chatId: z.string().min(1).max(128).describe("Id, número o nombre del chat; «me» para el propio dueño"),
     text: z.string().trim().min(1).max(700).describe("Lo que dice Jarvis, empezando por presentarse: «Hola Carme, soy Jarvis, el asistente de Loren…»"),
+    replyTo: z.string().min(1).max(128).optional().describe("messageId de un mensaje de ese mismo chat (de whatsapp_search o whatsapp_get_messages) para responderlo citado; solo si el dueño pide responder o citar un mensaje"),
   },
   whatsapp_to_me: {
     text: z.string().trim().min(1).max(2000),

@@ -222,6 +222,26 @@ describe("whatsapp_send", () => {
     expect(outboxRows(db)).toEqual([{ chat_jid: "5490000000001@s.whatsapp.net", text: "llego en 10", status: "pending" }]);
   });
 
+  it("answers a message of the same chat quoted, and refuses one from another chat or an import", async () => {
+    const { db, ctx } = setup();
+    connect(db);
+    liveChat(db);
+    const insert = db.prepare("INSERT INTO wa_messages (id, chat_jid, sender_jid, from_me, ts_utc, text, source, inserted_at) VALUES (?, ?, NULL, 0, ?, ?, ?, ?)");
+    insert.run("ABC123", "5490000000001@s.whatsapp.net", now.toISOString(), "¿Venís el sábado?", "baileys", now.toISOString());
+    insert.run("OTHER1", "5490000000009@s.whatsapp.net", now.toISOString(), "otro chat", "baileys", now.toISOString());
+    insert.run("IMP1", "5490000000001@s.whatsapp.net", now.toISOString(), "importado", "import", now.toISOString());
+
+    const result = await runTool(ctx, tool("whatsapp_send"), { chatId: "Ana Vivo", text: "Sí, llevo el fernet", replyTo: "ABC123" });
+    expect(result).toMatchObject({ ok: true });
+    const row = db.prepare("SELECT quote_json FROM wa_outbox").get() as { quote_json: string };
+    expect(JSON.parse(row.quote_json)).toEqual({ id: "ABC123", fromMe: false, text: "¿Venís el sábado?" });
+
+    for (const replyTo of ["OTHER1", "IMP1", "NOPE"]) {
+      expect(await runTool(ctx, tool("whatsapp_send"), { chatId: "Ana Vivo", text: "x", replyTo })).toMatchObject({ ok: false, error: { code: "not_found" } });
+    }
+    expect(db.prepare("SELECT COUNT(*) FROM wa_outbox").pluck().get()).toBe(1);
+  });
+
   it("refuses imported chats before showing a card", async () => {
     const { db, ctx } = setup();
     connect(db);
