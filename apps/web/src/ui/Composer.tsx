@@ -1,3 +1,4 @@
+import { haptic } from "../haptics.js";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import type { AttachmentCard, ChatUpload } from "../attachments/upload.js";
 import type { SessionSnapshot } from "../conversation/session.js";
@@ -156,7 +157,15 @@ export function Composer(props: Props) {
   if (dictation !== "idle") {
     return (
       <form className="composer" onSubmit={(event) => event.preventDefault()}>
-        <DictationBar state={dictation} levels={levels} onStop={onDictationStop} onCancel={onDictationCancel} />
+        <DictationBar
+          state={dictation}
+          levels={levels}
+          onStop={(send) => {
+            haptic();
+            onDictationStop(send);
+          }}
+          onCancel={onDictationCancel}
+        />
       </form>
     );
   }
@@ -238,7 +247,16 @@ export function Composer(props: Props) {
           onKeyDown={onKeyDown}
           onFocus={onFocus}
         />
-        <button type="button" className="field-button mic" aria-label="Dictar: hablá y lo escribo" disabled={!online} onClick={onDictate}>
+        <button
+          type="button"
+          className="field-button mic"
+          aria-label="Dictar: hablá y lo escribo"
+          disabled={!online}
+          onClick={() => {
+            haptic();
+            onDictate();
+          }}
+        >
           <svg viewBox="0 0 24 24" aria-hidden="true" width="20" height="20">
             <path fill="currentColor" d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z" />
           </svg>
