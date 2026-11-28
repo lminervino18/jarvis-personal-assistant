@@ -20,6 +20,8 @@ import { MediaDownloader } from "./downloads/media-downloader.js";
 import { MediaChoices } from "./downloads/media-choices.js";
 import { MediaQueue } from "./downloads/media-queue.js";
 import { BeelupSource } from "./downloads/beelup.js";
+import { warpHealer } from "./downloads/warp-control.js";
+import { YtDlpUpdater } from "./downloads/ytdlp-updater.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
 import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
 import { BridgeMonitor } from "./integrations/whatsapp/bridge-monitor.js";
@@ -123,6 +125,7 @@ const transferSender = new TransferSender({
   ...(gmail.service ? { gmail: gmail.service } : {}),
 });
 const ytdlp = process.env.YTDLP_BIN;
+const ytdlpUpdater = ytdlp ? new YtDlpUpdater({ dir: join(config.dataDir, "yt-dlp-builds"), bundled: ytdlp }) : undefined;
 const media =
   ytdlp && existsSync(ytdlp)
     ? new MediaQueue({
@@ -144,6 +147,8 @@ const media =
           maxBytes: 8 * 1024 ** 3,
           timeoutMs: 2 * 3_600_000,
           ...(process.env.YTDLP_YOUTUBE_PROXY ? { youtubeProxy: process.env.YTDLP_YOUTUBE_PROXY } : {}),
+          ...(process.env.YTDLP_WARP_CONTROL ? { heal: warpHealer(process.env.YTDLP_WARP_CONTROL) } : {}),
+          freshBin: () => ytdlpUpdater?.freshBin() ?? Promise.resolve(undefined),
           ...(process.env.YTDLP_COOKIES_FILE ? { cookiesFile: process.env.YTDLP_COOKIES_FILE } : {}),
         }),
       })

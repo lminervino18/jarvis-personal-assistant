@@ -94,7 +94,7 @@ Both go in `/etc/jarvis/jarvis.env`; the cookies file lives on the server, never
 
 The `warp` compose service (profile `warp`) runs [wireproxy](https://github.com/windtf/wireproxy):
 - a userspace WireGuard tunnel to Cloudflare WARP, exposing SOCKS5 on `warp:40000` inside the compose network only;
-- the image is built `FROM scratch` with the checksum-pinned binary, read-only and without capabilities.
+- a supervisor (`apps/server/src/warp/warp-supervisor.ts`, entry `warp-main.ts`) runs wireproxy and keeps it alive, with the checksum-pinned `wireproxy` and `wgcf` binaries next to it. The container is read-only and has no capabilities.
 - It needs a small writable `/var/run` (a tmpfs) for WireGuard's control socket: without it the handshake silently never completes.
 
 The server uses it with `YTDLP_YOUTUBE_PROXY=socks5h://warp:40000`.
@@ -104,11 +104,17 @@ The identity is anonymous and was registered with [wgcf](https://github.com/ViRb
 - `wgcf-profile.conf`;
 - `wireproxy.conf`, which points `WGConfig` at `/etc/wireproxy/wgcf-profile.conf` and binds SOCKS5 to `0.0.0.0:40000`.
 
-**Renewal:**
-- The `jarvis-warp-check` systemd timer runs `infra/warp/check.sh` every 15 minutes. On 2026-11-26 YouTube flagged a WARP identity within a few hours.
-- It asks yt-dlp, through the tunnel, for a short public video.
-- If YouTube answers with its bot check, it registers a new WARP identity and restarts `warp`.
-- Meanwhile, a YouTube download that hits the bot check is retried by the queue 15 and 30 minutes later before it counts as failed.
+**Self-healing (since 2026-11-28):**
+- The supervisor asks Cloudflare's trace page through the tunnel every 30 seconds. After three failed checks it restarts wireproxy; if the tunnel is still down 45 seconds later, it registers a new WARP identity with `wgcf` (at most every five minutes) and restarts again. On 2026-11-27 the handshake stayed down for 9 hours and nothing noticed: the old check only looked for YouTube's bot answer.
+- The server asks for the same when a download needs it, on `warp:40001` (`YTDLP_WARP_CONTROL`): `POST /restart` when the tunnel does not answer, `POST /renew` when YouTube answers with its bot check. The call returns once the tunnel carries traffic again, so the download retries right away.
+- `/etc/jarvis/warp/` is mounted writable for this, still owned by uid 65532, the container's user.
+- The `jarvis-warp-check` systemd timer (`infra/warp/check.sh`) still renews the identity every 15 minutes when YouTube blocks it; it is a second line now.
+
+**Fallback routes** (`MediaDownloader.run`):
+- YouTube goes through the tunnel and, if that fails after healing, directly. X and Instagram go directly and, when that fails or asks to sign in, through the tunnel.
+- yt-dlp gives up on a dead connection after 15 seconds (`--socket-timeout 15 --extractor-retries 1`), instead of three minutes.
+- When yt-dlp no longer understands a site («unable to extract», «nsig», «please report this issue»), the server downloads the latest nightly build once (`YtDlpUpdater`, at most every six hours), checks it against the release's `SHA2-256SUMS`, keeps it in `/data/yt-dlp-builds/` and retries with it.
+- A download still blocked or offline goes back in line and is retried 3, 10 and 30 minutes later before it counts as failed.
 
 Setting it up on a new server, as root:
 1. Install the verified `wgcf` binary in `/usr/local/bin`.

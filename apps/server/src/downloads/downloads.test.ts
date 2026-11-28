@@ -87,6 +87,14 @@ describe("yt-dlp", () => {
     expect(failureOf("[download] File is larger than max-filesize (9 bytes > 1 bytes). Aborting.")).toBe("too_big");
     expect(failureOf("ERROR: [youtube] x: Video unavailable")).toBe("unavailable");
     expect(failureOf("ERROR: something else")).toBe("failed");
+    expect(failureOf("WARNING: [youtube:search] Connection to www.youtube.com timed out. (connect timeout=15.0)")).toBe("offline");
+    expect(failureOf("ERROR: [youtube] x: nsig extraction failed: Some formats may be missing")).toBe("outdated");
+    expect(failureOf("ERROR: [youtube] x: Requested format is not available")).toBe("unavailable");
+  });
+
+  it("gives up fast on a dead connection instead of waiting minutes", () => {
+    const args = downloader().args({ source: "link", target: "https://youtu.be/x", site: "YouTube", format: "max" }, tempDir());
+    expect(args.slice(args.indexOf("--socket-timeout"), args.indexOf("--socket-timeout") + 4)).toEqual(["--socket-timeout", "15", "--extractor-retries", "1"]);
   });
 
   function fakeProcess(script: (child: { stdout: PassThrough; stderr: PassThrough; end(): void }) => void) {
@@ -109,6 +117,71 @@ describe("yt-dlp", () => {
     const file = await downloader({ spawnFn }).run({ source: "link", target: "https://youtu.be/x", site: "YouTube", format: "max" }, dir, (fraction) => progress.push(fraction), new AbortController().signal);
     expect(file).toEqual({ path: join(dir, "video.mp4"), title: "Big Buck Bunny", ext: "mp4", height: 2160 });
     expect(progress).toEqual([0.5, 1]);
+  });
+
+  function scripted(outcomes: ((dir: string) => string | undefined)[]) {
+    const calls: string[][] = [];
+    const spawnFn = ((bin: string, args: string[]) => {
+      calls.push([bin, ...args]);
+      const outcome = outcomes[calls.length - 1] ?? (() => "ERROR: nothing left");
+      return fakeProcess(({ stdout, stderr, end }) => {
+        const dir = args[args.indexOf("-o") + 1]!.replace(/\/video\.%\(ext\)s$/, "");
+        const failure = outcome(dir);
+        if (failure) stderr.write(`${failure}\n`);
+        else {
+          writeFileSync(join(dir, "video.mp4"), "mp4");
+          stdout.write(`[done] ${JSON.stringify({ filepath: join(dir, "video.mp4"), title: "t", ext: "mp4" })}\n`);
+        }
+        setTimeout(end, 2);
+      })(bin, args);
+    }) as unknown as typeof spawn;
+    return { calls, spawnFn };
+  }
+  const proxyOf = (call: string[]) => (call.includes("--proxy") ? call[call.indexOf("--proxy") + 1] : undefined);
+
+  it("heals a dead or blocked tunnel and tries again before going out directly", async () => {
+    const heals: string[] = [];
+    const { calls, spawnFn } = scripted([
+      () => "ERROR: Unable to download webpage: Connection to www.youtube.com timed out",
+      () => "ERROR: [youtube] x: Sign in to confirm you're not a bot",
+      () => undefined,
+    ]);
+    const heal = async (how: "restart" | "renew") => {
+      heals.push(how);
+      return true;
+    };
+    const file = await downloader({ spawnFn, youtubeProxy: "socks5h://warp:40000", heal }).run({ source: "link", target: "https://youtu.be/x", site: "YouTube", format: "mp3" }, tempDir(), () => {}, new AbortController().signal);
+    expect(file.title).toBe("t");
+    expect(heals).toEqual(["restart", "renew"]);
+    expect(calls.map(proxyOf)).toEqual(["socks5h://warp:40000", "socks5h://warp:40000", "socks5h://warp:40000"]);
+  });
+
+  it("goes out directly when the tunnel cannot be healed, and reports the last reason", async () => {
+    const { calls, spawnFn } = scripted([() => "ERROR: Connection refused by SOCKS proxy", () => "ERROR: [youtube] x: Sign in to confirm you're not a bot"]);
+    await expect(
+      downloader({ spawnFn, youtubeProxy: "socks5h://warp:40000", heal: async () => false }).run({ source: "search", target: "Paint It Black", site: "YouTube", format: "mp3" }, tempDir(), () => {}, new AbortController().signal),
+    ).rejects.toMatchObject({ reason: "blocked" });
+    expect(calls.map(proxyOf)).toEqual(["socks5h://warp:40000", undefined]);
+  });
+
+  it("tries X and Instagram directly first and through the tunnel when they ask to sign in", async () => {
+    const { calls, spawnFn } = scripted([() => "ERROR: [instagram] x: Requested content is not available, login required", () => undefined]);
+    await downloader({ spawnFn, youtubeProxy: "socks5h://warp:40000" }).run({ source: "link", target: "https://instagram.com/p/x", site: "Instagram", format: "iphone" }, tempDir(), () => {}, new AbortController().signal);
+    expect(calls.map(proxyOf)).toEqual([undefined, "socks5h://warp:40000"]);
+  });
+
+  it("swaps in a newer yt-dlp once when the bundled one no longer understands the site", async () => {
+    const { calls, spawnFn } = scripted([() => "ERROR: [youtube] x: Unable to extract player response; please report this issue", () => undefined]);
+    await downloader({ spawnFn, freshBin: async () => "/data/yt-dlp-builds/2026.11.27/yt-dlp_linux" }).run({ source: "link", target: "https://youtu.be/x", site: "YouTube", format: "max" }, tempDir(), () => {}, new AbortController().signal);
+    expect(calls.map((call) => call[0])).toEqual(["yt-dlp", "/data/yt-dlp-builds/2026.11.27/yt-dlp_linux"]);
+  });
+
+  it("does not retry what no route can fix", async () => {
+    const { calls, spawnFn } = scripted([() => "ERROR: [youtube] x: Video unavailable"]);
+    await expect(
+      downloader({ spawnFn, youtubeProxy: "socks5h://warp:40000" }).run({ source: "link", target: "https://youtu.be/x", site: "YouTube", format: "max" }, tempDir(), () => {}, new AbortController().signal),
+    ).rejects.toMatchObject({ reason: "unavailable" });
+    expect(calls).toHaveLength(1);
   });
 
   it("fails with the reason yt-dlp gave, and stops when cancelled", async () => {
@@ -285,7 +358,7 @@ describe("media queue", () => {
     expect(chatText(env.outbox())).toContain(FAILURES.unavailable);
   });
 
-  it("waits for YouTube to unblock the server and tries again on its own before giving up", async () => {
+  it("waits for the tunnel to heal and tries again on its own before giving up", async () => {
     let now = new Date("2026-11-26T12:00:00Z");
     let calls = 0;
     const env = setup(
@@ -297,16 +370,16 @@ describe("media queue", () => {
     );
     const job = env.queue.download({ url: "https://youtu.be/aqz-KE-bpKQ", format: "iphone" });
     await env.queue.idle();
-    expect(env.queue.get(job!.id)).toMatchObject({ status: "queued", attempts: 1, retryAt: "2026-11-26T12:15:00.000Z", error: expect.stringContaining("reintento") });
+    expect(env.queue.get(job!.id)).toMatchObject({ status: "queued", attempts: 1, retryAt: "2026-11-26T12:03:00.000Z", error: expect.stringContaining("reintento") });
     expect(env.outbox()).toEqual([]);
 
-    for (const minutes of [16, 32]) {
+    for (const minutes of [4, 14, 45]) {
       now = new Date(Date.parse("2026-11-26T12:00:00Z") + minutes * 60_000);
       env.queue.resume();
       await new Promise((resolve) => setTimeout(resolve, 5));
       await env.queue.idle();
     }
-    expect(calls).toBe(3);
+    expect(calls).toBe(4);
     expect(env.queue.get(job!.id)).toMatchObject({ status: "failed", error: FAILURES.blocked });
     expect(chatText(env.outbox())).toContain(FAILURES.blocked);
     await env.queue.stop();

@@ -16,7 +16,19 @@ export interface DownloadRequest {
   format: MediaFormat;
 }
 
-export type DownloadFailure = "blocked" | "login" | "unavailable" | "too_big" | "unsupported" | "unconvertible" | "no_moment" | "timeout" | "cancelled" | "failed";
+export type DownloadFailure =
+  | "blocked"
+  | "offline"
+  | "outdated"
+  | "login"
+  | "unavailable"
+  | "too_big"
+  | "unsupported"
+  | "unconvertible"
+  | "no_moment"
+  | "timeout"
+  | "cancelled"
+  | "failed";
 
 /** A failed download, with a reason the owner can act on. Never carries cookies, proxies or raw tool output. */
 export class DownloadError extends Error {
@@ -81,13 +93,20 @@ function formatArgs(format: MediaFormat): string[] {
 
 /** Why yt-dlp failed, read from what it printed. */
 export function failureOf(output: string): DownloadFailure {
-  if (/confirm you.?re not a bot/i.test(output)) return "blocked";
+  if (/confirm you.?re not a bot|rate.?limit|too many requests|429/i.test(output)) return "blocked";
   if (/max-filesize|larger than max/i.test(output)) return "too_big";
   if (/unsupported url/i.test(output)) return "unsupported";
+  if (/unable to extract|nsig extraction|signature (extraction|function)|please report this issue|only images are available/i.test(output)) return "outdated";
   if (/private|login required|log in|sign in|requires authentication|cookies/i.test(output)) return "login";
   if (/unavailable|not available|removed|does not exist|404|no video/i.test(output)) return "unavailable";
+  if (/timed out|unable to connect|connection (refused|reset|aborted)|network is unreachable|tunnel connection failed|socks|proxy|name resolution|name or service not known/i.test(output)) return "offline";
   return "failed";
 }
+
+/** Failures another route or a newer yt-dlp may get past; the rest are final. */
+const RECOVERABLE: ReadonlySet<DownloadFailure> = new Set(["blocked", "offline", "outdated", "login", "failed"]);
+const TUNNEL_FAILURES: ReadonlySet<DownloadFailure> = new Set(["blocked", "offline"]);
+const MAX_HEALS = 2;
 
 export interface MediaDownloaderOptions {
   /** The yt-dlp executable. */
@@ -96,8 +115,12 @@ export interface MediaDownloaderOptions {
   cacheDir: string;
   maxBytes: number;
   timeoutMs: number;
-  /** Proxy only for YouTube, which blocks downloads from data center addresses. */
+  /** The WARP tunnel: always first for YouTube, which blocks data center addresses; the second try for X and Instagram. */
   youtubeProxy?: string;
+  /** Asks the tunnel to reconnect or to take a new identity; resolves true once it carries traffic again. */
+  heal?(how: "restart" | "renew"): Promise<boolean>;
+  /** A newer yt-dlp than `bin`, when the bundled one no longer understands a site. */
+  freshBin?(): Promise<string | undefined>;
   /** Netscape cookies file for sites that ask to sign in; copied per run because yt-dlp rewrites it. */
   cookiesFile?: string;
   spawnFn?: typeof spawn;
@@ -107,8 +130,16 @@ export interface MediaDownloaderOptions {
 export class MediaDownloader {
   constructor(private readonly options: MediaDownloaderOptions) {}
 
-  args(job: DownloadRequest, dir: string): string[] {
+  /** Where each try goes out: YouTube through the tunnel and then direct; X and Instagram direct and then through the tunnel. */
+  routes(site: VideoSite): (string | undefined)[] {
+    const proxy = this.options.youtubeProxy;
+    if (!proxy) return [undefined];
+    return site === "YouTube" ? [proxy, undefined] : [undefined, proxy];
+  }
+
+  args(job: DownloadRequest, dir: string, route: { proxy: string | undefined } = { proxy: job.site === "YouTube" ? this.options.youtubeProxy : undefined }): string[] {
     const { options } = this;
+    const { proxy } = route;
     const cookies = options.cookiesFile && existsSync(options.cookiesFile) ? join(dir, "cookies.txt") : undefined;
     if (cookies && options.cookiesFile) copyFileSync(options.cookiesFile, cookies);
     return [
@@ -125,6 +156,10 @@ export class MediaDownloader {
       options.cacheDir,
       "--max-filesize",
       String(options.maxBytes),
+      "--socket-timeout",
+      "15",
+      "--extractor-retries",
+      "1",
       ...formatArgs(job.format),
       "-o",
       join(dir, "video.%(ext)s"),
@@ -134,16 +169,53 @@ export class MediaDownloader {
       "download:[progress] %(progress.downloaded_bytes)s %(progress.total_bytes,progress.total_bytes_estimate)s",
       "--print",
       "after_move:[done] %(.{filepath,title,ext,height})j",
-      ...(job.site === "YouTube" && options.youtubeProxy ? ["--proxy", options.youtubeProxy] : []),
+      ...(proxy ? ["--proxy", proxy] : []),
       ...(cookies ? ["--cookies", cookies] : []),
     ];
   }
 
-  /** Runs the download into `dir`; reports progress from 0 to 1 and stops when `signal` aborts. */
-  run(job: DownloadRequest, dir: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<DownloadedFile> {
+  /**
+   * Runs the download into `dir`, trying every route before giving up: a blocked or dead tunnel is
+   * healed once or twice, and a yt-dlp that no longer understands the site is swapped for a newer one.
+   * Reports progress from 0 to 1 and stops when `signal` aborts.
+   */
+  async run(job: DownloadRequest, dir: string, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<DownloadedFile> {
+    let bin = this.options.bin;
+    let updated = false;
+    let last: DownloadFailure = "failed";
+    for (const proxy of this.routes(job.site)) {
+      let heals = 0;
+      for (;;) {
+        try {
+          return await this.attempt(bin, job, dir, proxy, onProgress, signal);
+        } catch (error) {
+          const reason = error instanceof DownloadError ? error.reason : "failed";
+          if (!RECOVERABLE.has(reason)) throw error;
+          last = reason === "outdated" ? "failed" : reason;
+          if (reason === "outdated" && !updated) {
+            updated = true;
+            const fresh = await this.options.freshBin?.();
+            if (fresh) {
+              bin = fresh;
+              continue;
+            }
+          }
+          if (proxy && TUNNEL_FAILURES.has(reason) && heals < MAX_HEALS && this.options.heal) {
+            heals++;
+            if (await this.options.heal(reason === "blocked" ? "renew" : "restart")) continue;
+          }
+          break;
+        }
+      }
+    }
+    throw new DownloadError(last);
+  }
+
+  private attempt(bin: string, job: DownloadRequest, dir: string, proxy: string | undefined, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<DownloadedFile> {
+    if (signal.aborted) return Promise.reject(new DownloadError("cancelled"));
     const spawnFn = this.options.spawnFn ?? spawn;
     return new Promise((resolve, reject) => {
-      const child = spawnFn(this.options.bin, this.args(job, dir), { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawnFn(bin, this.args(job, dir, { proxy }), { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
       let output = "";
       let done: DownloadedFile | undefined;
       let ended: DownloadFailure | undefined;

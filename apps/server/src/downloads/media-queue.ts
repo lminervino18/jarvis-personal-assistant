@@ -70,7 +70,9 @@ interface Row {
 
 /** What the owner reads when a job fails; the raw tool output never reaches them or the model. */
 export const FAILURES: Record<DownloadFailure, string> = {
-  blocked: "YouTube bloqueó la salida del servidor. Se renueva sola en unos minutos: probá de nuevo más tarde.",
+  blocked: "El sitio bloqueó la salida del servidor y no se destrabó después de varios intentos. Probá de nuevo más tarde.",
+  offline: "No pude conectarme al sitio desde el servidor después de varios intentos. Probá de nuevo más tarde.",
+  outdated: "El sitio cambió y ni la versión nueva del descargador lo entiende todavía. Probá de nuevo mañana.",
   login: "El video es privado o pide iniciar sesión.",
   unavailable: "El video no existe, lo borraron o no está disponible.",
   too_big: "El video es más grande que el máximo que bajo (8 GB).",
@@ -83,10 +85,10 @@ export const FAILURES: Record<DownloadFailure, string> = {
 };
 
 export const CONVERSION_SITE = "Transferencias";
-const RETRYING = "YouTube bloqueó la salida del servidor; lo reintento solo en unos minutos.";
-/** A blocked YouTube download waits for the tunnel to renew (checked every 15 minutes) and tries again, twice. */
-const BLOCKED_RETRIES = 2;
-const RETRY_MS = 15 * 60_000;
+const RETRYING = "El sitio bloqueó la salida o el túnel se cayó; ya lo estoy arreglando y lo reintento solo en unos minutos.";
+/** A blocked or unreachable download waits while the tunnel heals and tries again: after 3, 10 and 30 minutes. */
+const RETRY_DELAYS_MS = [3, 10, 30].map((minutes) => minutes * 60_000);
+const RETRIED: ReadonlySet<DownloadFailure> = new Set(["blocked", "offline"]);
 const MEDIA_TYPES: Record<string, string> = { mp4: "video/mp4", mkv: "video/x-matroska", webm: "video/webm", mov: "video/quicktime", m4a: "audio/mp4", mp3: "audio/mpeg" };
 const FORMAT_NAMES: Record<MediaFormat, string> = { iphone: "para el iPhone", max: "en máxima calidad", mp3: "en MP3", m4a: "en M4A" };
 const AUDIO_FORMATS: ReadonlySet<MediaFormat> = new Set(["mp3", "m4a"]);
@@ -316,7 +318,7 @@ export class MediaQueue {
     const at = this.now();
     this.deps.db
       .prepare("UPDATE media_jobs SET status = 'queued', progress = 0, attempts = attempts + 1, not_before = ?, error = ?, updated_at = ? WHERE id = ?")
-      .run(new Date(at.getTime() + RETRY_MS).toISOString(), RETRYING, at.toISOString(), job.id);
+      .run(new Date(at.getTime() + (RETRY_DELAYS_MS[job.attempts] ?? RETRY_DELAYS_MS.at(-1)!)).toISOString(), RETRYING, at.toISOString(), job.id);
   }
 
   /** Wakes the queue when the next postponed job is due. */
@@ -365,7 +367,7 @@ export class MediaQueue {
         return;
       }
       const reason = error instanceof DownloadError ? error.reason : "failed";
-      if (reason === "blocked" && job.attempts < BLOCKED_RETRIES) {
+      if (RETRIED.has(reason) && job.attempts < RETRY_DELAYS_MS.length) {
         this.retryLater(job);
         return;
       }
