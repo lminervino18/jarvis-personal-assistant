@@ -301,9 +301,15 @@ export const toolInputs = {
     account: GmailAccountLabel.optional(),
   },
   drive_upload: {
-    attachmentIds: z.array(z.uuid()).min(1).max(20),
-    folderId: z.string().trim().max(500).optional(),
+    attachmentIds: z.array(z.uuid()).max(20).optional().describe("Archivos del chat: fotos, adjuntos, imágenes generadas, archivos de WhatsApp"),
+    transferIds: z.array(z.uuid()).max(20).optional().describe("Archivos de Transferencias (transfer_list), de cualquier tamaño: suben en segundo plano"),
+    folderId: z.string().trim().max(500).optional().describe("Carpeta de destino (id o link); la carpeta Jarvis si no se indica"),
+    folderPath: z.string().trim().max(300).optional().describe("Subcarpetas dentro del destino separadas por /, por ejemplo «Solares/Fecha 3»; las que faltan se crean"),
+    name: z.string().trim().min(1).max(200).optional().describe("Nombre en Drive, cuando se sube un solo archivo"),
     account: GmailAccountLabel.optional(),
+  },
+  drive_upload_status: {
+    uploadId: z.uuid().optional(),
   },
   drive_update: {
     fileId: z.string().trim().min(1).max(500),
@@ -426,6 +432,7 @@ export const untrustedContentTools: ReadonlySet<ToolName> = new Set<ToolName>([
   "page_responses",
   "drive_search",
   "drive_download",
+  "drive_upload_status",
   "transfer_list",
   "transfer_suggest",
 ]);

@@ -22,6 +22,7 @@ import { sql as whatsappQuotesSql } from "./migrations/018-whatsapp-quotes.js";
 import { sql as whatsappPeopleSql } from "./migrations/019-whatsapp-people.js";
 import { sql as whatsappWakeSql } from "./migrations/020-whatsapp-wake.js";
 import { sql as whatsappSendersSql } from "./migrations/021-whatsapp-senders.js";
+import { sql as driveUploadsSql } from "./migrations/022-drive-uploads.js";
 import { sql as tasksSql } from "./work-migrations/001-tasks.js";
 import { sql as plannerSessionSql } from "./work-migrations/002-planner-session.js";
 import { sql as taskArchiveSql } from "./work-migrations/004-task-archive.js";
@@ -59,6 +60,7 @@ export const migrations: Migration[] = [
   { version: 19, name: "whatsapp_people", sql: whatsappPeopleSql },
   { version: 20, name: "whatsapp_wake", sql: whatsappWakeSql },
   { version: 21, name: "whatsapp_senders", sql: whatsappSendersSql },
+  { version: 22, name: "drive_uploads", sql: driveUploadsSql },
 ];
 
 /**

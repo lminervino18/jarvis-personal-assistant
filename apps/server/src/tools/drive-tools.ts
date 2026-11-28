@@ -1,5 +1,6 @@
 import type { GmailAccountLabel } from "@jarvis/contracts";
 import { DriveError, parseDriveLink, type DriveClient, type DriveFile } from "../integrations/drive/drive-client.js";
+import type { DriveUploads } from "../integrations/drive/drive-uploads.js";
 import { fail, ok } from "./envelope.js";
 import { defineTool, type ToolContext } from "./types.js";
 
@@ -12,6 +13,8 @@ export interface DriveServices {
   client: DriveClient;
   /** Whether that Google account granted Drive access. */
   ready(label: GmailAccountLabel): boolean;
+  /** Background uploads from Transferencias. */
+  uploads?: DriveUploads;
 }
 
 function view(file: DriveFile, folder: boolean) {
@@ -83,23 +86,51 @@ export const driveCreateFolder = defineTool({
 export const driveUpload = defineTool({
   name: "drive_upload",
   description:
-    "Sube a Drive archivos que ya están en el chat (fotos o archivos que mandó el dueño, imágenes que generaste, archivos bajados de WhatsApp con whatsapp_get_file), por su attachmentId. Van a la carpeta Jarvis salvo que indiques otra (id o link).",
-  describe: (_ctx, input) => ({ title: "Subir a Drive", summary: `${input.attachmentIds.length} archivo(s)`, details: [] }),
+    "Sube a Drive archivos del chat (attachmentIds: fotos o archivos del dueño, imágenes generadas, archivos de WhatsApp) o de Transferencias (transferIds: videos bajados, partidos de Beelup, lo que subió el dueño), de cualquier tamaño. Van a la carpeta Jarvis o a folderId, y dentro a folderPath («Solares/Fecha 3»), creando las carpetas que falten. Lo de Transferencias sube en segundo plano y el dueño recibe el link al terminar; si ya estaba en esa carpeta no se sube de nuevo.",
+  describe: (_ctx, input) => {
+    const count = (input.attachmentIds?.length ?? 0) + (input.transferIds?.length ?? 0);
+    return { title: "Subir a Drive", summary: `${count} archivo(s)${input.folderPath ? ` a ${input.folderPath}` : ""}`, details: input.name ? [{ label: "Nombre", value: input.name }] : [] };
+  },
   async execute(ctx, input) {
     const { drive, label, error } = setup(ctx, input.account);
     if (error) return error;
+    const attachmentIds = input.attachmentIds ?? [];
+    const transferIds = input.transferIds ?? [];
+    if (attachmentIds.length + transferIds.length === 0) return fail("invalid_input", "Indicá qué subir: attachmentIds o transferIds.");
+    const single = attachmentIds.length + transferIds.length === 1 ? input.name : undefined;
     const attachments = ctx.services.attachments;
-    if (!attachments) return fail("disabled", "Los adjuntos no están configurados en el servidor.");
+    if (attachmentIds.length > 0 && !attachments) return fail("disabled", "Los adjuntos no están configurados en el servidor.");
+    const uploads = ctx.services.drive?.uploads;
+    if (transferIds.length > 0 && !uploads) return fail("disabled", "Las subidas desde Transferencias no están configuradas en el servidor.");
     return run(async () => {
-      const parent = await target(drive, label, input.folderId);
-      const uploaded = [];
-      for (const id of input.attachmentIds) {
-        const stored = attachments.read(id);
-        if (!stored) return fail("not_found", "No encontré uno de los archivos para subir.");
-        uploaded.push(view(await drive.upload(label, { name: stored.attachment.name, mimeType: stored.attachment.mediaType, data: stored.data, parent }), false));
+      const base = await target(drive, label, input.folderId);
+      const parent = input.folderPath ? (await drive.folderAt(label, base, input.folderPath)).id : base;
+      const items: Record<string, unknown>[] = [];
+      for (const id of attachmentIds) {
+        const stored = attachments?.read(id);
+        if (!stored) return fail("not_found", "No encontré uno de los archivos del chat para subir.");
+        items.push(view(await drive.upload(label, { name: single ?? stored.attachment.name, mimeType: stored.attachment.mediaType, data: stored.data, parent }), false));
       }
-      return ok(SOURCE, uploaded);
+      for (const id of transferIds) {
+        const queued = uploads?.enqueue({ account: label, transferId: id, folderId: base, ...(input.folderPath ? { folderPath: input.folderPath } : {}), ...(single ? { name: single } : {}) });
+        if (!queued) return fail("not_found", "Uno de los archivos ya no está en Transferencias.");
+        items.push({ uploadId: queued.id, name: queued.name, size: queued.size, status: queued.status });
+      }
+      const note = transferIds.length > 0 ? "Lo de Transferencias sube en segundo plano: cuando termine, el dueño recibe el link. Con drive_upload_status se ve cómo va." : undefined;
+      return ok(SOURCE, items, note ? { note } : undefined);
     });
+  },
+});
+
+export const driveUploadStatus = defineTool({
+  name: "drive_upload_status",
+  description: "Cómo van las subidas a Drive desde Transferencias: estado, porcentaje y link de las últimas, o de una por su uploadId.",
+  async execute(ctx, input) {
+    const uploads = ctx.services.drive?.uploads;
+    if (!uploads) return fail("disabled", "Las subidas desde Transferencias no están configuradas en el servidor.");
+    const items = input.uploadId ? [uploads.get(input.uploadId)].filter((item) => item !== undefined) : uploads.recent();
+    if (input.uploadId && items.length === 0) return fail("not_found", "No encontré esa subida.");
+    return ok(SOURCE, items);
   },
 });
 
@@ -192,4 +223,4 @@ export const driveTrash = defineTool({
   },
 });
 
-export const driveTools = [driveSearch, driveCreateFolder, driveUpload, driveUpdate, driveShare, driveDownload, driveTrash] as const;
+export const driveTools = [driveSearch, driveCreateFolder, driveUpload, driveUploadStatus, driveUpdate, driveShare, driveDownload, driveTrash] as const;

@@ -111,6 +111,7 @@ export const toolPresentations: Record<ToolName, ToolPresentation> = {
   drive_search: t("drive", "Buscando en Google Drive…", "Google Drive consultado"),
   drive_create_folder: t("drive", "Creando una carpeta en Drive…", "Carpeta creada"),
   drive_upload: t("drive", "Subiendo a Google Drive…", "Archivo subido"),
+  drive_upload_status: t("drive", "Viendo las subidas a Drive…", "Subidas revisadas"),
   drive_update: t("drive", "Actualizando en Google Drive…", "Archivo actualizado"),
   drive_share: t("drive", "Compartiendo desde Google Drive…", "Archivo compartido"),
   drive_download: t("drive", "Descargando de Google Drive…", "Archivo descargado"),

@@ -66,6 +66,17 @@ export function parseDriveLink(input: string): { id: string; resourceKey?: strin
   return { id, ...(resourceKey ? { resourceKey } : {}) };
 }
 
+/** Where a resumable upload stands: finished with its file, or how many bytes Drive already has. */
+export type ResumableState = { done: DriveFile } | { received: number };
+
+/** The bytes Drive confirmed in a 308 answer's Range header (`bytes=0-N`), 0 when it has none. */
+export function receivedBytes(range: string | null): number {
+  const end = range?.match(/bytes=0-(\d+)/)?.[1];
+  return end === undefined ? 0 : Number(end) + 1;
+}
+
+const escapeQuery = (text: string) => text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
 /** Drive v3 over `fetch`, with the owner's Google account tokens. */
 export class DriveClient {
   constructor(
@@ -97,6 +108,58 @@ export class DriveClient {
 
   async createFolder(label: GmailAccountLabel, name: string, parent: string): Promise<DriveFile> {
     return this.json(label, `${API}?fields=${FIELDS}&supportsAllDrives=true`, "POST", { name, mimeType: FOLDER, parents: [parent] });
+  }
+
+  /** The folder at `path` («Solares/Fecha 3») under `parent`, creating whatever part is missing. */
+  async folderAt(label: GmailAccountLabel, parent: string, path: string): Promise<DriveFile> {
+    let current = await this.get(label, parent);
+    for (const name of path.split("/").map((part) => part.trim()).filter(Boolean)) {
+      const query = `'${current.id}' in parents and name = '${escapeQuery(name)}' and mimeType = '${FOLDER}' and trashed = false`;
+      current = (await this.list(label, query, 1))[0] ?? (await this.createFolder(label, name, current.id));
+    }
+    return current;
+  }
+
+  /** A file in `parent` that JARVIS uploaded with this content key, so the same file is not uploaded twice. */
+  async findUploaded(label: GmailAccountLabel, parent: string, key: string): Promise<DriveFile | undefined> {
+    const query = `'${parent}' in parents and appProperties has { key='jarvisKey' and value='${escapeQuery(key)}' } and trashed = false`;
+    return (await this.list(label, query, 1))[0];
+  }
+
+  /** Opens a resumable upload and returns its session address, valid for about a week. */
+  async startResumable(label: GmailAccountLabel, input: { name: string; mimeType: string; size: number; parent: string; key: string }): Promise<string> {
+    const response = await this.send(label, `${UPLOAD}?uploadType=resumable&fields=${FIELDS}&supportsAllDrives=true`, "POST", { name: input.name, parents: [input.parent], appProperties: { jarvisKey: input.key } }, {
+      "x-upload-content-type": input.mimeType,
+      "x-upload-content-length": String(input.size),
+    });
+    const session = response.headers.get("location");
+    if (!session) throw new DriveError("unavailable", "Drive no abrió la subida; probá de nuevo en un rato.");
+    return session;
+  }
+
+  /** Sends bytes `start` to `start + chunk.length` of a `total`-byte resumable upload; an empty chunk only asks where it stands. */
+  async sendChunk(label: GmailAccountLabel, session: string, chunk: Buffer, start: number, total: number): Promise<ResumableState> {
+    const range = chunk.length === 0 ? `bytes */${total}` : `bytes ${start}-${start + chunk.length - 1}/${total}`;
+    const call = async () =>
+      this.fetchFn(session, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${await this.tokens.get(label)}`, "content-range": range },
+        body: new Uint8Array(chunk),
+        signal: AbortSignal.timeout(10 * TIMEOUT_MS),
+      });
+    let response: Response;
+    try {
+      response = await call();
+      if (response.status === 401) {
+        this.tokens.invalidate(label);
+        response = await call();
+      }
+    } catch {
+      throw new DriveError("unavailable", "Drive no respondió; probá de nuevo en un rato.");
+    }
+    if (response.status === 308) return { received: receivedBytes(response.headers.get("range")) };
+    if (!response.ok) throw failure(response.status);
+    return { done: (await response.json()) as DriveFile };
   }
 
   async upload(label: GmailAccountLabel, input: { name: string; mimeType: string; data: Buffer; parent: string }): Promise<DriveFile> {

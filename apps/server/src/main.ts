@@ -22,6 +22,7 @@ import { MediaQueue } from "./downloads/media-queue.js";
 import { BeelupSource } from "./downloads/beelup.js";
 import { warpHealer } from "./downloads/warp-control.js";
 import { YtDlpUpdater } from "./downloads/ytdlp-updater.js";
+import { DriveUploads } from "./integrations/drive/drive-uploads.js";
 import { MomentFinder } from "./downloads/moment-finder.js";
 import { sarcasticReplier, WhatsAppWatcher } from "./integrations/whatsapp/watcher.js";
 import { BridgeMonitor } from "./integrations/whatsapp/bridge-monitor.js";
@@ -155,13 +156,14 @@ const media =
     : undefined;
 
 const mediaChoices = media ? new MediaChoices(db, media) : undefined;
+const driveUploads = gmail.drive ? new DriveUploads({ db, client: gmail.drive.client, store: transfers, transfersDir, dir: join(config.dataDir, "drive-uploads") }) : undefined;
 
 const services: ToolServices = {
   db,
   timezone: config.timezone,
   backupRetentionDays: Number(process.env.BACKUP_RETENTION_DAYS ?? 30),
   statusSources: [gmail.statusSource, whatsapp, youtube, connections.statusSource, ...(gmail.driveStatus ? [gmail.driveStatus] : [])],
-  drive: gmail.drive,
+  drive: gmail.drive ? { ...gmail.drive, ...(driveUploads ? { uploads: driveUploads } : {}) } : undefined,
   gmail: gmail.service,
   youtube,
   transfers: { store: transfers, publicOrigin: config.publicOrigin, sender: transferSender, ...(media ? { media, choices: mediaChoices } : {}) },
@@ -354,6 +356,7 @@ const app = await buildApp({
       ...(mediaChoices ? { choices: mediaChoices } : {}),
     });
     media?.resume();
+    driveUploads?.start();
     setInterval(() => {
       transferRoutes.sweep().catch((error: unknown) => logger.warn({ err: error instanceof Error ? error.message : "unknown" }, "transfer sweep failed"));
     }, 15 * 60_000).unref();
@@ -411,6 +414,7 @@ const shutdown = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   systemMessageFeed.stop();
   await media?.stop();
+  await driveUploads?.stop();
   await app.close();
   await pagesServer?.close();
   db.close();
