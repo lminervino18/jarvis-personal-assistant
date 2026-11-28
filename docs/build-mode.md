@@ -10,7 +10,7 @@ Status: *implemented* and *tested with fixtures*. The first real conversation is
 Construir (web) ──build.request──► server: message in build_messages (work.db), never through the chat model
                                      │
 agent runner (host): BuildSession reads it and resumes its Claude Code session over its own checkout
-   steps (TodoWrite) ─► progress bar · tool use ─► activity line · text ─► answers in the chat
+   steps (tool `pasos`) ─► progress bar · tool use ─► activity line · text ─► answers in the chat
    pnpm check ─► subagent «revisor» ─► fixes ─► tool `publicar`
                                      │ a task on project "jarvis", source "build-chat", status ready, with the patch
 server: autoPublish signs it ─► publisher (host, user deploy): verify → prepare → apply → checks → commit → push → deploy
@@ -34,6 +34,8 @@ BuildSession: a system note to the session ─► it explains the change to the 
 - **Claude Code, full permissions.** `permissionMode: bypassPermissions`, the Claude Code preset prompt plus the Construir instructions, and the repository's own `CLAUDE.md` (`settingSources: ["project"]`). There is no Bash sandbox; the boundary is the runner's systemd unit: user `jarvis-agents`, only `/srv/jarvis/work` writable, no Docker and no secrets outside its own token.
 - **One conversation.** The session id is kept in `build_state` and resumed on every message, also after a restart. A turn cut by a deploy or a crash is picked up with a note to the session.
 - **Its checkout.** `/srv/jarvis/work/build/repo`, cloned from the deployed commit with dependencies installed. After each successful publication it moves onto the new deployed commit.
+- **Permissions.** Claude Code ignored `bypassPermissions` in the runner: the session started in «default» and every edit waited for an approval nobody could give (2026-11-28). A `canUseTool` that answers yes to everything grants them instead, and the Bash sandbox is off explicitly.
+- **Progress.** The always-loaded MCP tool `pasos` takes the whole list of steps, each pending, in progress or done; the prompt asks the session to call it at the start and at every step. Claude Code's own to-do tool loads on demand and the session did not use it.
 - **Review.** The subagent «revisor» (read-only tools plus Bash) checks the whole change and runs `pnpm check` before publishing.
 - **Publishing.** The `publicar` tool takes a Conventional Commit title and a summary, writes the patch against the base commit and leaves a ready task on the `jarvis` project. The server publishes it like any reviewed task. One publication at a time; the result comes back as a note to the session. A failure goes back to the session to fix, up to three in a row; then it tells the owner and waits.
 - **Explanations.** The prompt tells it to explain changes in plain words: no code, paths or commands.

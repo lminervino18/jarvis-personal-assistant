@@ -50,6 +50,7 @@ const ACTIVITY: Record<string, string> = {
   WebSearch: "Buscando en internet…",
   WebFetch: "Leyendo una página…",
   mcp__jarvis__publicar: "Mandándolo a publicar…",
+  mcp__jarvis__pasos: "Ordenando los pasos…",
 };
 
 /** What the agent is doing, in the owner's words: never a path, a command or code. */
@@ -214,6 +215,18 @@ export class BuildSession {
       },
       async (input) => text(await this.ship(input)),
     );
+    const steps = tool(
+      "pasos",
+      "La barra de progreso que ve Lorenzo en Construir: la lista completa de pasos del pedido, cada uno pendiente, en curso o hecho. Llamala al empezar un pedido y cada vez que termines o empieces un paso, siempre con la lista entera.",
+      {
+        steps: z
+          .array(z.object({ text: z.string().min(1).max(200).describe("El paso, en palabras para Lorenzo, sin nombres de archivos"), status: z.enum(["pending", "in_progress", "completed"]) }))
+          .min(1)
+          .max(30),
+      },
+      async (input) => text(this.setSteps(input.steps)),
+      { alwaysLoad: true },
+    );
     return {
       cwd: this.deps.workspace,
       env: this.deps.env,
@@ -226,7 +239,7 @@ export class BuildSession {
       systemPrompt: { type: "preset", preset: "claude_code", append: buildPrompt(base) },
       settingSources: ["project"],
       settings: { disableClaudeAiConnectors: true },
-      mcpServers: { jarvis: createSdkMcpServer({ name: "jarvis", tools: [publish] }) },
+      mcpServers: { jarvis: createSdkMcpServer({ name: "jarvis", tools: [publish, steps], alwaysLoad: true }) },
       agents: {
         revisor: {
           description: "Revisor independiente: revisa el cambio completo antes de publicar y devuelve los problemas o «aprobado».",
@@ -237,6 +250,14 @@ export class BuildSession {
       },
       stderr: (line) => this.deps.log.warn({ line: line.slice(0, 300) }, "build session stderr"),
     };
+  }
+
+  /** The `pasos` tool: the steps the owner sees as the progress bar, with the one in progress as the activity line. */
+  setSteps(steps: { text: string; status: BuildTodo["status"] }[]): string {
+    const todos = steps.map((step) => ({ content: step.text, status: step.status }));
+    const current = todos.find((todo) => todo.status === "in_progress");
+    this.deps.store.update({ todos, activity: current?.content ?? null }, this.now());
+    return "Listo, la barra está al día.";
   }
 
   /** The `publicar` tool: turns the checkout's change into a reviewed-and-ready task the server publishes. */

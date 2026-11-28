@@ -110,6 +110,16 @@ describe("Construir as a conversation", () => {
     expect(await allowEverything("Edit", { file_path: "apps/web/src/a.ts" }, { signal, toolUseID: "t1" } as never)).toEqual({ behavior: "allow", updatedInput: { file_path: "apps/web/src/a.ts" } });
   });
 
+  it("shows the steps it reports with its own tool as the progress bar", () => {
+    const env = setup([]);
+    env.session.setSteps([
+      { text: "Leer cómo se vincula WhatsApp", status: "completed" },
+      { text: "Agregar el botón Vincular", status: "in_progress" },
+      { text: "Publicar", status: "pending" },
+    ]);
+    expect(env.service.view().state).toMatchObject({ activity: "Agregar el botón Vincular", steps: [{ status: "completed" }, { text: "Agregar el botón Vincular", status: "in_progress" }, { status: "pending" }] });
+  });
+
   it("describes what it does in plain words", () => {
     expect(describeTool("Bash", { command: "pnpm --filter @jarvis/server test" })).toBe("Corriendo los chequeos…");
     expect(describeTool("Agent", { subagent_type: "revisor" })).toBe("El revisor está mirando el cambio…");
