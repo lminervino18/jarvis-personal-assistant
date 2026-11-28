@@ -15,6 +15,10 @@ turn → user message with attachment cards
        plus a line "[adjuntos del dueño: <id> «name» (type, size)]" so tools can reuse the ids
 ```
 
+## Dragging files onto the chat
+
+On a computer, files dragged anywhere over the chat show «Soltá los archivos para adjuntarlos» and, when dropped, join the composer like the «+» picker: the same preview chips, a button to remove each one before sending, the same upload and the same limit of four per message. A drop on Transferencias stays there: that screen handles its own drops first.
+
 ## Uses
 
 | Use | Tool | Notes |

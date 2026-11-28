@@ -1385,6 +1385,30 @@ button {
   flex-wrap: wrap;
 }
 
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  margin: 12px;
+  border: 2px dashed var(--accent);
+  border-radius: 24px;
+  background: rgba(10, 132, 255, 0.12);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.drop-overlay p {
+  margin: 0;
+  padding: 12px 20px;
+  border-radius: 16px;
+  background: var(--grouped);
+  color: var(--label);
+  font-size: 17px;
+  font-weight: 600;
+}
+
 .composer-attachments {
   flex: 1 0 100%;
   display: flex;

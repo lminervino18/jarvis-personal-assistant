@@ -1,5 +1,6 @@
 import { haptic } from "../haptics.js";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import type { AttachmentCard, ChatUpload } from "../attachments/upload.js";
 import type { SessionSnapshot } from "../conversation/session.js";
 import { appendDictation } from "./dictation.js";
@@ -108,9 +109,16 @@ export function Composer(props: Props) {
     }
   };
 
-  const onFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = [...(event.target.files ?? [])].slice(0, MAX_ATTACHMENTS - attachments.length);
+  const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
     event.target.value = "";
+    return addFiles(files);
+  };
+
+  /** Files from the picker or dropped on the chat: shown with their preview and a remove button, and uploaded meanwhile. */
+  const addFiles = async (all: File[]) => {
+    const files = all.slice(0, MAX_ATTACHMENTS - attachments.length);
+    if (all.length > files.length) setHint(`Van hasta ${MAX_ATTACHMENTS} adjuntos por mensaje.`);
     if (!onAttach || files.length === 0) return;
     const added = files.map((file) => ({ key: crypto.randomUUID(), name: file.name, ...(file.type.startsWith("image/") ? { preview: URL.createObjectURL(file) } : {}) }));
     setAttachments((current) => [...current, ...added]);
@@ -127,6 +135,46 @@ export function Composer(props: Props) {
       }),
     );
   };
+
+  const addRef = useRef(addFiles);
+  addRef.current = addFiles;
+  const [dropping, setDropping] = useState(false);
+
+  useEffect(() => {
+    if (!onAttach || !active) return;
+    let depth = 0;
+    const hasFiles = (event: DragEvent) => [...(event.dataTransfer?.types ?? [])].includes("Files");
+    const enter = (event: DragEvent) => {
+      if (!hasFiles(event) || event.defaultPrevented) return;
+      depth += 1;
+      setDropping(true);
+    };
+    const over = (event: DragEvent) => {
+      if (hasFiles(event) && !event.defaultPrevented) event.preventDefault();
+    };
+    const leave = (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDropping(false);
+    };
+    const drop = (event: DragEvent) => {
+      depth = 0;
+      setDropping(false);
+      if (event.defaultPrevented || !hasFiles(event)) return;
+      event.preventDefault();
+      void addRef.current([...(event.dataTransfer?.files ?? [])]);
+    };
+    document.addEventListener("dragenter", enter);
+    document.addEventListener("dragover", over);
+    document.addEventListener("dragleave", leave);
+    document.addEventListener("drop", drop);
+    return () => {
+      document.removeEventListener("dragenter", enter);
+      document.removeEventListener("dragover", over);
+      document.removeEventListener("dragleave", leave);
+      document.removeEventListener("drop", drop);
+    };
+  }, [onAttach, active]);
 
   useEffect(() => {
     if (!menu) return;
@@ -172,6 +220,13 @@ export function Composer(props: Props) {
 
   return (
     <form className="composer" onSubmit={submit}>
+      {dropping &&
+        createPortal(
+          <div className="drop-overlay" aria-hidden="true">
+            <p>Soltá los archivos para adjuntarlos</p>
+          </div>,
+          document.body,
+        )}
       {attachments.length > 0 && (
         <ul className="composer-attachments" aria-label="Adjuntos">
           {attachments.map((item) => (
