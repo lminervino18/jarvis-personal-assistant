@@ -255,6 +255,7 @@ describe("conversions", () => {
 describe("media queue", () => {
   interface Options {
     send?: SendRequest[];
+    drive?: { transferId: string; spec: object }[];
     convert?: (work: string) => Promise<{ path: string; ext: string; height?: number }>;
     now?: () => Date;
   }
@@ -275,6 +276,7 @@ describe("media queue", () => {
       freeBytes: () => 100 * 1024 ** 3,
       ...(converter ? { converter } : {}),
       ...(options.now ? { now: options.now } : {}),
+      ...(options.drive ? { toDrive: (transfer: { id: string }, spec: object) => void options.drive?.push({ transferId: transfer.id, spec }) } : {}),
       ...(sent
         ? {
             send: async (_transfer: unknown, request: SendRequest) => {
@@ -356,6 +358,21 @@ describe("media queue", () => {
     await env.queue.idle();
     expect(env.queue.get(job!.id)).toMatchObject({ status: "failed", error: FAILURES.unavailable });
     expect(chatText(env.outbox())).toContain(FAILURES.unavailable);
+  });
+
+  it("uploads a finished download to Drive when asked, with its folder and name", async () => {
+    const drive: { transferId: string; spec: object }[] = [];
+    const env = setup(
+      async (work) => {
+        writeFileSync(join(work, "partido.mp4"), "match");
+        return { path: join(work, "partido.mp4"), title: "DISTRITO FUTBOL Cancha 4", ext: "mp4" };
+      },
+      { drive },
+    );
+    env.queue.download({ url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ", format: "max", drive: { folderPath: "Solares/Semifinales", name: "Semifinales F5 vs Hasbulla.mp4" } });
+    await env.queue.idle();
+    const [transfer] = env.store.list(new Date());
+    expect(drive).toEqual([{ transferId: transfer!.id, spec: { folderPath: "Solares/Semifinales", name: "Semifinales F5 vs Hasbulla.mp4" } }]);
   });
 
   it("waits for the tunnel to heal and tries again on its own before giving up", async () => {

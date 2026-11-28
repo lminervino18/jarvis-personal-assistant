@@ -140,6 +140,7 @@ const media =
         converter: mediaConverter,
         beelup: new BeelupSource(),
         send: (transfer, request) => transferSender.send(transfer, request, new Date()),
+        toDrive: (transfer, spec) => void driveUploads?.enqueue({ account: "personal", transferId: transfer.id, ...spec }),
         discard: (transfer) => {
           transfers.markDeleted(transfer.id, new Date());
           rmSync(join(transfersDir, transfer.uploadId), { force: true });

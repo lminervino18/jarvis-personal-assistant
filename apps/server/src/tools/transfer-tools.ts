@@ -143,7 +143,7 @@ export const transferShareLink = defineTool({
 export const transferFromLink = defineTool({
   name: "transfer_from_link",
   description:
-    "Baja de YouTube, X o Instagram un video, o solo su audio, y lo deja en Transferencias. Con un link de un partido de Beelup (beelup.com/player.php?id=…) baja el partido entero, crudo, tal cual lo grabó la cámara de la cancha, en su calidad original. Pasá url con el link, o search con lo que el dueño nombró sin link (una canción, un video) para bajar el primer resultado de YouTube. format: «iphone» (por defecto: H.264 hasta 1080p, que el iPhone 15 del dueño guarda en Fotos), «max» solo si pide máxima calidad o 4K para la compu (el iPhone 15 no lo guarda), «mp3» o «m4a» para quedarse con el audio (canciones, podcasts). Si el dueño ya dijo a quién mandarlo, pasalo en sendTo: se manda solo apenas está listo, como archivo (un video pesado se comprime para que entre); asLink solo si pidió el link en calidad original. Tarda: al terminar le llega una notificación al dueño.",
+    "Baja de YouTube, X o Instagram un video, o solo su audio, y lo deja en Transferencias. Con un link de un partido de Beelup (beelup.com/player.php?id=…) baja el partido entero, crudo, tal cual lo grabó la cámara de la cancha, en su calidad original. Pasá url con el link, o search con lo que el dueño nombró sin link (una canción, un video) para bajar el primer resultado de YouTube. format: «iphone» (por defecto: H.264 hasta 1080p, que el iPhone 15 del dueño guarda en Fotos), «max» solo si pide máxima calidad o 4K para la compu (el iPhone 15 no lo guarda), «mp3» o «m4a» para quedarse con el audio (canciones, podcasts). Si el dueño ya dijo a quién mandarlo, pasalo en sendTo: se manda solo apenas está listo, como archivo (un video pesado se comprime para que entre); asLink solo si pidió el link en calidad original. Si pidió subirlo a Google Drive, pasá driveTo (carpeta y nombre): se sube solo al terminar, en calidad original, y le llega el link. Tarda: al terminar le llega una notificación al dueño.",
   prepare(ctx, input) {
     if (!services(ctx)?.media) return { refused: fail("disabled", "Bajar videos no está instalado en el servidor.") };
     if (Boolean(input.url) === Boolean(input.search)) return { refused: fail("invalid_input", "Pasá url o search, uno de los dos.") };
@@ -157,7 +157,11 @@ export const transferFromLink = defineTool({
     return {
       title: format === "mp3" || format === "m4a" ? "Bajar un audio a Transferencias" : "Bajar un video a Transferencias",
       summary: input.url ?? `Buscar en YouTube: «${input.search ?? ""}»`,
-      details: [{ label: "Formato", value: FORMAT_NAMES[format] }, ...sendDetails(ctx, input.sendTo)],
+      details: [
+        { label: "Formato", value: FORMAT_NAMES[format] },
+        ...sendDetails(ctx, input.sendTo),
+        ...(input.driveTo ? [{ label: "Drive", value: [input.driveTo.folderPath, input.driveTo.name].filter(Boolean).join(" / ") || "Carpeta Jarvis" }] : []),
+      ],
     };
   },
   async execute(ctx, input) {
@@ -169,6 +173,7 @@ export const transferFromLink = defineTool({
       ...(input.search ? { search: input.search } : {}),
       format,
       ...(input.sendTo ? { send: sendRequest(ctx, input.sendTo) } : {}),
+      ...(input.driveTo ? { drive: { ...(input.driveTo.folderPath ? { folderPath: input.driveTo.folderPath } : {}), ...(input.driveTo.name ? { name: input.driveTo.name } : {}) } } : {}),
     });
     if (!job) return fail("invalid_input", "Solo bajo de YouTube, X, Instagram o Beelup.");
     return ok(SOURCE, [{ id: job.id, site: job.site, format: FORMAT_NAMES[format], status: job.status, ...(job.send ? { sendTo: job.send.name } : {}) }], {

@@ -351,6 +351,13 @@ export const toolInputs = {
     search: z.string().trim().min(2).max(200).optional(),
     format: MediaFormat.optional(),
     sendTo: SendFileTo.optional(),
+    driveTo: z
+      .object({
+        folderPath: z.string().trim().max(300).optional().describe("Subcarpetas dentro de la carpeta Jarvis, por ejemplo «Solares/Semifinales»"),
+        name: z.string().trim().min(1).max(200).optional().describe("Nombre del archivo en Drive"),
+      })
+      .optional()
+      .describe("Si el dueño pidió subirlo a Google Drive: se sube solo apenas termina de bajar"),
   },
   pdf_create: {
     title: z.string().trim().min(1).max(120),

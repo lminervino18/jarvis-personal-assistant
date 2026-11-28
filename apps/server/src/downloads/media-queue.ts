@@ -27,6 +27,12 @@ export interface EditSpec {
 }
 export type JobSource = "link" | "search" | "transfer";
 
+/** Where a finished download goes in Drive: subfolders inside the Jarvis folder and the file's name. */
+export interface DriveSpec {
+  folderPath?: string;
+  name?: string;
+}
+
 export interface MediaJob {
   id: string;
   source: JobSource;
@@ -38,6 +44,8 @@ export interface MediaJob {
   send?: SendRequest;
   /** Present when the job cuts a video instead of keeping it whole. */
   edit?: EditSpec;
+  /** Present when the result also goes to Google Drive once it is in Transferencias. */
+  drive?: DriveSpec;
   /** What a long job is doing now («Buscando el momento»). */
   stage?: string;
   status: JobStatus;
@@ -58,6 +66,7 @@ interface Row {
   format: MediaFormat;
   send_json: string | null;
   edit_json: string | null;
+  drive_json: string | null;
   stage: string | null;
   status: JobStatus;
   progress: number;
@@ -104,6 +113,7 @@ function toJob(row: Row): MediaJob {
     format: row.format,
     ...(row.send_json ? { send: JSON.parse(row.send_json) as SendRequest } : {}),
     ...(row.edit_json ? { edit: JSON.parse(row.edit_json) as EditSpec } : {}),
+    ...(row.drive_json ? { drive: JSON.parse(row.drive_json) as DriveSpec } : {}),
     ...(row.stage && row.status === "running" ? { stage: row.stage } : {}),
     status: row.status,
     progress: row.progress,
@@ -199,6 +209,8 @@ export interface MediaQueueDeps {
   beelup?: Pick<BeelupSource, "match">;
   /** Sends a finished file to whoever the owner named with the request. */
   send?(transfer: Transfer, request: SendRequest): Promise<SendOutcome>;
+  /** Uploads a finished download to Google Drive, in the background. */
+  toDrive?(transfer: Transfer, spec: DriveSpec): void;
   /** Removes a Transferencias file and its previews. */
   discard?(transfer: Transfer): void;
   /** Transferencias' folder: finished files land here; work in progress goes under `downloads/`. */
@@ -239,11 +251,12 @@ export class MediaQueue {
   }
 
   /** Queues a download by link or by YouTube search; undefined when the link is not a YouTube, X or Instagram page. */
-  download(input: { url?: string; search?: string; format: MediaFormat; send?: SendRequest }): MediaJob | undefined {
-    if (input.search) return this.insert({ source: "search", target: input.search, site: "YouTube", format: input.format, send: input.send });
+  download(input: { url?: string; search?: string; format: MediaFormat; send?: SendRequest; drive?: DriveSpec }): MediaJob | undefined {
+    const extra = { format: input.format, send: input.send, ...(input.drive ? { drive: input.drive } : {}) };
+    if (input.search) return this.insert({ source: "search", target: input.search, site: "YouTube", ...extra });
     const link = input.url ? siteOf(input.url) : undefined;
     if (!link) return undefined;
-    return this.insert({ source: "link", target: link.url, site: link.site, format: input.format, send: input.send });
+    return this.insert({ source: "link", target: link.url, site: link.site, ...extra });
   }
 
   /** Queues the conversion of a Transferencias file; undefined when the file is gone. */
@@ -296,12 +309,12 @@ export class MediaQueue {
     while (this.running) await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
-  private insert(job: { source: JobSource; target: string; site: string; format: MediaFormat; send: SendRequest | undefined; edit?: EditSpec }): MediaJob | undefined {
+  private insert(job: { source: JobSource; target: string; site: string; format: MediaFormat; send: SendRequest | undefined; edit?: EditSpec; drive?: DriveSpec }): MediaJob | undefined {
     const id = randomUUID();
     const at = this.now().toISOString();
     this.deps.db
-      .prepare("INSERT INTO media_jobs (id, source, target, site, format, send_json, edit_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)")
-      .run(id, job.source, job.target, job.site, job.format, job.send ? JSON.stringify(job.send) : null, job.edit ? JSON.stringify(job.edit) : null, at, at);
+      .prepare("INSERT INTO media_jobs (id, source, target, site, format, send_json, edit_json, drive_json, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)")
+      .run(id, job.source, job.target, job.site, job.format, job.send ? JSON.stringify(job.send) : null, job.edit ? JSON.stringify(job.edit) : null, job.drive ? JSON.stringify(job.drive) : null, at, at);
     void this.pump();
     return this.get(id);
   }
@@ -359,6 +372,7 @@ export class MediaQueue {
       if (made.full) this.keep({ ...job, id: `${job.id}-full` }, { ...made, ...made.full });
       if (made.source && !job.edit?.keepSource) this.deps.discard?.(made.source);
       this.update(job.id, { status: "done", progress: 1, transferId: transfer.id });
+      if (job.drive) this.deps.toDrive?.(transfer, job.drive);
       const sent = job.send && this.deps.send ? await this.deps.send(transfer, job.send) : undefined;
       this.notifyDone(job, made, transfer, sent);
     } catch (error) {

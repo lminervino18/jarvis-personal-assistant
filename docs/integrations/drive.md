@@ -40,3 +40,4 @@ Status: *implemented* and *tested with fixtures*; connection *pending owner conn
 - **No duplicates:** the file carries an `appProperties` key made of its size and a hash of its first and last 8 MB. When that key is already in the destination folder, nothing is uploaded and the owner gets the existing link.
 - **Retries:** a failure retries after 1, 5, 15, 60 and 180 minutes. A missing connection or a refused operation fails at once.
 - **Notice:** a push and a chat message with the Drive link when it ends or fails. The chat message never carries the file name, which may come from a third party.
+- **Straight from a link:** `transfer_from_link` takes `driveTo` (`folderPath`, `name`). The download job keeps it in `media_jobs.drive_json` (migration 023) and queues the upload as soon as the file is in Transferencias, so «subí este partido de Beelup a Drive, en Solares» is one step and goes on even if the owner closes the app.
