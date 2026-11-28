@@ -3,7 +3,7 @@ import { createServer, type AddressInfo, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { probeThroughSocks, WarpSupervisor, warpOn } from "./warp-supervisor.js";
+import { ENDPOINTS, probeThroughSocks, WarpSupervisor, warpOn, withEndpoint, withProfile } from "./warp-supervisor.js";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
@@ -43,6 +43,17 @@ describe("the WARP tunnel check", () => {
     expect(warpOn("<html>warp=on</html>")).toBe(false);
   });
 
+  it("aims the profile at an IPv4 endpoint, since the server has no IPv6 route", () => {
+    const profile = "[Interface]\nPrivateKey = k\n[Peer]\nPublicKey = p\nEndpoint = engage.cloudflareclient.com:2408\n";
+    expect(withEndpoint(profile, "162.159.192.1:500")).toContain("Endpoint = 162.159.192.1:500");
+    expect(withEndpoint(profile, "162.159.192.1:500")).not.toContain("engage");
+    expect(withEndpoint("[Peer]\nPublicKey = p\n", "162.159.193.1:2408")).toContain("[Peer]\nEndpoint = 162.159.193.1:2408");
+    expect(withProfile("WGConfig = /etc/wireproxy/wgcf-profile.conf\n\n[Socks5]\nBindAddress = 0.0.0.0:40000\n", "/var/run/warp/profile.conf")).toBe(
+      "WGConfig = /var/run/warp/profile.conf\n\n[Socks5]\nBindAddress = 0.0.0.0:40000\n",
+    );
+    expect(ENDPOINTS.every((endpoint) => /^\d+\.\d+\.\d+\.\d+:\d+$/.test(endpoint))).toBe(true);
+  });
+
   it("asks the trace through the SOCKS proxy", async () => {
     expect(await probeThroughSocks(await fakeSocks("warp=on"))).toBe(true);
     expect(await probeThroughSocks(await fakeSocks("warp=off"))).toBe(false);
@@ -56,10 +67,11 @@ describe("the WARP supervisor", () => {
     const bin = tempDir();
     writeFileSync(join(dir, "wireproxy.conf"), "WGConfig = /etc/wireproxy/wgcf-profile.conf\n");
     writeFileSync(join(dir, "wgcf-profile.conf"), "old profile");
+    const runDir = join(tempDir(), "run");
     const wireproxy = script(bin, "wireproxy", "exec sleep 30");
     const wgcf = script(bin, "wgcf", `case "$1" in register) echo account > wgcf-account.toml ;; generate) echo new profile > wgcf-profile.conf ;; esac`);
     const events: string[] = [];
-    const supervisor = new WarpSupervisor({ dir, wireproxy, wgcf, socksPort: 1, controlPort: 0, pollMs: 5, probe: async () => probe(dir), log: (event) => events.push(event), ...(now ? { now } : {}) });
+    const supervisor = new WarpSupervisor({ dir, runDir, wireproxy, wgcf, socksPort: 1, controlPort: 0, pollMs: 5, probe: async () => probe(dir), log: (event) => events.push(event), ...(now ? { now } : {}) });
     cleanup.push(() => void supervisor.stop());
     return { dir, supervisor, events };
   }
@@ -69,7 +81,7 @@ describe("the WARP supervisor", () => {
     const env = setup(() => ++probes > 1);
     expect(await env.supervisor.heal("restart")).toBe(true);
     expect(readFileSync(join(env.dir, "wgcf-profile.conf"), "utf8")).toBe("old profile");
-    expect(env.events).toEqual(["warp: restarting the tunnel", "warp: tunnel ready"]);
+    expect(env.events).toEqual(["warp: restarting the tunnel", `warp: using endpoint ${ENDPOINTS[1]}`, "warp: tunnel ready"]);
   });
 
   it("registers a new identity when YouTube blocks the current one", async () => {

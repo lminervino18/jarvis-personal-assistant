@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, renameSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { connect } from "node:net";
 import { join } from "node:path";
@@ -11,10 +11,28 @@ const FAILURES_BEFORE_HEAL = 3;
 const READY_AFTER_RESTART_MS = 45_000;
 const READY_AFTER_RENEW_MS = 60_000;
 const RENEW_GAP_MS = 5 * 60_000;
+/**
+ * WARP endpoints by IPv4 address. The profile names engage.cloudflareclient.com, which also
+ * resolves to IPv6; the server has no IPv6 route, and when wireproxy picked that address the
+ * handshake never completed (9 hours on 2026-11-27). Each restart moves to the next one.
+ */
+export const ENDPOINTS = ["162.159.192.1:2408", "162.159.193.1:2408", "162.159.192.1:500", "162.159.192.1:1701", "162.159.192.1:4500"];
+
+/** The WireGuard profile with its peer endpoint replaced. */
+export function withEndpoint(profile: string, endpoint: string): string {
+  return /^Endpoint\s*=.*$/m.test(profile) ? profile.replace(/^Endpoint\s*=.*$/m, `Endpoint = ${endpoint}`) : profile.replace(/^\[Peer\]\s*$/m, `[Peer]\nEndpoint = ${endpoint}`);
+}
+
+/** The wireproxy config pointed at another WireGuard profile. */
+export function withProfile(config: string, profilePath: string): string {
+  return config.replace(/^WGConfig\s*=.*$/m, `WGConfig = ${profilePath}`);
+}
 
 export interface WarpSupervisorOptions {
   /** Folder with wireproxy.conf, the WARP profile and the account; writable, so the identity can be renewed. */
   dir: string;
+  /** Writable folder for the config wireproxy actually runs with. */
+  runDir: string;
   wireproxy: string;
   wgcf: string;
   socksPort: number;
@@ -91,6 +109,7 @@ export class WarpSupervisor {
   private failures = 0;
   private healing: Promise<boolean> | undefined;
   private lastRenew = Number.NEGATIVE_INFINITY;
+  private endpoint = 0;
   private timer: NodeJS.Timeout | undefined;
   private server: Server | undefined;
 
@@ -157,6 +176,7 @@ export class WarpSupervisor {
   }
 
   private async restart(readyWithinMs: number): Promise<boolean> {
+    this.endpoint = (this.endpoint + 1) % ENDPOINTS.length;
     const old = this.child;
     this.child = undefined;
     if (old) {
@@ -192,9 +212,21 @@ export class WarpSupervisor {
     }
   }
 
+  /** Writes the config wireproxy runs with: the stored profile, aimed at the current IPv4 endpoint. */
+  private runtimeConfig(): string {
+    const { dir, runDir } = this.options;
+    mkdirSync(runDir, { recursive: true });
+    const profile = join(runDir, "profile.conf");
+    const config = join(runDir, "wireproxy.conf");
+    writeFileSync(profile, withEndpoint(readFileSync(join(dir, "wgcf-profile.conf"), "utf8"), ENDPOINTS[this.endpoint] ?? ENDPOINTS[0]!), { mode: 0o600 });
+    writeFileSync(config, withProfile(readFileSync(join(dir, "wireproxy.conf"), "utf8"), profile), { mode: 0o600 });
+    this.log(`warp: using endpoint ${ENDPOINTS[this.endpoint]}`);
+    return config;
+  }
+
   private spawnProxy(): void {
     if (this.stopping) return;
-    const child = spawn(this.options.wireproxy, ["-c", join(this.options.dir, "wireproxy.conf")], { stdio: ["ignore", "ignore", "inherit"] });
+    const child = spawn(this.options.wireproxy, ["-c", this.runtimeConfig()], { stdio: ["ignore", "ignore", "inherit"] });
     child.on("error", () => this.log("warp: wireproxy could not start"));
     child.on("exit", () => {
       if (this.child !== child || this.stopping) return;

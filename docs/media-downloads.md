@@ -108,6 +108,7 @@ The identity is anonymous and was registered with [wgcf](https://github.com/ViRb
 - The supervisor asks Cloudflare's trace page through the tunnel every 30 seconds. After three failed checks it restarts wireproxy; if the tunnel is still down 45 seconds later, it registers a new WARP identity with `wgcf` (at most every five minutes) and restarts again. On 2026-11-27 the handshake stayed down for 9 hours and nothing noticed: the old check only looked for YouTube's bot answer.
 - The server asks for the same when a download needs it, on `warp:40001` (`YTDLP_WARP_CONTROL`): `POST /restart` when the tunnel does not answer, `POST /renew` when YouTube answers with its bot check. The call returns once the tunnel carries traffic again, so the download retries right away.
 - `/etc/jarvis/warp/` is mounted writable for this, still owned by uid 65532, the container's user.
+- wireproxy runs with a copy of the profile in `/var/run/warp/` aimed at an IPv4 endpoint (`162.159.192.1:2408` first). The profile's `engage.cloudflareclient.com` also resolves to IPv6, which the server cannot reach: when wireproxy picked it, the handshake never completed. Every restart moves to the next address or port (2408, 500, 1701, 4500).
 - The `jarvis-warp-check` systemd timer (`infra/warp/check.sh`) still renews the identity every 15 minutes when YouTube blocks it; it is a second line now.
 
 **Fallback routes** (`MediaDownloader.run`):

@@ -2,6 +2,7 @@ import { WarpSupervisor } from "./warp/warp-supervisor.js";
 
 const supervisor = new WarpSupervisor({
   dir: process.env.WARP_DIR ?? "/etc/wireproxy",
+  runDir: process.env.WARP_RUN_DIR ?? "/var/run/warp",
   wireproxy: process.env.WIREPROXY_BIN ?? "/wireproxy",
   wgcf: process.env.WGCF_BIN ?? "/wgcf",
   socksPort: 40000,
