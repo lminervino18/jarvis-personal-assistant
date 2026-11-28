@@ -84,19 +84,27 @@ export function ConnectionsGroup() {
   const [error, setError] = useState<string | null>(null);
 
   const [woken, setWoken] = useState(false);
+  const [phone, setPhone] = useState<string | null>(null);
+  const onPhone = useState(() => window.matchMedia?.("(pointer: coarse)").matches === true)[0];
 
   const refresh = () => void fetchConnections().then((next) => setState(next ?? "failed"));
   useEffect(refresh, []);
 
   const whatsappDown = typeof state === "object" && state.whatsapp !== null && !["connected", "disabled"].includes(state.whatsapp.status);
   const qrShown = typeof state === "object" && Boolean(state.whatsapp?.pairing);
-  const wake = () => {
+  const wake = (number?: string) => {
     setWoken(true);
-    void wakeWhatsApp().then(refresh);
+    void wakeWhatsApp(number).then(refresh);
   };
   useEffect(() => {
-    if (whatsappDown && !qrShown && !woken) wake();
-  }, [whatsappDown, qrShown, woken]);
+    if (whatsappDown && !qrShown && !woken && !onPhone) wake();
+  }, [whatsappDown, qrShown, woken, onPhone]);
+  const linkByNumber = () => {
+    const digits = phone?.replace(/\D/g, "") ?? "";
+    if (digits.length < 8) return;
+    setPhone(null);
+    wake(digits);
+  };
   useEffect(() => {
     if (!whatsappDown) return;
     const timer = setInterval(refresh, WHATSAPP_POLL_MS);
@@ -162,7 +170,7 @@ export function ConnectionsGroup() {
             ) : (
               whatsappDown &&
               !whatsapp.pairing && (
-                <button type="button" className="connection-button" onClick={wake}>
+                <button type="button" className="connection-button" onClick={() => wake()}>
                   {whatsapp.status === "needs_action" ? "Generar QR" : "Reintentar"}
                 </button>
               )
@@ -171,6 +179,36 @@ export function ConnectionsGroup() {
         />
       )}
       {whatsapp?.pairing && <CardView card={whatsapp.pairing} actions={NO_ACTIONS} />}
+      {whatsappDown && !(whatsapp?.pairing?.kind === "pairing" && whatsapp.pairing.code) && (
+        <div className="row whatsapp-number">
+          {phone === null ? (
+            <button type="button" className="row-link" onClick={() => setPhone("")}>
+              Vincular con número de teléfono
+            </button>
+          ) : (
+            <form
+              className="whatsapp-number-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                linkByNumber();
+              }}
+            >
+              <input
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+54 9 11 1234 5678"
+                aria-label="Tu número de WhatsApp, con código de país"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
+              <button type="submit" className="connection-button" disabled={(phone.replace(/\D/g, "").length ?? 0) < 8}>
+                Pedir código
+              </button>
+            </form>
+          )}
+        </div>
+      )}
 
       {gmail.available &&
         GMAIL_LABELS.map(({ label, name }) => {

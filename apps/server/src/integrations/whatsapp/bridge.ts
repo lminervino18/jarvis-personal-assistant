@@ -30,6 +30,8 @@ export function ownChat(deviceId: string | undefined): string | undefined {
 const HEARTBEAT_MS = 60_000;
 const STABLE_MS = 120_000;
 const QR_VALID_MS = 60_000;
+/** WhatsApp keeps a pairing code valid for a few minutes. */
+const CODE_VALID_MS = 3 * 60_000;
 const OUTBOX_POLL_MS = 3_000;
 const WAKE_POLL_MS = 5_000;
 const SLOW_RETRY_FROM_MS = 10 * 60_000;
@@ -40,12 +42,14 @@ export interface BridgeSocket {
   ev: { on<E extends keyof BaileysEventMap>(event: E, listener: (data: BaileysEventMap[E]) => void): void };
   end(error: Error | undefined): void;
   sendMessage(jid: string, content: OutgoingContent, options?: { quoted?: QuotedWaMessage }): Promise<{ key?: { id?: string | null } } | undefined>;
+  /** Asks WhatsApp for a code to link this device by phone number instead of a QR. */
+  requestPairingCode?(phoneNumber: string): Promise<string>;
 }
 
 export interface BridgeOptions {
   store: WhatsAppStore;
   auth: Pick<DbAuthState, "state" | "saveCreds" | "clear">;
-  pairing: Pick<PairingStore, "publish" | "clear" | "publishAccount" | "forgetAccount">;
+  pairing: Pick<PairingStore, "publish" | "publishCode" | "takeCodeRequest" | "clear" | "publishAccount" | "forgetAccount">;
   /** Messages the owner confirmed. Without it the bridge never sends anything. */
   outbox?: Pick<WhatsAppOutbox, "claimNext" | "markSent" | "markFailed" | "abandonInterrupted">;
   /** Reads chat attachments for outgoing photos and documents. */
@@ -77,6 +81,8 @@ export class WhatsAppBridge {
   private outboxTimer?: NodeJS.Timeout;
   private wakeTimer?: NodeJS.Timeout;
   private sending = false;
+  /** Set while linking by code: the number, and whether the code was already asked for on this socket. */
+  private codeFor?: { phone: string; asked: boolean };
   private readonly handlers: WhatsAppEventHandlers;
   private readonly now: () => Date;
 
@@ -107,6 +113,8 @@ export class WhatsAppBridge {
     clearInterval(this.wakeTimer);
     this.wakeTimer = undefined;
     this.options.store.takeWake(this.now());
+    const phone = this.options.auth.state.creds.me ? undefined : this.options.pairing.takeCodeRequest();
+    this.codeFor = phone ? { phone, asked: false } : undefined;
     this.phase = "connecting";
     const socket = this.options.connect(this.options.auth.state);
     this.socket = socket;
@@ -126,7 +134,14 @@ export class WhatsAppBridge {
 
     on("creds.update", () => void this.persistCreds());
     on("connection.update", (update) => {
-      if (update.qr) this.publishQr(update.qr);
+      if (update.qr) {
+        if (!this.codeFor) {
+          const phone = this.options.pairing.takeCodeRequest();
+          if (phone) this.codeFor = { phone, asked: false };
+        }
+        if (this.codeFor) void this.requestCode(socket, this.codeFor);
+        else this.publishQr(update.qr);
+      }
       if (update.connection === "open") this.handleOpen();
       if (update.connection === "close") this.handleClose(socket, update.lastDisconnect?.error);
     });
@@ -159,6 +174,21 @@ export class WhatsAppBridge {
     const now = this.now();
     this.options.pairing.publish(qr, new Date(now.getTime() + QR_VALID_MS), now);
     this.options.store.setStatus("baileys", "pairing", now, "Esperando que escanees el código QR.");
+  }
+
+  /** Links by phone number: asks WhatsApp once per socket for the code the owner types in the app. */
+  private async requestCode(socket: BridgeSocket, request: { phone: string; asked: boolean }): Promise<void> {
+    if (request.asked || !socket.requestPairingCode) return;
+    request.asked = true;
+    try {
+      const code = await socket.requestPairingCode(request.phone);
+      const now = this.now();
+      this.options.pairing.publishCode(code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code, new Date(now.getTime() + CODE_VALID_MS), now);
+      this.options.store.setStatus("baileys", "pairing", now, "Escribí el código en WhatsApp: Dispositivos vinculados › Vincular con número de teléfono.");
+    } catch (error) {
+      this.options.log.warn({ error: errorName(error) }, "whatsapp pairing code could not be requested");
+      this.options.store.setStatus("baileys", "logged_out", this.now(), "WhatsApp no dio el código de vinculación. Probá de nuevo o usá el QR.");
+    }
   }
 
   private handleOpen(): void {

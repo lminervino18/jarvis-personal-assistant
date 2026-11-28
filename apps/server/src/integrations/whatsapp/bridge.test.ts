@@ -31,6 +31,11 @@ class FakeSocket implements BridgeSocket {
   readonly contents: OutgoingContent[] = [];
   readonly quoted: unknown[] = [];
   failNext = false;
+  readonly codesAsked: string[] = [];
+  async requestPairingCode(phone: string) {
+    this.codesAsked.push(phone);
+    return "ABCD2345";
+  }
   end() {
     this.ended += 1;
   }
@@ -121,6 +126,23 @@ describe("bridge lifecycle", () => {
 
     vi.advanceTimersByTime(60_000);
     expect(db.prepare("SELECT last_event_at FROM wa_sync_state WHERE source = 'baileys'").get()).toEqual({ last_event_at: "2026-10-26T12:01:00.000Z" });
+  });
+
+  it("links by phone number with a code when the owner asks, without showing a QR", async () => {
+    const { bridge, sockets, status, pairing, db, askToConnect } = setup({ paired: false });
+    bridge.start();
+    pairing.requestCode("5491100000000", new Date());
+    askToConnect();
+    sockets[0]?.emit("connection.update", { qr: "qr-ignored" });
+    sockets[0]?.emit("connection.update", { qr: "qr-ignored-2" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets[0]?.codesAsked).toEqual(["5491100000000"]);
+    expect(pairing.card(new Date())).toMatchObject({ kind: "pairing", code: "ABCD-2345" });
+    expect(pairing.card(new Date())?.qr).toBeUndefined();
+    expect(status()?.detail).toContain("Vincular con número de teléfono");
+    const stored = (db.prepare("SELECT value_ciphertext FROM wa_auth_state WHERE key = 'pairing'").get() as { value_ciphertext: string }).value_ciphertext;
+    expect(stored).not.toContain("ABCD");
+    expect(pairing.takeCodeRequest()).toBeUndefined();
   });
 
   it("publishes the pairing QR privately and clears it once linked", () => {
@@ -615,7 +637,7 @@ describe("authenticated state type", () => {
     const spy = new WhatsAppBridge({
       store: new WhatsAppStore(openMigratedDatabase(":memory:")),
       auth,
-      pairing: { publish() {}, clear() {}, publishAccount() {}, forgetAccount() {} },
+      pairing: { publish() {}, publishCode() {}, takeCodeRequest: () => undefined, clear() {}, publishAccount() {}, forgetAccount() {} },
       policy: new ReconnectPolicy(),
       log: { info() {}, warn() {}, error() {} },
       connect: (state) => {

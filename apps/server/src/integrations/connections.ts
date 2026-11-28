@@ -9,6 +9,7 @@ import { OAuthStateStore } from "./oauth-states.js";
 import { ServiceAccountStore, type ServiceProvider } from "./service-accounts.js";
 import { VercelClient, VercelError } from "./vercel/vercel-client.js";
 import { WhatsAppStore } from "./whatsapp/message-store.js";
+import { PairingStore } from "./whatsapp/pairing-store.js";
 
 export interface ConnectionsDeps {
   db: Db;
@@ -33,6 +34,8 @@ export interface Connections {
 }
 
 const ROUTE_LIMIT = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+/** A number to link WhatsApp by code: with country code, as WhatsApp asks (5491112345678). */
+const WakeBody = z.object({ phone: z.string().trim().regex(/^\+?[\d\s-]{8,20}$/).optional() });
 const CallbackQuery = z.object({ code: z.string().min(1).max(512).optional(), state: z.string().min(1).max(256).optional(), error: z.string().max(200).optional() });
 const VercelBody = z.object({ token: z.string().trim().min(10).max(200) });
 const ProviderParams = z.object({ provider: z.enum(["github", "vercel"]) });
@@ -89,6 +92,12 @@ export function createConnections(deps: ConnectionsDeps): Connections {
     app.post("/api/connections/whatsapp/wake", ROUTE_LIMIT, async (request, reply) => {
       if (!helpers.requireOwner(request)) return reply.code(401).send({ error: "unauthorized" });
       if (!deps.whatsapp) return reply.code(404).send({ error: "not_configured" });
+      const body = WakeBody.safeParse(request.body ?? {});
+      if (!body.success) return reply.code(400).send({ error: "invalid_phone" });
+      if (body.data.phone) {
+        if (!deps.cipher) return reply.code(503).send({ error: "not_configured" });
+        new PairingStore(deps.db, deps.cipher).requestCode(body.data.phone.replace(/\D/g, ""), new Date());
+      }
       new WhatsAppStore(deps.db).requestWake(new Date());
       return { ok: true };
     });

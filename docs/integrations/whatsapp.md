@@ -112,6 +112,10 @@ Details:
 - Cost: about 11k input tokens per block plus one merge per chat. All synced text, about 2.7 million characters, is roughly 70 blocks.
 - Delegated agents never get chats; this stays on the personal side.
 
+## Linking by phone number
+
+The QR cannot be scanned from the same phone that shows it, so Configuración also offers «Vincular con número de teléfono». The owner types the number with country code; the server keeps it encrypted (`wa_auth_state`, key `pairing_phone`) and wakes the bridge. On the next QR event the bridge calls Baileys `requestPairingCode` once and publishes the 8-character code (valid about three minutes) instead of a QR. The owner types it in WhatsApp under Dispositivos vinculados › Vincular un dispositivo › Vincular con número de teléfono. On a phone, Configuración no longer generates a QR by itself.
+
 ## Quoting a message
 
 `whatsapp_send` and `whatsapp_voice_note` take `replyTo`, a `messageId` from `whatsapp_search` or `whatsapp_get_messages`, to answer that message quoted, as in WhatsApp. It goes in the same Baileys `sendMessage` call (`wa_outbox.quote_json`, as @jarvis answers do). Only real messages of the destination chat qualify: one from another chat, an imported one or an unknown id is refused before any card. The confirmation card shows the quoted text.

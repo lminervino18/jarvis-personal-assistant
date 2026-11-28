@@ -14,6 +14,10 @@ describe("connections api", () => {
     });
     expect(await wakeWhatsApp()).toBe(true);
     expect(calls).toEqual([{ url: "/api/connections/whatsapp/wake", method: "POST" }]);
+    let body: unknown;
+    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => ((body = JSON.parse(String(init?.body))), Response.json({ ok: true })));
+    expect(await wakeWhatsApp("+54 9 11 0000-0000")).toBe(true);
+    expect(body).toEqual({ phone: "+54 9 11 0000-0000" });
     vi.stubGlobal("fetch", async () => {
       throw new TypeError("Failed to fetch");
     });
